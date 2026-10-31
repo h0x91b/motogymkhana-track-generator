@@ -1,0 +1,123 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Трасса мотополицейских: 3D-план</title><style>body{margin:0;padding:20px;background:light-dark(#fafbf9,#141c21);color-scheme:light dark}main{max-width:1100px;margin:auto}footer{font:12px/1.6 system-ui,sans-serif;color:light-dark(#59666d,#b3bdc6);padding-top:16px}</style></head><body><main><div id="moto-course">
+  <div class="mc-header"><div><h2>Трасса мотополицейских</h2><div class="mc-sub">40 × 60 м · 7 элементов · компоновка по PDF</div></div><div class="mc-badge">3D / ПЛАН</div></div>
+  <div class="mc-toolbar">
+    <div class="mc-segment"><button type="button" data-view="overhead" aria-pressed="true">Сверху</button><button type="button" data-view="angle" aria-pressed="false">Объёмный вид</button></div>
+    <label><input id="mc-path" type="checkbox" checked> Траектория</label>
+    <label><input id="mc-dim" type="checkbox" checked> Размеры</label>
+    <div class="mc-zoom"><button type="button" id="mc-minus" aria-label="Отдалить">−</button><span id="mc-zoom-value">100%</span><button type="button" id="mc-plus" aria-label="Приблизить">+</button></div>
+    <button type="button" id="mc-reset" aria-label="Показать всю трассу">Вся трасса</button>
+  </div>
+  <div class="mc-scene"><canvas id="mc-canvas" role="img" aria-label="Трёхмерная схема площадки 60 на 40 метров: старт, прямой слалом, восьмёрка, офсетный слалом, разгон, стоп-зона, баланс, разворот и финиш."></canvas><div class="mc-compass" aria-hidden="true">↑<br>ПЛАН</div><div class="mc-help">Перетаскивание: поворот · колесо: масштаб · Shift: сдвиг</div></div>
+  <div class="mc-bottom"><label for="mc-stage">Элемент</label><select id="mc-stage"><option value="0">Вся трасса</option><option value="1">1. Прямой слалом</option><option value="2">2. Восьмёрка</option><option value="3">3. Офсетный слалом</option><option value="4">4. Разгон</option><option value="5">5. Торможение</option><option value="6">6. Баланс</option><option value="7">7. Разворот</option></select><span id="mc-detail" aria-live="polite">Последовательность: старт → 1 → 2 → 3 → 4 → 5 → 6 → 7 → финиш.</span></div>
+  <div class="mc-legend"><span><i class="mc-key blue"></i>Синий: объезд справа</span><span><i class="mc-key red"></i>Красный: объезд слева</span><span><i class="mc-key white"></i>Белый: граница</span><span><i class="mc-line"></i>По ходу стрелок</span></div>
+</div>
+<style>
+#moto-course{container-type:inline-size;font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:light-dark(#26323c,#e4eaf0);--mc-bg:light-dark(#f2f4f3,#182127);--mc-panel:light-dark(#fff,#222d35);--mc-ink:light-dark(#26323c,#e4eaf0);--mc-muted:light-dark(#59666d,#b3bdc6);--mc-edge:light-dark(#dce2e1,#3a4751);--mc-active:light-dark(#263d45,#d5e5e8);--mc-active-ink:light-dark(#fff,#16252b);color-scheme:light dark}
+#moto-course *{box-sizing:border-box}#moto-course .mc-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 14px}#moto-course h2{font-size:21px;line-height:1.3;font-weight:500;margin:0 0 4px}#moto-course .mc-sub{font-size:12px;color:var(--mc-muted)}#moto-course .mc-badge{font:500 11px ui-monospace,monospace;letter-spacing:1px;padding:8px 10px;color:var(--mc-muted);margin-right:90px}
+#moto-course .mc-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:9px;padding:0 0 12px;font-size:12px}#moto-course button,#moto-course select{font:inherit;background:var(--mc-panel);color:var(--mc-ink);border:1px solid var(--mc-edge);border-radius:6px;padding:8px 10px;min-height:34px}#moto-course button:hover{filter:brightness(.94)}#moto-course button[aria-pressed=true]{background:var(--mc-active);color:var(--mc-active-ink);border-color:var(--mc-active)}#moto-course .mc-segment{display:flex;gap:4px}#moto-course label{display:flex;gap:5px;align-items:center;white-space:nowrap}#moto-course input{accent-color:var(--mc-active)}#moto-course .mc-zoom{display:flex;align-items:center;gap:6px;margin-left:auto}#moto-course .mc-zoom span{min-width:35px;text-align:center;font-variant-numeric:tabular-nums}#moto-course .mc-scene{position:relative;background:var(--mc-bg);border-radius:12px;overflow:hidden}#moto-course canvas{display:block;width:100%;height:clamp(290px,70cqw,540px);touch-action:none;cursor:grab}#moto-course canvas:active{cursor:grabbing}#moto-course .mc-compass{position:absolute;top:15px;left:17px;text-align:center;font:11px ui-monospace,monospace;color:var(--mc-muted);pointer-events:none}#moto-course .mc-help{position:absolute;bottom:12px;left:0;right:0;text-align:center;font-size:11px;color:var(--mc-muted);pointer-events:none}#moto-course .mc-bottom{display:flex;align-items:center;gap:10px;padding:13px 0 9px;font-size:12px;flex-wrap:wrap}#moto-course .mc-bottom>span{flex:1;min-width:230px;line-height:1.6;color:var(--mc-muted)}#moto-course .mc-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--mc-muted);padding:2px 0 4px}#moto-course .mc-legend span{display:flex;align-items:center;gap:6px}#moto-course .mc-key{width:8px;height:10px;clip-path:polygon(40% 0,60% 0,100% 100%,0 100%)}#moto-course .red{background:#f35f4c}#moto-course .blue{background:#4395ec}#moto-course .white{background:#cbd2d2;outline:1px solid #87949a}#moto-course .mc-line{width:17px;height:2px;background:#36bfc0}
+@container(max-width:550px){#moto-course .mc-badge{display:none}#moto-course canvas{height:300px}#moto-course .mc-toolbar{gap:7px}#moto-course .mc-zoom{margin-left:0}#moto-course .mc-help{font-size:10px}#moto-course .mc-bottom>span{flex-basis:100%}}
+@media(pointer:coarse){#moto-course button,#moto-course select{min-height:44px}#moto-course .mc-toolbar label{min-height:44px}}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('moto-course'),canvas=root.querySelector('#mc-canvas'),ctx=canvas.getContext('2d');
+const $=s=>root.querySelector(s),TAU=Math.PI*2;
+let W=736,H=540,dpr=1,scale=1,zoom=1,yaw=0,tilt=22*Math.PI/180,panX=0,panY=0,selected=0,showPath=true,showDim=true,dirty=true;
+const color={red:'#ee624d',blue:'#4e9fe7',white:'#e3e7e6',route:'#6ae0d3',paint:'#e2e8df',slab:'#3c464c',ink:'#29373f'};
+const stages={1:['Прямой слалом','5 конусов через 3,5 м: синий → красный → синий → красный → синий, считая от старта.'],2:['Восьмёрка','Две овальные петли по 6 × 8 м, центры через 6 м. Левый конус синий, правый красный. Два прохождения.'],3:['Офсетный слалом','6 конусов; шаг по оси 4 / 5 / 6 / 5 / 7 м, смещение ±2 м. Красный объезжаем слева, синий справа по ходу движения.'],4:['Разгон','Коридор 25 м, ширина 3 м. Въезд между красным и синим конусами. Белые конусы обозначают границы.'],5:['Торможение','Стоп-зона 1 × 3 м. Белые конусы обозначают её углы и не задают сторону объезда.'],6:['Баланс','Полоса 0,30 × 15 м. В PDF: прохождение не менее 12 с. Белые конусы обозначают границы.'],7:['Разворот','Квадрат 4 × 4 м; разворот 180° внутри, затем выход через соседнюю сторону. Белые конусы обозначают углы.']};
+function project(x,y,z=0){const X=x-30,Y=y-20,u=X*Math.cos(yaw)-Y*Math.sin(yaw),v=X*Math.sin(yaw)+Y*Math.cos(yaw);return {x:W/2+panX+u*scale,y:H/2-6+panY+(v*Math.cos(tilt)-z*Math.sin(tilt))*scale,d:v*Math.sin(tilt)+z*Math.cos(tilt)};}
+function path(points,stroke,width=.09,fill=null,close=false,dash=[]){if(!points.length)return;ctx.beginPath();points.forEach((p,i)=>{const q=project(p[0],p[1],p[2]||0);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y)});if(close)ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=Math.max(.6,width*scale);ctx.setLineDash(dash.map(v=>v*scale));ctx.stroke();ctx.setLineDash([])}}
+function line(a,b,c=color.paint,w=.08,d=[]){path([a,b],c,w,null,false,d)}
+function rect(x,y,w,h,stroke=color.paint,fill=null,width=.08,z=.012){path([[x,y,z],[x+w,y,z],[x+w,y+h,z],[x,y+h,z]],stroke,width,fill,true)}
+function circle(x,y,r,stroke=color.paint,width=.07,fill=null,z=.013){const p=[];for(let i=0;i<=80;i++)p.push([x+r*Math.cos(i*TAU/80),y+r*Math.sin(i*TAU/80),z]);path(p,stroke,width,fill,true)}
+function ellipse(x,y,rx,ry,stroke=color.paint,width=.07){const p=[];for(let i=0;i<=96;i++)p.push([x+rx*Math.cos(i*TAU/96),y+ry*Math.sin(i*TAU/96),.013]);path(p,stroke,width,null,true)}
+function shade(hex,n){const h=hex.replace('#','');return '#'+[0,2,4].map(i=>Math.max(0,Math.min(255,Math.round(parseInt(h.slice(i,i+2),16)*n))).toString(16).padStart(2,'0')).join('')}
+function plate(text,x,y,{size=11,fill='#edf2ed',bg='#2e3a42',z=0,dx=0,dy=0}={}){const p=project(x,y,z);ctx.font='500 '+size+'px system-ui,sans-serif';const width=ctx.measureText(text).width;const px=p.x+dx,py=p.y+dy;if(bg){ctx.fillStyle=bg;ctx.beginPath();ctx.roundRect(px-width/2-7,py-size/2-5,width+14,size+10,4);ctx.fill()}ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=fill;ctx.fillText(text,px,py);}
+function onGround(text,x,y,size=.5,fill=color.paint,angle=0,z=.02){const p=project(x,y,z),u=project(x+Math.cos(angle),y+Math.sin(angle),z),v=project(x-Math.sin(angle),y+Math.cos(angle),z);ctx.save();ctx.transform(u.x-p.x,u.y-p.y,v.x-p.x,v.y-p.y,p.x,p.y);ctx.font='500 '+size+'px Arial,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle=fill;ctx.fillText(text,0,0);ctx.restore()}
+function dim(a,b,label,offset=0){const A=[a[0],a[1]],B=[b[0],b[1]],dx=B[0]-A[0],dy=B[1]-A[1],l=Math.hypot(dx,dy),nx=-dy/l,ny=dx/l;const p=[A[0]+nx*offset,A[1]+ny*offset],q=[B[0]+nx*offset,B[1]+ny*offset];line(p,q,'#aab6bc',.05);for(const e of [p,q])line([e[0]-nx*.22,e[1]-ny*.22],[e[0]+nx*.22,e[1]+ny*.22],'#b6c2c6',.065);if(offset){line(A,p,'#84939a',.035);line(B,q,'#84939a',.035)}plate(label,(p[0]+q[0])/2,(p[1]+q[1])/2,{size:10,fill:'#e7eeef',bg:'#3c484f'});}
+const cones=[];
+function addCone(x,y,c,stage){cones.push({x,y,c,stage})}
+[30,26.5,23,19.5,16].forEach((y,i)=>addCone(6,y,i%2?'red':'blue',1));
+addCone(6.5,6.5,'blue',2);addCone(12.5,6.5,'red',2);
+const offsetX=[20,24,29,35,40,47],offsetY=[5,9,5,9,5,9];offsetX.forEach((x,i)=>addCone(x,offsetY[i],i%2?'blue':'red',3));
+[12,18,24,30].forEach(y=>{addCone(53,y,y===12?'red':'white',4);addCone(56,y,y===12?'blue':'white',4)});
+[[53.65,34],[55.35,34],[53.65,37],[55.35,37]].forEach(p=>addCone(...p,'white',5));
+[[41.65,17],[43.35,17],[41.65,32],[43.35,32]].forEach(p=>addCone(...p,'white',6));
+[[27,20],[31,20],[27,24],[31,24]].forEach(p=>addCone(...p,'white',7));
+[[4.2,35],[7.8,35],[33.2,33],[36.8,33]].forEach(p=>addCone(...p,'white',0));
+function meshCone(c){const {x,y}=c,h=.7,r=.24,base=.33,faces=[],col=color[c.c];
+if(selected && selected===c.stage)circle(x,y,.65,'#d8f7ee',.075,'#8bd5bd24');
+path([[x-.25,y,.018],[x+.24,y-.15,.018],[x+.9,y+.8,.018],[x+.55,y+.95,.018]],null,0,'#17232a50',true);
+const v=[[x-base,y-base,.045],[x+base,y-base,.045],[x+base,y+base,.045],[x-base,y+base,.045]];
+faces.push({p:v,c:'#252e33'});
+const rings=[[.045,r],[.30,.151],[.43,.106],[h,.025]],N=12;
+for(let j=0;j<rings.length-1;j++){for(let i=0;i<N;i++){const a=i/N*TAU,b=(i+1)/N*TAU,p=[];for(const [z,rr,aa] of [[...rings[j],a],[...rings[j],b],[...rings[j+1],b],[...rings[j+1],a]])p.push([x+Math.cos(aa)*rr,y+Math.sin(aa)*rr,z]);const lit=.69+.29*(.5+.5*Math.cos(a-3.5));faces.push({p,c:shade(j===1?'#f0f0df':col,lit)})}}
+const cap=[];for(let i=0;i<N;i++)cap.push([x+.025*Math.cos(i/N*TAU),y+.025*Math.sin(i/N*TAU),h]);faces.push({p:cap,c:col});
+faces.forEach(f=>f.d=f.p.reduce((s,p)=>s+project(...p).d,0)/f.p.length);faces.sort((a,b)=>a.d-b.d).forEach(f=>path(f.p,null,0,f.c,true));
+}
+const routes=[];
+function route(points,stage,connector=false){routes.push({points,stage,connector})}
+function bez(a,b,c,d,n=25){const out=[];for(let i=0;i<=n;i++){const t=i/n,s=1-t;out.push([s*s*s*a[0]+3*s*s*t*b[0]+3*s*t*t*c[0]+t*t*t*d[0],s*s*s*a[1]+3*s*s*t*b[1]+3*s*t*t*c[1]+t*t*t*d[1]])}return out}
+function smooth(points){const out=[];for(let j=0;j<points.length-1;j++){const p0=points[Math.max(0,j-1)],p1=points[j],p2=points[j+1],p3=points[Math.min(points.length-1,j+2)];for(let i=0;i<15;i++){const t=i/15,t2=t*t,t3=t2*t;out.push([0,1].map(k=>.5*((2*p1[k])+(-p0[k]+p2[k])*t+(2*p0[k]-5*p1[k]+4*p2[k]-p3[k])*t2+(-p0[k]+3*p1[k]-3*p2[k]+p3[k])*t3)))}}out.push(points[points.length-1]);return out}
+route(smooth([[6,36],[6,33],[7.25,30],[4.75,26.5],[7.25,23],[4.75,19.5],[7.25,16],[6.3,12]]),1);
+route(bez([6.3,12],[6,10],[9.5,10],[9.5,6.5]),2,true);
+const eight=[];for(let i=0;i<=96;i++){const a=-i/96*TAU;eight.push([6.5+3*Math.cos(a),6.5+4*Math.sin(a)])}for(let i=1;i<=96;i++){const a=Math.PI+i/96*TAU;eight.push([12.5+3*Math.cos(a),6.5+4*Math.sin(a)])}route(eight,2);
+route(smooth([[9.5,6.5],[12.5,11.4],[16,11.6],[18.2,10],[18.6,5]]),3,true);
+route(smooth([[18.6,5],[20,3.6],[24,10.4],[29,3.6],[35,10.4],[40,3.6],[47,10.4],[49.5,8.5]]),3);
+route(bez([49.5,8.5],[52.8,3.5],[54.5,6],[54.5,12]),4,true);
+route([[54.5,12],[54.5,34]],4);route([[54.5,34],[54.5,36.1]],5);
+route(smooth([[54.5,36.1],[54.2,38.2],[49,38.4],[44,38.2],[42.5,36],[42.5,32]]),6,true);
+route([[42.5,32,.17],[42.5,17,.17]],6);
+route(smooth([[42.5,17],[41,14.5],[36,14],[29,15],[24,19],[24,25],[26,27],[28,26],[28,24]]),7,true);
+const uturn=[[28,24],[28,21.6]];for(let i=0;i<=40;i++){const a=Math.PI+i/40*Math.PI;uturn.push([29+Math.cos(a),21.6+Math.sin(a)])}uturn.push(...bez([30,21.6],[30,23],[30,23],[31,23]));route(uturn,7);
+route(smooth([[31,23],[34,23],[35,25],[35,30],[35,34]]),0,true);
+function arrow(x,y,a,alpha=1){ctx.globalAlpha=alpha;const tip=[x+Math.cos(a)*.38,y+Math.sin(a)*.38,.04],left=[x-Math.cos(a)*.27+Math.sin(a)*.23,y-Math.sin(a)*.27-Math.cos(a)*.23,.04],right=[x-Math.cos(a)*.27-Math.sin(a)*.23,y-Math.sin(a)*.27+Math.cos(a)*.23,.04];path([tip,left,right],null,0,color.route,true);ctx.globalAlpha=1}
+function drawRoutes(){routes.forEach(r=>{const alpha=selected && r.stage!==selected ? .22 : 1;ctx.globalAlpha=alpha;path(r.points,color.route,r.connector ? .10 : .14,null,false,r.connector ? [.35,.35] : []);ctx.globalAlpha=1;let total=0,next=2.5;for(let i=1;i<r.points.length;i++){const a=r.points[i-1],b=r.points[i],len=Math.hypot(b[0]-a[0],b[1]-a[1]);while(total+len>=next){const f=(next-total)/len;arrow(a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,Math.atan2(b[1]-a[1],b[0]-a[0]),alpha);next+=5}total+=len}})}
+const labelHits=[];
+function stageLabel(n,title,x,y){const p=project(x,y,.05),text=(W<560 && zoom<1.5 && selected!==n)?String(n):n+'  '+title;ctx.font='500 11px system-ui,sans-serif';let tw=ctx.measureText(text).width;labelHits.push({n,x:p.x,y:p.y,w:tw+14,h:24});plate(text,x,y,{size:11,bg:selected===n?'#ddf4ec':'#293840',fill:selected===n?'#213e36':'#f0f3ee'});}
+let grain=[];let seed=93;for(let i=0;i<1400;i++){seed=(seed*1664525+1013904223)>>>0;const x=seed/4294967296*60;seed=(seed*1664525+1013904223)>>>0;grain.push([x,seed/4294967296*40])}
+function board(){const x=42.35,y=17,w=.3,h=15,z=.14;path([[x,y,0],[x+w,y,0],[x+w,y,z],[x,y,z]],null,0,'#7d7665',true);path([[x+w,y,0],[x+w,y+h,0],[x+w,y+h,z],[x+w,y,z]],null,0,'#69685b',true);rect(x,y,w,h,'#fff1b6','#d7bc80',.05,z);for(let yy=18;yy<32;yy+=1.5)line([x,yy,z+.005],[x+w,yy,z+.005],'#ab945c',.025)}
+function checker(x,y,w,stage){for(let i=0;i<12;i++){for(let j=0;j<2;j++)rect(x+i*w/12,y+j*.25,w/12,.25,null,(i+j)%2?'#253239':'#edf0df',0,.015)}onGround(stage,x+w/2,y+1.25,.62)}
+function draw(){dirty=false;W=canvas.clientWidth;H=canvas.clientHeight;dpr=Math.min(window.devicePixelRatio||1,2);if(canvas.width!==Math.round(W*dpr)||canvas.height!==Math.round(H*dpr)){canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);const co=Math.abs(Math.cos(yaw)),si=Math.abs(Math.sin(yaw));scale=Math.min((W-70)/(64*co+44*si),(H-76)/((64*si+44*co)*Math.cos(tilt)+2))*zoom;
+ctx.lineCap='round';ctx.lineJoin='round';
+path([[.7,1,-.5],[60.7,1,-.5],[60.7,41,-.5],[.7,41,-.5]],null,0,'#14232f22',true);
+const sides=[[[0,0,0],[60,0,0],[60,0,-.4],[0,0,-.4]],[[60,0,0],[60,40,0],[60,40,-.4],[60,0,-.4]],[[60,40,0],[0,40,0],[0,40,-.4],[60,40,-.4]],[[0,40,0],[0,0,0],[0,0,-.4],[0,40,-.4]]];sides.sort((a,b)=>a.reduce((s,p)=>s+project(...p).d,0)-b.reduce((s,p)=>s+project(...p).d,0));sides.forEach(s=>path(s,null,0,'#687479',true));rect(0,0,60,40,null,color.slab,0,0);
+ctx.fillStyle='#c2d0cf0c';grain.forEach(p=>{const q=project(...p,.001);ctx.fillRect(q.x,q.y,1,1)});
+for(let x=5;x<60;x+=5)line([x,0,.002],[x,40,.002],'#ffffff08',.035);for(let y=5;y<40;y+=5)line([0,y,.002],[60,y,.002],'#ffffff08',.035);
+rect(.7,.7,58.6,38.6,'#bac7c3',null,.10);
+// Painted element boundaries and construction guides, all in metres.
+rect(3,13.5,6,19.5,'#b8c6c0',null,.07);line([6,14],[6,32],'#8c9e9f',.05,[.18,.35]);
+ellipse(6.5,6.5,3,4,'#b4c6cc',.08);ellipse(12.5,6.5,3,4,'#b4c6cc',.08);
+line([18.8,7],[48,7],'#96a9ac',.055,[.2,.35]);line([18,1.8],[49,1.8],'#c3cdc8',.06);line([18,12],[49,12],'#c3cdc8',.06);
+rect(53,12,3,25,'#e1e2d0',null,.1);line([53,12],[56,12],'#e8e2bc',.20);
+rect(54,34,1,3,'#f4b3a0','#b96a582b',.12);line([53,34],[56,34],'#ee9a82',.14,[.18,.18]);
+onGround('STOP',54.5,35.4,.58,'#f4c4b5',Math.PI/2);
+line([40.7,17],[40.7,32],'#b7c6bf',.055,[.3,.25]);line([44.3,17],[44.3,32],'#b7c6bf',.055,[.3,.25]);
+// U-turn square: bottom entry and right-hand exit are deliberately open.
+line([27,24],[27,20]);line([27,20],[31,20]);line([31,20],[31,22.3]);line([31,23.7],[31,24]);line([31,24],[28.7,24]);line([27,24],[27.3,24]);
+checker(4.2,34.5,3.6,'СТАРТ');checker(33.2,32.5,3.6,'ФИНИШ');
+onGround('h0x91b',57.5,39,.45,'#98a9aa');onGround('h0x91b',1.7,9,.12,'#59666a',Math.PI/2);onGround('h0x91b',32,1.1,.13,'#657277');onGround('h0x91b',5.5,30.5,.15,'#657277');
+board();if(showPath)drawRoutes();
+const sorted=[...cones].sort((a,b)=>project(a.x,a.y).d-project(b.x,b.y).d);sorted.forEach(meshCone);
+labelHits.length=0;plate('СТАРТ',6,37.8,{size:10});plate('ФИНИШ',35,35.5,{size:10});
+stageLabel(1,'СЛАЛОМ',13.5,23);stageLabel(2,'ВОСЬМЁРКА × 2',9.5,1.3);stageLabel(3,'ОФСЕТНЫЙ СЛАЛОМ',33,14);stageLabel(4,'РАЗГОН',54.5,9.5);stageLabel(5,'СТОП',58,35.5);stageLabel(6,'БАЛАНС',42.5,34.3);stageLabel(7,'РАЗВОРОТ',27.6,28.7);
+if(showDim){dim([0,0],[60,0],'60 м',-2.1);dim([0,0],[0,40],'40 м',2.5);if(W>=560||zoom>=1.5||selected===1)dim([6,16],[6,19.5],'3,5 м',-4.3);if(W>=560||zoom>=1.5||selected===2)dim([6.5,6.5],[12.5,6.5],'6 м',5.2);if(W>=560||zoom>=1.5||selected===2)plate('6 × 8 м',6.5,6.5,{size:10,dy:17});if(W>=560||zoom>=1.5||selected===4)dim([53,12],[53,37],'25 м',-4.5);if(W>=560||zoom>=1.5||selected===5)plate('1 × 3 м',50,35.6,{size:10});if(W>=560||zoom>=1.5||selected===6)dim([42.35,17],[42.35,32],'15 м',3);if(W>=560||zoom>=1.5||selected===6)plate('0,30 м',44.8,24,{size:10});if(W>=560||zoom>=1.5||selected===7)dim([27,20],[31,20],'4 м',-3);const gaps=[4,5,6,5,7];if(W>=560||zoom>=1.5||selected===3)for(let i=0;i<5;i++)dim([offsetX[i],offsetY[i]],[offsetX[i+1],offsetY[i]],gaps[i]+' м',offsetY[i]===5?-2.4:2.5);if(W>=560||zoom>=1.5||selected===3)plate('±2 м',49.1,4.8,{size:10});}
+if(W<480&&zoom===1){/* Labels remain readable; zoom provides individual-element detail. */}
+}
+function invalidate(){if(!dirty){dirty=true;requestAnimationFrame(draw)}}
+function setView(mode){tilt=(mode==='angle'?52:22)*Math.PI/180;yaw=mode==='angle'?-.16:0;panX=panY=0;root.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===mode)));invalidate()}
+function zoomTo(z){zoom=Math.max(.65,Math.min(4,z));$('#mc-zoom-value').textContent=Math.round(zoom*100)+'%';invalidate()}
+function choose(n){selected=n;$('#mc-stage').value=String(n);$('#mc-detail').textContent=n?stages[n][1]:'Последовательность: старт → 1 → 2 → 3 → 4 → 5 → 6 → 7 → финиш.';invalidate()}
+root.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+$('#mc-path').addEventListener('change',e=>{showPath=e.target.checked;invalidate()});$('#mc-dim').addEventListener('change',e=>{showDim=e.target.checked;invalidate()});$('#mc-stage').addEventListener('change',e=>choose(+e.target.value));$('#mc-plus').addEventListener('click',()=>zoomTo(zoom*1.2));$('#mc-minus').addEventListener('click',()=>zoomTo(zoom/1.2));$('#mc-reset').addEventListener('click',()=>{zoomTo(1);setView('overhead');choose(0)});
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoomTo(zoom*Math.exp(-e.deltaY*.001))},{passive:false});
+let drag=null;canvas.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,ox:e.clientX,oy:e.clientY,shift:e.shiftKey||e.button===2};canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(drag.shift){panX+=dx;panY+=dy}else{yaw+=dx*.006;tilt=Math.max(0,Math.min(70*Math.PI/180,tilt+dy*.006));root.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed','false'))}drag.x=e.clientX;drag.y=e.clientY;invalidate()});canvas.addEventListener('pointerup',e=>{if(drag&&Math.hypot(e.clientX-drag.ox,e.clientY-drag.oy)<4){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hit=labelHits.find(h=>Math.abs(h.x-x)<h.w/2&&Math.abs(h.y-y)<h.h/2);if(hit)choose(hit.n)}drag=null});canvas.addEventListener('pointercancel',()=>drag=null);canvas.addEventListener('contextmenu',e=>e.preventDefault());
+new ResizeObserver(()=>invalidate()).observe(canvas);draw();
+// Expose only geometry for repeatable dimensional inspection of the scene.
+root.courseGeometry={bounds:[60,40],cones:cones.map(c=>({...c})),slalomPitch:3.5,eightCenters:[[6.5,6.5],[12.5,6.5]],eightRadii:[3,4],offsetX,offsetY,corridor:{x:53,y:12,width:3,length:25},stop:{x:54,y:34,width:1,length:3},balance:{x:42.35,y:17,width:.3,length:15},turn:{x:27,y:20,width:4,length:4},routes};
+})();
+</script>
+
+
+
+<footer>Компоновка по описанию из приложенного PDF. В исходнике нет координат элементов: взаимное расположение и соединительные траектории спроектированы для этой визуализации. Каждая петля восьмёрки сделана овальной, 6 × 8 м, по запросу. Остальные размеры элементов сохранены. Цвета исправлены: синий объезжаем справа, красный слева по ходу движения. Белые конусы в этой схеме обозначают только границы. Для разворота принят квадрат 4 × 4 м из подробного описания; в краткой схеме PDF указан размер 3,5 м. Схема не является официальным планом соревнований. h0x91b</footer></main></body></html>
