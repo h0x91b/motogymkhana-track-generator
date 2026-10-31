@@ -9,6 +9,7 @@ export const WEIGHTS = {
   spread: 0.6, // keep away from the elements already placed
   connector: 0.5, // short connectors
   balance: 0.8, // equal left and right turning
+  winding: 0.3, // connectors that turn more than a U-turn
 };
 
 /**
@@ -50,7 +51,7 @@ export function layoutTargets(inner, n, closed, rng) {
  * Higher is better. All terms are normalised by the site diagonal or by total
  * turning so the weights stay comparable across site sizes.
  */
-export function scorePlacement({ center, target, others, connectorLength, turnLeft, turnRight, diagonal }) {
+export function scorePlacement({ center, target, others, connectorLength, connectorTurn, turnLeft, turnRight, diagonal }) {
   // No `**` anywhere in the generator: exponentiation is implementation-approximated too.
   const dist = (p, q) => Math.sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]));
   const dt = dist(center, target) / diagonal;
@@ -65,6 +66,7 @@ export function scorePlacement({ center, target, others, connectorLength, turnLe
     -WEIGHTS.target * dt +
     WEIGHTS.spread * spread -
     WEIGHTS.connector * (connectorLength / diagonal) -
-    WEIGHTS.balance * imbalance
+    WEIGHTS.balance * imbalance -
+    (WEIGHTS.winding * Math.max(0, connectorTurn - 180)) / 360
   );
 }

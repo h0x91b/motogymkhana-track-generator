@@ -35,29 +35,32 @@ function netTurn(path) {
 const CLOCK = { left: 'против часовой стрелки', right: 'по часовой стрелке' };
 const TURN = { left: 'налево', right: 'направо' };
 
-/** Human summary of the sizes, multiples of 0.5 m only (diagonals as ΔX = ΔY). */
+/**
+ * Human summary of the sizes, multiples of 0.5 m only. On a diagonal a length
+ * of k lattice steps is laid out as k × 0.5 m along X and along Y.
+ */
 function describe(element, cones, diagonal, turn) {
   const p = element.params;
-  const len = (steps) => (diagonal ? `${metres(steps * 0.5)} по X и по Y` : metres(steps * 0.5));
+  const len = (steps) => (diagonal ? `${metres(steps * 0.5)} по X и ${metres(steps * 0.5)} по Y` : metres(steps * 0.5));
   const first = cones[0];
   const colour = (c) => (c.color === 'blue' ? 'синий' : 'красный');
   switch (element.type) {
     case 'straight-slalom':
-      return [`${p.count} конусов, шаг ${len(p.step)}`, `Первый конус ${colour(first)}, дальше цвета чередуются`];
+      return [`${p.count} конусов, шаг: ${len(p.step)}`, `Первый конус ${colour(first)}, дальше цвета чередуются`];
     case 'offset-slalom':
-      return [`${p.count} конусов, шаг вдоль оси ${len(p.step)}`, `Смещение вбок ±${len(p.shift)} попеременно`, `Первый конус ${colour(first)}`];
+      return [`${p.count} конусов, шаг вдоль оси: ${len(p.step)}`, `Смещение вбок попеременно: ${len(p.shift)}`, `Первый конус ${colour(first)}`];
     case 'gate':
-      return [`Ширина ${len(p.width)}`, 'Проехать между конусами: синий слева, красный справа'];
+      return [`Ширина: ${len(p.width)}`, 'Проехать между конусами: синий слева, красный справа'];
     case 'lane-change':
-      return [`Двое ворот шириной ${len(p.width)}`, `Вторые смещены на ${len(p.shift)} ${turn === 'left' ? 'влево' : 'вправо'}, через ${len(3 * p.shift)} вдоль оси`];
+      return [`Двое ворот, ширина: ${len(p.width)}`, `Вторые ворота смещены ${turn === 'left' ? 'влево' : 'вправо'} на ${len(p.shift)}`];
     case 'u-turn':
-      return [`Зона ${len(p.width)} поперёк оси`, `Разворот ${TURN[turn]} внутри, въезд и выезд с открытой стороны`];
+      return [`Ширина зоны поперёк оси: ${len(p.width)}`, `Разворот ${TURN[turn]} внутри, въезд и выезд с открытой стороны`];
     case 'pivot-turn':
-      return [`Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`, `Свободный радиус ${metres(p.radius)}`];
+      return [`Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`, `Свободный радиус: ${metres(p.radius)}`];
     case 'figure-eight':
-      return [`Центры через ${len(p.distance)}`, `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`, 'Петли вытянуты вдоль линии центров'];
+      return [`Между центрами: ${len(p.distance)}`, `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`, 'Петли вытянуты вдоль линии центров'];
     case 'box':
-      return [`Коробка ${len(p.size)} × ${len(p.size)}`, `Внутри вращение 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];
+      return [`Сторона коробки: ${len(p.size)}`, `Внутри вращение 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];
     default:
       return [];
   }

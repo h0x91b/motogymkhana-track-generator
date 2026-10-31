@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
 import {
-  coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
+  coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
 
 const RECIPES = [
@@ -107,6 +107,17 @@ describe('placement', () => {
         for (const e of c.elements) {
           expect(polylineEnters(leg.path, e.zone), `${label(c)} connector ${leg.from}→${leg.to} enters ${e.id}`).toBe(false);
         }
+      }
+    });
+  });
+
+  test('connectors do not ride unmarked loops: at most 300° of turning, 400° for the closing one', () => {
+    each((c) => {
+      for (const leg of c.route.legs) {
+        if (leg.kind !== 'connector') continue;
+        const t = turns(leg.path);
+        const limit = c.route.closed && leg.to === 'finish' ? 400 : 300;
+        expect(t.left + t.right, `${label(c)} ${leg.from}→${leg.to}`).toBeLessThanOrEqual(limit + 1);
       }
     });
   });

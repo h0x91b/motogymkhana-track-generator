@@ -38,3 +38,10 @@ test('elements are spread over the whole site, not bunched in a corner', () => {
     expect(quadrants).toBeGreaterThan(3.5);
   }
 });
+
+test('with every type allowed, a course uses most of them rather than a few compact ones', () => {
+  for (const set of courses.slice(0, 2)) {
+    const distinct = mean(set.map((c) => new Set(c.elements.map((e) => e.type)).size));
+    expect(distinct).toBeGreaterThan(6);
+  }
+});

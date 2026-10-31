@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#182127">
+<meta name="color-scheme" content="light dark">
+<title>Конструктор трасс мотоджимханы</title>
+<style>/*STYLE*/</style>
+</head>
+<body>
+<main id="app">
+  <section class="stage" id="stage">
+    <canvas id="scene" role="img" aria-label="План трассы"></canvas>
+    <div class="banner" id="banner" role="status" hidden></div>
+    <div class="view-toggle" role="group" aria-label="Вид">
+      <button type="button" data-view="plan" aria-pressed="true">План</button>
+      <button type="button" data-view="angle" aria-pressed="false">3D</button>
+    </div>
+    <div class="zoom" role="group" aria-label="Масштаб">
+      <button type="button" id="zoom-in" aria-label="Приблизить">+</button>
+      <button type="button" id="zoom-out" aria-label="Отдалить">−</button>
+      <button type="button" id="zoom-fit" class="text">Вся трасса</button>
+    </div>
+    <div class="element-card" id="element-card" hidden></div>
+  </section>
+
+  <section class="dock" id="dock">
+    <button type="button" class="summary" id="summary" aria-label="Открыть параметры"></button>
+    <div class="actions">
+      <button type="button" id="open-form">Параметры</button>
+      <button type="button" id="new-seed" class="primary">Новый seed</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="setup-mode">Расстановка</button>
+      <button type="button" id="share">Картинка</button>
+    </div>
+    <p class="credits">by h0x91B · генератор v<span id="version"></span></p>
+  </section>
+
+  <section class="setup-panel" id="setup-panel" hidden aria-live="polite">
+    <div class="setup-body" id="setup-body"></div>
+    <div class="actions">
+      <button type="button" id="setup-prev">Назад</button>
+      <button type="button" id="setup-next" class="primary">Дальше</button>
+    </div>
+    <button type="button" id="setup-close" class="link">Закрыть расстановку</button>
+  </section>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <section class="sheet" id="form-sheet" hidden aria-label="Параметры трассы">
+    <form id="form" novalidate autocomplete="off">
+      <div class="grid2">
+        <label>Ширина, м
+          <input name="width" inputmode="numeric" enterkeyhint="done">
+        </label>
+        <label>Длина, м
+          <input name="length" inputmode="numeric" enterkeyhint="done">
+        </label>
+      </div>
+      <p class="err" data-for="width"></p>
+      <p class="err" data-for="length"></p>
+      <label>Элементов
+        <span class="stepper">
+          <button type="button" data-step="-1" aria-label="Меньше">−</button>
+          <input name="elements" inputmode="numeric" enterkeyhint="done">
+          <button type="button" data-step="1" aria-label="Больше">+</button>
+        </span>
+      </label>
+      <p class="err" data-for="elements"></p>
+      <fieldset class="segmented">
+        <legend>Сложность</legend>
+        <label><input type="radio" name="difficulty" value="easy"><span>Лёгкая</span></label>
+        <label><input type="radio" name="difficulty" value="medium"><span>Средняя</span></label>
+        <label><input type="radio" name="difficulty" value="hard"><span>Сложная</span></label>
+      </fieldset>
+      <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
+      <label>Seed
+        <span class="seed-row">
+          <input name="seed" inputmode="numeric" enterkeyhint="done">
+          <button type="button" id="form-new-seed">Новый</button>
+        </span>
+      </label>
+      <p class="err" data-for="seed"></p>
+      <details>
+        <summary>Ещё: типы элементов</summary>
+        <div class="types" id="types"></div>
+        <p class="err" data-for="types"></p>
+      </details>
+      <button type="button" id="close-form" class="primary wide">Готово</button>
+    </form>
+  </section>
+  <div class="toast" id="toast" role="status" hidden></div>
+</main>
+<script type="text/plain" id="worker-src">/*WORKER*/</script>
+<script type="application/json" id="golden">/*GOLDEN*/</script>
+<script type="module">/*APP*/</script>
+</body>
+</html>

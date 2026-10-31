@@ -31,6 +31,12 @@ const BUDGET_BASE = 720; // evaluated placements per attempt…
 const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
 const ROUNDS = 3; // the budget is split into restarts so early choices get revisited
 const EPS = 0.01; // touching a zone edge is fine, entering it by more is not
+// Connectors may not turn more than this in total: beyond it the rider would
+// ride an unmarked loop. The closing connector of a closed course may turn
+// further, since bringing the rider back round to the start can need a full
+// turnaround.
+const MAX_CONNECTOR_TURN = 300;
+const MAX_CLOSING_TURN = 400;
 
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
@@ -144,7 +150,7 @@ function closingLeg(fromPose, startT, radius, inner, zones) {
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
   if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
-  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones);
+  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, MAX_CLOSING_TURN);
   if (!leg) return null;
   const points = [...leg.points, startT.center];
   return { ...leg, points, bounds: pointsBounds(points), length: leg.length + radius };
@@ -173,9 +179,10 @@ function zoneClear(candidate, zones, paths) {
  * Tried at the minimum turning radius first, then at a wider one, which gives
  * differently shaped detours around nearby zones.
  */
-function connect(fromPose, toPose, radius, inner, zones) {
+function connect(fromPose, toPose, radius, inner, zones, maxTurn = MAX_CONNECTOR_TURN) {
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
+      if (path.turnLeft + path.turnRight > maxTurn) continue;
       if (!path.points.every((p) => inside(inner, p))) continue;
       const bounds = pointsBounds(path.points);
       if (!pathClear(path.points, bounds, zones)) continue;
@@ -212,15 +219,19 @@ export function feasibleTypes(recipe) {
 
 /** Seeded order of preference over the feasible types, one list per element. */
 function typePreferences(seed, feasible, n) {
+  // Deal types like cards from a shuffled deck, so a course uses every
+  // allowed type once before repeating any; the rest of the deck, in its
+  // shuffled order, are the fallbacks when the dealt type does not fit.
   const rng = createStream(seed, 'types');
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const pool = [...feasible];
-    const order = [];
-    while (pool.length) order.push(pool.splice(Math.floor(rng.float() * pool.length), 1)[0]);
-    out.push(order);
-  }
-  return out;
+  const shuffle = (items) => {
+    const pool = [...items];
+    const out = [];
+    while (pool.length) out.push(pool.splice(Math.floor(rng.float() * pool.length), 1)[0]);
+    return out;
+  };
+  const dealt = [];
+  while (dealt.length < n) dealt.push(...shuffle(feasible));
+  return dealt.slice(0, n).map((first) => [first, ...shuffle(feasible.filter((t) => t !== first))]);
 }
 
 /** Sizes of element i when it is of `type`: drawn from its own stream, compacted if they do not fit. */
@@ -345,6 +356,7 @@ export function buildCourse(recipe, seed, n) {
       target: targets[i],
       others: placed.map((p) => p.center),
       connectorLength: entryLeg.length + (exitLeg ? exitLeg.length : 0),
+      connectorTurn: entryLeg.turnLeft + entryLeg.turnRight + (exitLeg ? exitLeg.turnLeft + exitLeg.turnRight : 0),
       turnLeft: tl,
       turnRight: tr,
       diagonal,
