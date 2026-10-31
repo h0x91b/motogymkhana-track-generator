@@ -1,6 +1,6 @@
 {
  "name": "seed0-40x60-medium-closed-8",
- "generatorVersion": 2,
+ "generatorVersion": 3,
  "recipe": {
   "width": 40,
   "length": 60,
@@ -9,7 +9,7 @@
   "closed": true
  },
  "seed": 0,
- "hash": "980997388e6d2ac5",
+ "hash": "bd01ae400bf75e05",
  "course": {
   "cones": [
    {
@@ -1804,7 +1804,7 @@
     ]
    }
   ],
-  "generatorVersion": 2,
+  "generatorVersion": 3,
   "passes": [
    {
     "element": "e2",
@@ -1890,7 +1890,7 @@
    "closed": true,
    "difficulty": "medium",
    "elements": 8,
-   "generatorVersion": 2,
+   "generatorVersion": 3,
    "length": 60,
    "types": [
     "straight-slalom",

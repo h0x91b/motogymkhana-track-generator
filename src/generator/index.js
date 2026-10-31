@@ -1,7 +1,7 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
 import { DIFFICULTY_TABLE, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
-import { buildCourse, feasibleTypes, SITE_MARGIN } from './generate.js';
+import { buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN } from './generate.js';
 import { parseRecipe, parseSeed } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
@@ -35,7 +35,7 @@ function siteTooSmall(recipe) {
   const tail = fits
     ? ` Элемент «${smallest.name}» (${fmt(smallest.long)} × ${fmt(smallest.short)} м) помещается, но не остаётся места `
       + `на старт, финиш и связки с радиусом поворота ${fmt(radius)} м.`
-    : ` Самому компактному из разрешённых элементов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м.`;
+    : ` Самому компактному из разрешённых типов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м.`;
   return {
     code: 'site-too-small',
     site: { width: recipe.width, length: recipe.length },
@@ -51,6 +51,9 @@ function siteTooSmall(recipe) {
  * Deterministic course for a recipe and seed. When the requested number of
  * elements does not fit, it is simplified: rebuilt with the same seed and one
  * element fewer until it fits, so (N, seed) simplified to K equals (K, seed).
+ * A closed course is first sought with a loop-free closing connector at every
+ * size; only when none fits is the search repeated with the looser limit. The
+ * equality still holds: every strict build for K or fewer already failed.
  *
  * @returns {{ok: true, course: object} | {ok: false, error: object}}
  */
@@ -62,10 +65,13 @@ export function generateCourse(recipeInput, seedInput) {
     return { ok: false, error: { code: 'invalid-input', fields } };
   }
   const recipe = parsed.recipe;
-  for (let k = recipe.elements; k >= 1; k--) {
-    const result = buildCourse(recipe, seed.seed, k);
-    if (result.ok) {
-      return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k } };
+  const limits = recipe.closed ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
+  for (const closingTurn of limits) {
+    for (let k = recipe.elements; k >= 1; k--) {
+      const result = buildCourse(recipe, seed.seed, k, closingTurn);
+      if (result.ok) {
+        return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k } };
+      }
     }
   }
   return { ok: false, error: siteTooSmall(recipe) };

@@ -32,11 +32,12 @@ const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
 const ROUNDS = 3; // the budget is split into restarts so early choices get revisited
 const EPS = 0.01; // touching a zone edge is fine, entering it by more is not
 // Connectors may not turn more than this in total: beyond it the rider would
-// ride an unmarked loop. The closing connector of a closed course may turn
-// further, since bringing the rider back round to the start can need a full
-// turnaround.
+// ride an unmarked loop.
 const MAX_CONNECTOR_TURN = 300;
-const MAX_CLOSING_TURN = 400;
+// Limits tried in turn for the closing connector of a closed course. The looser
+// one is only for sites where no loop-free closed course fits at any size:
+// bringing the rider back round to the start there can need a full turnaround.
+export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
 
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
@@ -145,12 +146,12 @@ function terminalInside(t, inner, site) {
  * radius behind the start line, then straight across it, so the rider is lined
  * up when crossing the line.
  */
-function closingLeg(fromPose, startT, radius, inner, zones) {
+function closingLeg(fromPose, startT, radius, inner, zones, maxTurn) {
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
   if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
-  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, MAX_CLOSING_TURN);
+  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, maxTurn);
   if (!leg) return null;
   const points = [...leg.points, startT.center];
   return { ...leg, points, bounds: pointsBounds(points), length: leg.length + radius };
@@ -254,7 +255,7 @@ class BudgetExhausted extends Error {}
 /**
  * @returns {{ok: true, course: object} | {ok: false}}
  */
-export function buildCourse(recipe, seed, n) {
+export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
   const inner = innerRect(recipe);
   const site = [0, 0, recipe.width, recipe.length];
   const feasible = feasibleTypes(recipe);
@@ -338,7 +339,7 @@ export function buildCourse(recipe, seed, n) {
         // The start zone is an obstacle too, so the closing connector cannot cut
         // across the start's own lead-in; it arrives on the zone edge at the line.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand];
-        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles);
+        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn);
         if (!exitLeg) return null;
       } else {
         finishTerminalCand = finishTerminal(cand);

@@ -122,6 +122,24 @@ describe('placement', () => {
     });
   });
 
+  test('the closing connector rides a loop only when no loop-free closed course fits: never on a roomy site', () => {
+    let closed = 0;
+    let loops = 0;
+    for (const { name, recipe, courses } of generated) {
+      if (!recipe.closed) continue;
+      const roomy = recipe.width >= 30 && recipe.length >= 45;
+      for (const c of courses) {
+        const last = c.route.legs[c.route.legs.length - 1];
+        const t = turns(last.path);
+        const loop = t.left + t.right > 301;
+        if (roomy) expect(loop, `${name} seed ${c.seed}`).toBe(false);
+        closed++;
+        if (loop) loops++;
+      }
+    }
+    expect(loops / closed).toBeLessThan(0.03);
+  });
+
   test('no route leg passes over a cone it does not belong to', () => {
     each((c) => {
       const owner = new Map();
