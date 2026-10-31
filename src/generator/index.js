@@ -7,6 +7,7 @@ import { parseRecipe, parseSeed } from './recipe.js';
 export { GENERATOR_VERSION } from './version.js';
 export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, SEED_MAX } from './recipe.js';
 export { TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
+export { canonicalJSON, courseHash } from './canonical.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
 const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');

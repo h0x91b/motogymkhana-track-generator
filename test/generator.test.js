@@ -79,3 +79,59 @@ describe('recipe input', () => {
     expect(result.course.recipe.types).toHaveLength(8);
   });
 });
+
+const geometry = (c) => JSON.stringify({ cones: c.cones, elements: c.elements, passes: c.passes, route: c.route });
+
+describe('determinism', () => {
+  test('the same recipe and seed give byte-identical courses', () => {
+    for (const seed of [0, 1, 99, 123456789, 4294967295]) {
+      const a = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
+      const b = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
+      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    }
+  });
+
+  test('different seeds give different courses', () => {
+    const seen = new Set();
+    for (let seed = 0; seed < 20; seed++) seen.add(geometry(generateCourse(baseRecipe, seed).course));
+    expect(seen.size).toBe(20);
+  });
+});
+
+describe('simplification', () => {
+  const tight = { width: 30, length: 40, elements: 6, difficulty: 'easy', closed: true };
+
+  test('a course simplified from N to K elements is exactly the course ordered with K', () => {
+    let simplified = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const full = generateCourse(tight, seed).course;
+      expect(full.requested).toBe(6);
+      if (full.placed === 6) continue;
+      simplified++;
+      const direct = generateCourse({ ...tight, elements: full.placed }, seed).course;
+      expect(direct.placed).toBe(full.placed);
+      expect(geometry(full)).toBe(geometry(direct));
+    }
+    expect(simplified).toBeGreaterThan(5);
+  });
+
+  test('a site too small for any allowed element is an error with the computed numbers, not an empty course', () => {
+    const result = generateCourse({ width: 10, length: 10, elements: 3, difficulty: 'easy', closed: false, types: ['straight-slalom'] }, 1);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('site-too-small');
+    expect(result.error.usable).toEqual({ width: 8, length: 8 });
+    // Four cones 4.5 m apart: 13.5 m between the end cones, plus the weave run-in and run-out.
+    expect(result.error.smallest.type).toBe('straight-slalom');
+    expect(result.error.smallest.length).toBeGreaterThan(13.5);
+    expect(result.error.message).toContain('10 × 10 м');
+    expect(result.error.message).toContain('8 × 8 м');
+    expect(result.error.message).toContain('Прямой слалом');
+  });
+
+  test('when the element fits but its approaches do not, the error says so', () => {
+    const result = generateCourse({ width: 10, length: 10, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('site-too-small');
+    expect(result.error.message).toContain('радиусом поворота 4 м');
+  });
+});
