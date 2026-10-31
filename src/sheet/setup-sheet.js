@@ -20,6 +20,9 @@ function axisLabel(axis) {
 
 export const travelLabel = (dir) => DIR_LABELS[dir];
 
+const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box']);
+
+/** Net turning of a U-turn, pivot or box (±180° or more, never near zero). */
 function netTurn(path) {
   let total = 0;
   for (let i = 2; i < path.length; i++) {
@@ -32,6 +35,15 @@ function netTurn(path) {
   return total >= 0 ? 'left' : 'right';
 }
 
+/** Which way the second gate of a lane change is shifted, seen in the direction of travel. */
+function shiftSide(element, byId) {
+  const [a, b, c, d] = element.cones.map((id) => byId.get(id));
+  const mx = c.hx + d.hx - a.hx - b.hx;
+  const my = c.hy + d.hy - a.hy - b.hy;
+  const [ux, uy] = AXIS_STEPS[element.entry.dir];
+  return ux * my - uy * mx > 0 ? 'left' : 'right';
+}
+
 const CLOCK = { left: 'против часовой стрелки', right: 'по часовой стрелке' };
 const TURN = { left: 'налево', right: 'направо' };
 
@@ -39,7 +51,7 @@ const TURN = { left: 'налево', right: 'направо' };
  * Human summary of the sizes, multiples of 0.5 m only. On a diagonal a length
  * of k lattice steps is laid out as k × 0.5 m along X and along Y.
  */
-function describe(element, cones, diagonal, turn) {
+function describe(element, cones, diagonal, turn, shift) {
   const p = element.params;
   const len = (steps) => (diagonal ? `${metres(steps * 0.5)} по X и ${metres(steps * 0.5)} по Y` : metres(steps * 0.5));
   const first = cones[0];
@@ -52,7 +64,7 @@ function describe(element, cones, diagonal, turn) {
     case 'gate':
       return [`Ширина: ${len(p.width)}`, 'Проехать между конусами: синий слева, красный справа'];
     case 'lane-change':
-      return [`Двое ворот, ширина: ${len(p.width)}`, `Вторые ворота смещены ${turn === 'left' ? 'влево' : 'вправо'} на ${len(p.shift)}`];
+      return [`Двое ворот, ширина: ${len(p.width)}`, `Вторые ворота смещены ${shift === 'left' ? 'влево' : 'вправо'} на ${len(p.shift)}`];
     case 'u-turn':
       return [`Ширина зоны поперёк оси: ${len(p.width)}`, `Разворот ${TURN[turn]} внутри, въезд и выезд с открытой стороны`];
     case 'pivot-turn':
@@ -101,7 +113,8 @@ export function buildSetupSheet(course) {
       // Side axes: along the axis, and across it measured to the left (+ 0 drops a −0).
       return { ...base, along: dx * sx + dy * sy + 0, across: -dx * sy + dy * sx + 0 };
     });
-    const turn = netTurn(e.path);
+    const turn = ONE_WAY.has(e.type) ? netTurn(e.path) : null;
+    const shift = e.type === 'lane-change' ? shiftSide(e, byId) : null;
     const pivot = course.passes.find((p) => p.element === e.id && p.angle);
     return {
       number: e.order,
@@ -113,7 +126,7 @@ export function buildSetupSheet(course) {
       travel: travelLabel(e.entry.dir),
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
-      notes: describe(e, cones, diagonal, turn),
+      notes: describe(e, cones, diagonal, turn, shift),
       cones,
     };
   });

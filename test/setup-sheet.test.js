@@ -95,6 +95,32 @@ describe('setup sheet', () => {
     }
   });
 
+  test('a lane change says which way the second gate is shifted, from the cone positions', () => {
+    let seen = 0;
+    for (const course of courses) {
+      const byId = new Map(course.cones.map((c) => [c.id, c]));
+      for (const card of buildSetupSheet(course).cards.filter((c) => c.type === 'lane-change')) {
+        seen++;
+        const e = course.elements.find((x) => x.id === card.element);
+        const [a, b, c, d] = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
+        const move = [(c[0] + d[0] - a[0] - b[0]) / 2, (c[1] + d[1] - a[1] - b[1]) / 2];
+        const u = [Math.cos((e.entry.dir * Math.PI) / 4), Math.sin((e.entry.dir * Math.PI) / 4)];
+        const left = u[0] * move[1] - u[1] * move[0] > 0;
+        expect(card.notes.join(' ')).toContain(left ? 'смещены влево' : 'смещены вправо');
+      }
+    }
+    expect(seen).toBeGreaterThan(5);
+  });
+
+  test('turn direction is given only for elements that really turn one way', () => {
+    for (const course of courses.slice(0, 30)) {
+      for (const card of buildSetupSheet(course).cards) {
+        if (['u-turn', 'pivot-turn', 'box'].includes(card.type)) expect(['left', 'right']).toContain(card.turn);
+        else expect(card.turn).toBeNull();
+      }
+    }
+  });
+
   test('the cone list counts each physical cone once, by kind', () => {
     for (const course of courses) {
       const { coneList } = buildSetupSheet(course);
