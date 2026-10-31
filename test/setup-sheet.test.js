@@ -112,6 +112,19 @@ describe('setup sheet', () => {
     expect(seen).toBeGreaterThan(5);
   });
 
+  test('an offset slalom note gives the same gap between the rows as the cone table', () => {
+    let seen = 0;
+    for (const course of courses) {
+      for (const card of buildSetupSheet(course).cards.filter((c) => c.type === 'offset-slalom' && !c.axis.diagonal)) {
+        seen++;
+        const across = card.cones.map((c) => c.across);
+        const gap = Math.max(...across) - Math.min(...across);
+        expect(card.notes.join(' ')).toContain(`между рядами ${String(gap).replace('.', ',')} м`);
+      }
+    }
+    expect(seen).toBeGreaterThan(3);
+  });
+
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {

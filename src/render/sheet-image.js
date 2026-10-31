@@ -183,8 +183,9 @@ function planBlock(course, sheet) {
     label(`ширина ${course.site.width} м`, (X(0) + X(course.site.width)) / 2, dimY);
     label(`длина ${course.site.length} м`, dimX, (Y(0) + Y(course.site.length)) / 2, -Math.PI / 2);
 
-    // Painted guides along the closed sides of boxes and U-turn zones.
-    ctx.setLineDash([6, 6]);
+    // Closed sides of boxes and U-turn zones: not marked on the asphalt, drawn
+    // dotted so they cannot be mistaken for a connector without colour.
+    ctx.setLineDash([2, 6]);
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#8d9a9f';
     for (const e of course.elements) {
@@ -437,7 +438,7 @@ export function renderSheetImage(course, sheet, makeCanvas) {
   const fmtCone = (c) => `X ${fmt(c.x)} · Y ${fmt(c.y)}`;
   const intro = textBlock([
     { text: 'Схема расстановки трассы', size: 44, weight: 800, gap: 4 },
-    { text: `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · все расстояния между центрами конусов, от угла A`, size: 22, color: MUTED },
+    { text: `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · все расстояния между центрами конусов, от опорного угла A`, size: 22, color: MUTED },
   ]);
   const terminals = textBlock([
     ...(sheet.closed
@@ -448,7 +449,7 @@ export function renderSheetImage(course, sheet, makeCanvas) {
       ]),
   ]);
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия — элемент, пунктир — связка.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка, точки — закрытые стороны коробки и разворота (не размечаются), толстые штрихи — линия старта и финиша.', size: 20, color: '#2f3d45' },
   ]);
   const { tallBlue, tallRed, low } = sheet.coneList;
   const list = textBlock([

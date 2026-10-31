@@ -60,7 +60,7 @@ function describe(element, cones, diagonal, turn, shift) {
     case 'straight-slalom':
       return [`${p.count} конусов, шаг: ${len(p.step)}`, `Первый конус ${colour(first)}, дальше цвета чередуются`];
     case 'offset-slalom':
-      return [`${p.count} конусов, шаг вдоль оси: ${len(p.step)}`, `Смещение вбок попеременно: ${len(p.shift)}`, `Первый конус ${colour(first)}`];
+      return [`${p.count} конусов, шаг вдоль оси: ${len(p.step)}`, `Конусы попеременно в двух рядах, между рядами ${len(2 * p.shift)}`, `Первый конус ${colour(first)}`];
     case 'gate':
       return [`Ширина: ${len(p.width)}`, 'Проехать между конусами: синий слева, красный справа'];
     case 'lane-change':
@@ -72,7 +72,7 @@ function describe(element, cones, diagonal, turn, shift) {
     case 'figure-eight':
       return [`Между центрами: ${len(p.distance)}`, `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`, 'Петли вытянуты вдоль линии центров'];
     case 'box':
-      return [`Сторона коробки: ${len(p.size)}`, `Внутри вращение 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];
+      return [`Сторона коробки: ${len(p.size)}`, `Внутри поворот на 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];
     default:
       return [];
   }

@@ -16,7 +16,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'medium', closed: true, seed: '', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'medium', closed: true, seed: '1', types: [...ELEMENT_TYPES],
 };
 
 const state = {
@@ -95,7 +95,7 @@ function onFormChange(immediate = false) {
     showErrors(v.errors);
     if (!v.ok) {
       state.stale = !!state.course;
-      showBanner(state.course ? 'Исправьте параметры — показана предыдущая трасса' : 'Исправьте параметры трассы', 'error');
+      showBanner(state.course ? 'Исправьте ошибки в форме — показана предыдущая трасса' : 'Исправьте ошибки в форме', 'error');
       renderSummary();
       invalidate();
       return;
@@ -114,7 +114,7 @@ const generator = createGenerator(({ id, result }) => {
   if (!result.ok) {
     if (result.error.code === 'invalid-input') {
       showErrors(result.error.fields);
-      showBanner('Исправьте параметры трассы', 'error');
+      showBanner('Исправьте ошибки в форме', 'error');
     } else {
       state.course = null;
       state.sheet = null;
@@ -384,7 +384,7 @@ function setupSteps() {
 function terminalHtml(t, title) {
   const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${fmt(c.x)} м</td><td>Y ${fmt(c.y)} м</td></tr>`).join('');
   return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>
-    <table class="cones big"><tr><th></th><th>X от угла A</th><th>Y от угла A</th></tr>${cones}</table>`;
+    <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
 }
 
 function renderSetup() {
@@ -532,7 +532,6 @@ function start() {
   const saved = loadForm();
   const initial = { ...DEFAULT_FORM, ...(saved ?? {}) };
   if (!Array.isArray(initial.types)) initial.types = [...ELEMENT_TYPES];
-  if (initial.seed === '' || initial.seed === undefined) initial.seed = String(randomSeed());
   writeForm(initial);
   state.form = readForm();
 
@@ -595,5 +594,3 @@ function start() {
 if (location.hash === '#selfcheck') runSelfCheck(document.getElementById('app'));
 else start();
 
-// Exposed for inspection from the browser console and automated UI checks.
-window.__motogymkhana = state;

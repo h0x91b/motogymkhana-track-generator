@@ -82,7 +82,7 @@ export function coneColors(course) {
  * Draws the course. Returns hit targets for taps: element labels and zones in
  * screen coordinates.
  */
-export function drawScene(ctx, course, cam, W, H, { selected = null, showLabels = true } = {}) {
+export function drawScene(ctx, course, cam, W, H, { selected = null } = {}) {
   const site = course ? course.site : { width: 40, length: 60 };
   const view = makeProjector(cam, W, H, site);
   const { project, scale } = view;
@@ -175,10 +175,8 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, showLabels 
   plate('X', 4.6, 0, { size: 10, bg: null, fill: '#ffd166' });
   plate('Y', 0, 4.6, { size: 10, bg: null, fill: '#ffd166' });
   plate('A (0,0)', 0, 0, { size: 10, dy: 16, dx: -6, bg: '#4a3d12', fill: '#ffe7a3' });
-  if (showLabels) {
-    plate(`${SW} м`, SW / 2, 0, { size: 10, dy: 18, bg: '#3c484f', fill: '#e7eeef' });
-    plate(`${SL} м`, 0, SL / 2, { size: 10, dx: -22, bg: '#3c484f', fill: '#e7eeef' });
-  }
+  plate(`${SW} м`, SW / 2, 0, { size: 10, dy: 18, bg: '#3c484f', fill: '#e7eeef' });
+  plate(`${SL} м`, 0, SL / 2, { size: 10, dx: -22, bg: '#3c484f', fill: '#e7eeef' });
 
   if (!course) return { hits, view };
 
@@ -194,7 +192,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, showLabels 
     if (e.id === selected) path(e.zone.map(([x, y]) => [x, y, 0.005]), '#d8f7ee99', 0.06, '#8bd5bd26', true);
   }
 
-  // Painted guides between the low corner cones of boxes and U-turn zones.
+  // Guides along the closed sides of boxes and U-turn zones (not marked on the asphalt).
   for (const e of course.elements) {
     if (e.type !== 'box' && e.type !== 'u-turn') continue;
     const pts = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2, 0.008]);
@@ -221,7 +219,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, showLabels 
         path([pt(s0, o0), pt(s1, o0), pt(s1, o1), pt(s0, o1)], null, 0, (i + j) % 2 ? '#253239' : '#edf0df', true);
       }
     }
-    if (showLabels) plate(label, t.x - ux * 1.6, t.y - uy * 1.6, { size: 10, bg: '#2e3a42' });
+    plate(label, t.x - ux * 1.6, t.y - uy * 1.6, { size: 10, bg: '#2e3a42' });
   }
 
   // Route: element trajectories solid, connectors dashed, arrows every 5 m.
@@ -323,18 +321,16 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, showLabels 
   }
 
   // Element numbers in passing order; full names when zoomed in or selected.
-  if (showLabels) {
-    for (const e of course.elements) {
-      const cx = (e.zone[0][0] + e.zone[2][0]) / 2;
-      const cy = (e.zone[0][1] + e.zone[2][1]) / 2;
-      const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
-      const text = wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order);
-      const sel = e.id === selected;
-      plate(text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id });
-      if (sel) {
-        const a = byId.get(e.anchor);
-        plate(`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, dy: -22, bg: '#4a3d12', fill: '#ffe7a3' });
-      }
+  for (const e of course.elements) {
+    const cx = (e.zone[0][0] + e.zone[2][0]) / 2;
+    const cy = (e.zone[0][1] + e.zone[2][1]) / 2;
+    const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
+    const text = wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order);
+    const sel = e.id === selected;
+    plate(text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id });
+    if (sel) {
+      const a = byId.get(e.anchor);
+      plate(`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, dy: -22, bg: '#4a3d12', fill: '#ffe7a3' });
     }
   }
   return { hits, view };

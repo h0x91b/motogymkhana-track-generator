@@ -8,7 +8,6 @@ export const AXIS_STEPS = [
   [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
 ];
 
-export const isDiagonal = (axis) => axis % 2 === 1;
 
 /** Length in metres of one lattice step along an axis of this class. */
 export const latticeUnit = (diagonal) => (diagonal ? 0.5 * Math.SQRT2 : 0.5);
