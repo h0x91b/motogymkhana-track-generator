@@ -1,4 +1,4 @@
-import { ELEMENT_TYPES, GENERATOR_VERSION, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
+import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { renderSheetImage } from '../render/sheet-image.js';
@@ -22,10 +22,12 @@ const DEFAULT_FORM = {
 const state = {
   form: null,
   course: null,
+  courseKey: null, // recipe and seed of the shown course
   sheet: null,
   stale: false,
   selected: null,
   setupStep: null,
+  setupWanted: false, // «Расстановка» tapped while a course was still being generated
   camera: createCamera(),
   hits: [],
   requestId: 0,
@@ -111,6 +113,8 @@ function onFormChange(immediate = false) {
 const generator = createGenerator(({ id, result }) => {
   if (id !== state.requestId) return; // a newer request is on its way
   state.shownId = id;
+  const wanted = state.setupWanted;
+  state.setupWanted = false;
   if (!result.ok) {
     if (result.error.code === 'invalid-input') {
       showErrors(result.error.fields);
@@ -126,6 +130,13 @@ const generator = createGenerator(({ id, result }) => {
     return;
   }
   const course = result.course;
+  // Same recipe and seed is the same course: keep the view, selection and setup step.
+  const key = canonicalJSON({ recipe: course.recipe, seed: course.seed });
+  if (state.course && !state.stale && key === state.courseKey) {
+    if (wanted) enterSetup();
+    return;
+  }
+  state.courseKey = key;
   state.course = course;
   state.sheet = buildSetupSheet(course);
   state.stale = false;
@@ -139,6 +150,7 @@ const generator = createGenerator(({ id, result }) => {
   renderSummary();
   invalidate();
   prepareImageSoon();
+  if (wanted) enterSetup();
 });
 
 function generate(recipe, seed) {
@@ -410,6 +422,10 @@ function renderSetup() {
 }
 
 function enterSetup() {
+  if (state.requestId !== state.shownId) {
+    state.setupWanted = true; // enter once the course being generated is shown
+    return;
+  }
   if (!state.course || state.stale) return;
   hideElementCard();
   state.setupStep = 0;
@@ -565,12 +581,13 @@ function start() {
   $('setup-mode').addEventListener('click', enterSetup);
   $('setup-close').addEventListener('click', exitSetup);
   $('setup-prev').addEventListener('click', () => {
-    if (state.setupStep > 0) {
+    if (state.setupStep !== null && state.setupStep > 0) {
       state.setupStep--;
       renderSetup();
     }
   });
   $('setup-next').addEventListener('click', () => {
+    if (state.setupStep === null) return;
     if (state.setupStep < setupSteps().length - 1) {
       state.setupStep++;
       renderSetup();

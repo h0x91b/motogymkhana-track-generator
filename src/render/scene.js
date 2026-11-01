@@ -329,8 +329,10 @@ export function drawScene(ctx, course, cam, W, H, { selected = null } = {}) {
     const sel = e.id === selected;
     plate(text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id });
     if (sel) {
+      // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = byId.get(e.anchor);
-      plate(`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, dy: -22, bg: '#4a3d12', fill: '#ffe7a3' });
+      const below = project(a.hx / 2, a.hy / 2, 0).y >= project(cx, cy, 0.05).y;
+      plate(`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, dy: below ? 22 : -22, bg: '#4a3d12', fill: '#ffe7a3' });
     }
   }
   return { hits, view };
