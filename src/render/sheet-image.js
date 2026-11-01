@@ -1,12 +1,16 @@
-// The setup-sheet picture: one tall portrait PNG that is enough to lay the
-// course out without the app. Light background so it reads in a chat and on a
-// black-and-white print: tall cones carry the letter of their side.
-// No recipe, seed or hidden marks on it (SPEC, «Картинка схемы»).
+// The setup-sheet pictures: a series of 9:16 portrait PNGs that together are
+// enough to lay the course out without the app. 1080 × 1920 survives a
+// messenger's downscaling (≈1600 px on the long side) with readable text; one
+// tall picture does not. The first frame carries the plan, the rest the cards.
+// Light background so it reads in a chat and on a black-and-white print: tall
+// cones carry the letter of their side. No recipe, seed or hidden marks on it
+// (SPEC, «Картинка схемы»).
 
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 
 const W = 1080;
+const H = 1920;
 const PAD = 40;
 const INK = '#1f2a31';
 const MUTED = '#5b6870';
@@ -90,12 +94,12 @@ function arrowHead(ctx, x, y, a, size, color) {
   ctx.fill();
 }
 
-/** Plan block: returns its height and a draw(ctx, top) function. */
-function planBlock(course, sheet) {
+/** Plan block no taller than maxHeight: returns its height and a draw(ctx, top) function. */
+function planBlock(course, sheet, maxHeight) {
   const left = PAD + 64;
   const bottomSpace = 70;
   const avail = W - left - PAD;
-  const s = Math.min(avail / course.site.width, 1500 / course.site.length);
+  const s = Math.min(avail / course.site.width, (maxHeight - bottomSpace - 30) / course.site.length);
   const pw = course.site.width * s;
   const ph = course.site.length * s;
   const ox = left + (avail - pw) / 2;
@@ -289,8 +293,10 @@ function planBlock(course, sheet) {
       dim.spot = spot;
     }
     for (const { d, spot } of dimensions) {
-      const [mx, my] = [X(spot[0]), Y(spot[1])];
       const w = ctx.measureText(d.label).width;
+      // A label beside the site edge stays inside the picture.
+      const mx = Math.min(W - 8 - w / 2 - 5, Math.max(8 + w / 2 + 5, X(spot[0])));
+      const my = Y(spot[1]);
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.roundRect(mx - w / 2 - 5, my - 11, w + 10, 22, 4);
@@ -463,20 +469,66 @@ function cardBlock(card, width) {
   };
 }
 
+/** A fresh 9:16 frame with its number in the corner and the credit at the foot. */
+function frame(makeCanvas, number, total) {
+  const canvas = makeCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f7f8f6';
+  ctx.fillRect(0, 0, W, H);
+  const tag = `${number}/${total}`;
+  font(ctx, 30, 800);
+  const w = ctx.measureText(tag).width;
+  ctx.fillStyle = INK;
+  ctx.beginPath();
+  ctx.roundRect(W - PAD - w - 28, PAD, w + 28, 48, 10);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(tag, W - PAD - (w + 28) / 2, PAD + 25);
+  font(ctx, 20, 600);
+  ctx.fillStyle = '#8a969c';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('by h0x91B', W - PAD, H - PAD + 10);
+  return { canvas, ctx };
+}
+
+const TAG_SPACE = 150; // the frame number in the top right corner
+const FOOTER = 50;
+
+/** Card rows (pairs) packed into frames by height, in passing order. */
+function packCards(cards, available) {
+  const frames = [];
+  let current = [];
+  let used = 0;
+  for (let i = 0; i < cards.length; i += 2) {
+    const row = cards.slice(i, i + 2);
+    const h = Math.max(...row.map((c) => c.height)) + 20;
+    if (current.length && used + h > available) {
+      frames.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(row);
+    used += h;
+  }
+  if (current.length) frames.push(current);
+  return frames;
+}
+
 /**
- * Draws the sheet on a new canvas and returns it.
+ * Draws the sheet as a series of 9:16 frames and returns their canvases.
  * @param {(w: number, h: number) => HTMLCanvasElement | OffscreenCanvas} makeCanvas
  */
-export function renderSheetImage(course, sheet, makeCanvas) {
+export function renderSheetImages(course, sheet, makeCanvas) {
   const probe = makeCanvas(1, 1).getContext('2d');
-  const plan = planBlock(course, sheet);
-  const colW = (W - 2 * PAD - 20) / 2;
-  const cards = sheet.cards.map((c) => cardBlock(c, colW));
-  cards.forEach((c) => c.measure(probe));
+  const width = W - 2 * PAD;
   const fmtCone = (c) => `X ${fmt(c.x)} · Y ${fmt(c.y)}`;
+  const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · все расстояния между центрами конусов, от опорного угла A`;
   const intro = textBlock([
     { text: 'Схема расстановки трассы', size: 44, weight: 800, gap: 4 },
-    { text: `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · все расстояния между центрами конусов, от опорного угла A`, size: 22, color: MUTED },
+    { text: subtitle, size: 22, color: MUTED },
   ]);
   const terminals = textBlock([
     ...(sheet.closed
@@ -493,41 +545,52 @@ export function renderSheetImage(course, sheet, makeCanvas) {
   const list = textBlock([
     { text: `Ведомость: высоких синих ${tallBlue} · высоких красных ${tallRed} · низких ${low} · всего ${tallBlue + tallRed + low}`, size: 26, weight: 700 },
   ]);
-  const width = W - 2 * PAD;
-  const hIntro = intro.measure(probe, width);
+  const hIntro = intro.measure(probe, width - TAG_SPACE);
   const hTerm = terminals.measure(probe, width);
   const hLegend = legend.measure(probe, width);
   const hList = list.measure(probe, width);
-  const rows = [];
-  for (let i = 0; i < cards.length; i += 2) rows.push(Math.max(cards[i].height, cards[i + 1]?.height ?? 0));
-  const cardsH = rows.reduce((a, b) => a + b + 20, 0);
-  const height = Math.ceil(PAD + hIntro + 20 + plan.height + 16 + hLegend + 20 + hTerm + 24 + cardsH + 10 + hList + 40 + 30 + PAD);
+  // The plan takes whatever height the first frame has left.
+  const plan = planBlock(course, sheet, H - 2 * PAD - FOOTER - hIntro - 20 - 16 - hLegend - 20 - hTerm - 20 - hList);
 
-  const canvas = makeCanvas(W, height);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#f7f8f6';
-  ctx.fillRect(0, 0, W, height);
+  const colW = (width - 20) / 2;
+  const cards = sheet.cards.map((c) => cardBlock(c, colW));
+  cards.forEach((c) => c.measure(probe));
+  const heading = (from, to) => textBlock([
+    { text: `Карточки элементов ${from}–${to}`, size: 40, weight: 800, gap: 4 },
+    { text: subtitle, size: 22, color: MUTED },
+  ]);
+  const hHeading = heading(1, 1).measure(probe, width - TAG_SPACE);
+  const cardFrames = packCards(cards, H - 2 * PAD - FOOTER - hHeading - 24);
+  const total = 1 + cardFrames.length;
+
+  const first = frame(makeCanvas, 1, total);
   let y = PAD;
-  intro.draw(ctx, PAD, y);
+  intro.draw(first.ctx, PAD, y);
   y += hIntro + 20;
-  plan.draw(ctx, y);
+  plan.draw(first.ctx, y);
   y += plan.height + 16;
-  legend.draw(ctx, PAD, y);
+  legend.draw(first.ctx, PAD, y);
   y += hLegend + 20;
-  terminals.draw(ctx, PAD, y);
-  y += hTerm + 24;
-  rows.forEach((rowH, r) => {
-    cards[2 * r].draw(ctx, PAD, y);
-    if (cards[2 * r + 1]) cards[2 * r + 1].draw(ctx, PAD + colW + 20, y);
-    y += rowH + 20;
+  terminals.draw(first.ctx, PAD, y);
+  y += hTerm + 20;
+  list.draw(first.ctx, PAD, y);
+  const canvases = [first.canvas];
+
+  let shown = 0;
+  cardFrames.forEach((rows, k) => {
+    const { canvas, ctx } = frame(makeCanvas, k + 2, total);
+    const count = rows.reduce((n, row) => n + row.length, 0);
+    const head = heading(shown + 1, shown + count);
+    head.measure(ctx, width - TAG_SPACE);
+    head.draw(ctx, PAD, PAD);
+    let cy = PAD + hHeading + 24;
+    for (const row of rows) {
+      row[0].draw(ctx, PAD, cy);
+      if (row[1]) row[1].draw(ctx, PAD + colW + 20, cy);
+      cy += Math.max(...row.map((c) => c.height)) + 20;
+    }
+    shown += count;
+    canvases.push(canvas);
   });
-  y += 10;
-  list.draw(ctx, PAD, y);
-  y += hList + 40;
-  font(ctx, 20, 600);
-  ctx.fillStyle = '#8a969c';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'top';
-  ctx.fillText('by h0x91B', W - PAD, y);
-  return canvas;
+  return canvases;
 }

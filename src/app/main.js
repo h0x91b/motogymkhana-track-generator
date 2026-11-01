@@ -2,7 +2,7 @@ import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, parseRecipe, parseSeed
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
-import { renderSheetImage } from '../render/sheet-image.js';
+import { renderSheetImages } from '../render/sheet-image.js';
 import { createGenerator } from './generator-client.js';
 import { loadForm, saveForm } from './storage.js';
 import { runSelfCheck } from './selfcheck.js';
@@ -34,7 +34,7 @@ const state = {
   hits: [],
   requestId: 0,
   shownId: 0,
-  image: null, // { id, file } — the setup-sheet PNG, prepared ahead of a share tap
+  image: null, // { id, files } — the setup-sheet frames, prepared ahead of a share tap
 };
 
 // ---------------------------------------------------------------- form
@@ -534,11 +534,14 @@ function makeCanvas(w, h) {
   return c;
 }
 
-async function buildImageFile() {
-  const canvasImg = renderSheetImage(state.course, state.sheet, makeCanvas);
-  const blob = await new Promise((resolve) => canvasImg.toBlob(resolve, 'image/png'));
-  if (!blob) throw new Error('png');
-  return new File([blob], 'motogymkhana-skhema.png', { type: 'image/png' });
+/** The setup sheet as numbered 9:16 PNG files, in the order they are read. */
+async function buildImageFiles() {
+  const canvases = renderSheetImages(state.course, state.sheet, makeCanvas);
+  return Promise.all(canvases.map(async (c, i) => {
+    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('png');
+    return new File([blob], `motogymkhana-skhema-${i + 1}-iz-${canvases.length}.png`, { type: 'image/png' });
+  }));
 }
 
 let imageTimer = 0;
@@ -549,24 +552,27 @@ function prepareImageSoon() {
   const id = state.shownId;
   imageTimer = setTimeout(async () => {
     try {
-      const file = await buildImageFile();
-      if (state.shownId === id && state.course) state.image = { id, file };
+      const files = await buildImageFiles();
+      if (state.shownId === id && state.course) state.image = { id, files };
     } catch {
       // Built on demand at tap time instead.
     }
   }, 500);
 }
 
-function download(file) {
-  const url = URL.createObjectURL(file);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  toast('Картинка сохранена в загрузки');
+function download(files) {
+  // One after another: browsers drop several downloads started in the same instant.
+  files.forEach((file, i) => setTimeout(() => {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }, i * 400));
+  toast(files.length === 1 ? 'Картинка сохранена в загрузки' : `Картинки сохранены в загрузки: ${files.length} шт.`);
 }
 
 async function share() {
@@ -574,25 +580,25 @@ async function share() {
     toast('Сначала нужна трасса');
     return;
   }
-  let file = state.image?.id === state.shownId ? state.image.file : null;
-  if (!file) {
+  let files = state.image?.id === state.shownId ? state.image.files : null;
+  if (!files) {
     try {
-      file = await buildImageFile();
+      files = await buildImageFiles();
     } catch {
       toast('Не удалось нарисовать картинку. Попробуйте ещё раз');
       return;
     }
   }
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (navigator.canShare && navigator.canShare({ files })) {
     try {
-      await navigator.share({ files: [file] });
+      await navigator.share({ files });
     } catch (e) {
       // Cancelling the share sheet is not an error; a refused share falls back to a download.
-      if (e && e.name !== 'AbortError') download(file);
+      if (e && e.name !== 'AbortError') download(files);
     }
     return;
   }
-  download(file);
+  download(files);
 }
 
 // ---------------------------------------------------------------- sheet (form panel)
