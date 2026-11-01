@@ -601,8 +601,7 @@ async function buildImageFiles() {
 
 let imageTimer = 0;
 function prepareImageSoon() {
-  // Prepared ahead so a share tap can open the system sheet straight away:
-  // Safari only allows navigator.share() close to the user's tap.
+  // Prepared ahead so «Картинка» shows its frames straight away.
   clearTimeout(imageTimer);
   const id = state.shownId;
   imageTimer = setTimeout(async () => {
@@ -627,33 +626,115 @@ function download(files) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }, i * 400));
-  toast(files.length === 1 ? 'Картинка сохранена в загрузки' : `Картинки сохранены в загрузки: ${files.length} шт.`);
 }
 
-async function share() {
+const framesWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'кадр' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'кадра' : 'кадров');
+const canShareFiles = (files) => !!(navigator.canShare && navigator.canShare({ files }));
+
+async function shareFiles(files) {
+  try {
+    await navigator.share({ files });
+  } catch (e) {
+    // Cancelling the share sheet is not an error.
+    if (e && e.name !== 'AbortError') $('picture-status').textContent = 'Не удалось открыть «Поделиться». Скачайте кадры по одному';
+  }
+}
+
+/**
+ * «Картинка» opens a preview of every frame. Each frame is saved by its own
+ * link, which no browser drops, and all of them are shared at once where the
+ * device can share files. Opening the system share sheet straight from the
+ * button gave desktop browsers no way to save, and a share started after the
+ * frames were drawn had lost the tap and fell back to downloads browsers block.
+ */
+let pictureOpener = null;
+let pictureUrls = [];
+
+async function openPicture() {
   if (!state.course || state.stale) {
     toast('Сначала нужна трасса');
     return;
   }
-  let files = state.image?.id === state.shownId ? state.image.files : null;
+  pauseRide();
+  pictureOpener = document.activeElement;
+  for (const id of BEHIND_FORM) $(id).inert = true;
+  $('backdrop').hidden = false;
+  $('picture-sheet').hidden = false;
+  $('picture-sheet').focus({ preventScroll: true });
+  const id = state.shownId;
+  let files = state.image?.id === id ? state.image.files : null;
   if (!files) {
+    renderFrames(null);
     try {
       files = await buildImageFiles();
     } catch {
-      toast('Не удалось нарисовать картинку. Попробуйте ещё раз');
+      $('picture-status').textContent = 'Не удалось нарисовать картинку. Закройте и попробуйте ещё раз';
       return;
     }
+    if (state.shownId !== id || $('picture-sheet').hidden) return;
+    state.image = { id, files };
   }
-  if (navigator.canShare && navigator.canShare({ files })) {
-    try {
-      await navigator.share({ files });
-    } catch (e) {
-      // Cancelling the share sheet is not an error; a refused share falls back to a download.
-      if (e && e.name !== 'AbortError') download(files);
-    }
+  renderFrames(files);
+}
+
+function renderFrames(files) {
+  for (const url of pictureUrls) URL.revokeObjectURL(url);
+  pictureUrls = [];
+  const list = $('frames');
+  list.replaceChildren();
+  $('picture-actions').hidden = !files;
+  if (!files) {
+    $('picture-title').textContent = 'Картинка';
+    $('picture-status').textContent = 'Рисую кадры…';
     return;
   }
-  download(files);
+  const n = files.length;
+  $('picture-title').textContent = `Картинка · ${n} ${framesWord(n)}`;
+  $('picture-status').textContent = '';
+  files.forEach((file, i) => {
+    const url = URL.createObjectURL(file);
+    pictureUrls.push(url);
+    const item = document.createElement('li');
+    item.className = 'frame';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = `Кадр ${i + 1} из ${n}: ${i === 0 ? 'план трассы, легенда и ведомость конусов' : 'карточки элементов'}`;
+    const caption = document.createElement('p');
+    caption.className = 'muted';
+    caption.textContent = `Кадр ${i + 1} из ${n}`;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const save = document.createElement('a');
+    save.className = 'button';
+    save.href = url;
+    save.download = file.name;
+    save.textContent = 'Скачать';
+    save.setAttribute('aria-label', `Скачать кадр ${i + 1} из ${n}`);
+    row.append(save);
+    if (canShareFiles([file])) {
+      const send = document.createElement('button');
+      send.type = 'button';
+      send.textContent = 'Поделиться';
+      send.setAttribute('aria-label', `Поделиться кадром ${i + 1} из ${n}`);
+      send.addEventListener('click', () => shareFiles([file]));
+      row.append(send);
+    }
+    item.append(img, caption, row);
+    list.append(item);
+  });
+  $('share-all').hidden = n < 2 || !canShareFiles(files);
+  $('download-all').hidden = n < 2;
+  $('picture-actions').hidden = n < 2;
+}
+
+function closePicture() {
+  document.activeElement?.blur?.();
+  for (const id of BEHIND_FORM) $(id).inert = false;
+  $('backdrop').hidden = true;
+  $('picture-sheet').hidden = true;
+  renderFrames(null);
+  pictureOpener?.focus?.({ preventScroll: true });
+  pictureOpener = null;
 }
 
 // ---------------------------------------------------------------- sheet (form panel)
@@ -742,7 +823,7 @@ function start() {
   }
   $('form-new-seed').addEventListener('click', newSeed);
   $('close-form').addEventListener('click', submitForm);
-  $('backdrop').addEventListener('click', closeForm);
+  $('backdrop').addEventListener('click', () => ($('picture-sheet').hidden ? closeForm() : closePicture()));
   $('open-form').addEventListener('click', openForm);
   $('summary').addEventListener('click', openForm);
   $('new-seed').addEventListener('click', newSeed);
@@ -761,7 +842,13 @@ function start() {
       renderSetup();
     } else exitSetup();
   });
-  $('share').addEventListener('click', share);
+  $('share').addEventListener('click', openPicture);
+  $('close-picture').addEventListener('click', closePicture);
+  $('picture-sheet').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePicture();
+  });
+  $('share-all').addEventListener('click', () => shareFiles(state.image.files));
+  $('download-all').addEventListener('click', () => download(state.image.files));
   $('ride').addEventListener('click', toggleRide);
   $('ride-speed').addEventListener('click', cycleRideSpeed);
   renderSpeedButton();

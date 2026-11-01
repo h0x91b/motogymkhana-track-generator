@@ -80,7 +80,7 @@
       </fieldset>
       <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
       <label class="check"><input type="checkbox" name="train" aria-describedby="train-hint"> Паровозик: несколько мотоциклов друг за другом</label>
-      <p class="muted hint" id="train-hint">Без вращения, восьмёрки и коробки, и маршрут не возвращается к себе ближе чем через 30 м: колонна не встретится сама с собой.</p>
+      <p class="muted hint" id="train-hint">Без вращения, восьмёрки и коробки, и маршрут нигде не пересекает сам себя: мотоциклы колонны не встретятся.</p>
       <label>Seed
         <span class="seed-row">
           <input name="seed" inputmode="numeric" enterkeyhint="done" aria-describedby="err-seed">
@@ -95,6 +95,18 @@
       </details>
       <button type="button" id="close-form" class="primary wide">Готово</button>
     </form>
+  </section>
+  <section class="sheet picture-sheet" id="picture-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="picture-title" tabindex="-1">
+    <div class="sheet-head">
+      <h2 id="picture-title">Картинка</h2>
+      <button type="button" id="close-picture" aria-label="Закрыть">✕</button>
+    </div>
+    <p class="muted" id="picture-status" role="status"></p>
+    <ul class="frames" id="frames"></ul>
+    <div class="actions" id="picture-actions" hidden>
+      <button type="button" id="share-all" class="primary">Поделиться всеми</button>
+      <button type="button" id="download-all">Скачать все</button>
+    </div>
   </section>
   <div class="toast" id="toast" role="status" hidden></div>
 </main>
