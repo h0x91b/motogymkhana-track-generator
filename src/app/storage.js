@@ -21,3 +21,22 @@ export function saveForm(form) {
     // Storage unavailable: the app keeps working without remembering the form.
   }
 }
+
+// The ride-through speed, a per-viewer preference under its own key.
+const SPEED_KEY = 'motogymkhana-constructor:ride-speed:v1';
+
+export function loadRideSpeed() {
+  try {
+    return Number(window.localStorage.getItem(SPEED_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveRideSpeed(speed) {
+  try {
+    window.localStorage.setItem(SPEED_KEY, String(speed));
+  } catch {
+    // Storage unavailable: the speed resets on the next visit.
+  }
+}

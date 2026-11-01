@@ -8,6 +8,7 @@
 
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
+import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 
 const W = 1080;
 const H = 1920;
@@ -97,7 +98,7 @@ function arrowHead(ctx, x, y, a, size, color) {
 /** Plan block no taller than maxHeight: returns its height and a draw(ctx, top) function. */
 function planBlock(course, sheet, maxHeight) {
   const left = PAD + 64;
-  const bottomSpace = 70;
+  const bottomSpace = 110; // site dimension line, then the scale bar
   const avail = W - left - PAD;
   const s = Math.min(avail / course.site.width, (maxHeight - bottomSpace - 30) / course.site.length);
   const pw = course.site.width * s;
@@ -118,28 +119,29 @@ function planBlock(course, sheet, maxHeight) {
     // Site, grid with measured ticks, margin.
     ctx.fillStyle = '#eef1ef';
     ctx.fillRect(ox, oy, pw, ph);
-    const tick = course.site.width > 50 || course.site.length > 50 ? 10 : 5;
+    // Lines every grid step; their distances every step, or every other one when they would crowd.
+    const every = GRID_STEP * s >= 44 ? GRID_STEP : 2 * GRID_STEP;
     ctx.lineWidth = 1;
     ctx.strokeStyle = RULE;
     font(ctx, 18);
     ctx.fillStyle = MUTED;
-    for (let x = 0; x <= course.site.width; x += tick) {
+    for (let x = 0; x <= course.site.width; x += GRID_STEP) {
       ctx.beginPath();
       ctx.moveTo(X(x), Y(0));
       ctx.lineTo(X(x), Y(course.site.length));
       ctx.stroke();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      if (x > 0) ctx.fillText(String(x), X(x), Y(0) + 6);
+      if (x > 0 && x % every === 0) ctx.fillText(String(x), X(x), Y(0) + 6);
     }
-    for (let y = 0; y <= course.site.length; y += tick) {
+    for (let y = 0; y <= course.site.length; y += GRID_STEP) {
       ctx.beginPath();
       ctx.moveTo(X(0), Y(y));
       ctx.lineTo(X(course.site.width), Y(y));
       ctx.stroke();
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
-      if (y > 0) ctx.fillText(String(y), X(0) - 8, Y(y));
+      if (y > 0 && y % every === 0) ctx.fillText(String(y), X(0) - 8, Y(y));
     }
     ctx.setLineDash([8, 8]);
     ctx.strokeStyle = '#9aa7ad';
@@ -187,6 +189,9 @@ function planBlock(course, sheet, maxHeight) {
     };
     label(`ширина ${course.site.width} м`, (X(0) + X(course.site.width)) / 2, dimY);
     label(`длина ${course.site.length} м`, dimX, (Y(0) + Y(course.site.length)) / 2, -Math.PI / 2);
+    drawScaleBar(ctx, (X(0) + X(course.site.width)) / 2, Y(0) + 92, s, {
+      maxWidth: 280, minSegment: 60, height: 12, fontSize: 20, ink: INK, paper: '#fff', text: INK,
+    });
 
     // Closed sides of boxes and U-turn zones: not marked on the asphalt, drawn
     // dotted so they cannot be mistaken for a connector without colour.

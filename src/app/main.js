@@ -4,7 +4,7 @@ import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } 
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createGenerator } from './generator-client.js';
-import { loadForm, saveForm } from './storage.js';
+import { loadForm, loadRideSpeed, saveForm, saveRideSpeed } from './storage.js';
 import { runSelfCheck } from './selfcheck.js';
 
 const $ = (id) => document.getElementById(id);
@@ -483,6 +483,25 @@ function exitSetup() {
 const TRAIN_RIDERS = 3;
 const TRAIN_SPACING = 8; // metres of route
 
+// Playback speeds of the ride, cycled by the speed button. Only time runs
+// faster: the riders still lean as they would at RIDE_SPEED.
+const RIDE_SPEEDS = [1, 2, 4];
+let rideSpeed = RIDE_SPEEDS.includes(loadRideSpeed()) ? loadRideSpeed() : 1;
+
+function cycleRideSpeed() {
+  rideSpeed = RIDE_SPEEDS[(RIDE_SPEEDS.indexOf(rideSpeed) + 1) % RIDE_SPEEDS.length];
+  saveRideSpeed(rideSpeed);
+  renderSpeedButton();
+}
+
+/** Shown only while a ride is on, when the camera is close in and the button covers nothing of the plan. */
+function renderSpeedButton() {
+  const b = $('ride-speed');
+  b.hidden = !state.ride;
+  b.textContent = `${rideSpeed}×`;
+  b.setAttribute('aria-label', `Скорость проезда ${rideSpeed}×`);
+}
+
 /** The riders on the course when the leader is s metres along: only those between start and finish. */
 function ridePoses(r) {
   const poses = [];
@@ -528,7 +547,7 @@ const rideEnd = (r) => r.track.length + (r.riders - 1) * TRAIN_SPACING;
 function rideFrame(now) {
   const r = state.ride;
   if (!r?.playing) return;
-  r.s = Math.min(rideEnd(r), r.s + RIDE_SPEED * Math.min(0.1, (now - r.last) / 1000));
+  r.s = Math.min(rideEnd(r), r.s + RIDE_SPEED * rideSpeed * Math.min(0.1, (now - r.last) / 1000));
   r.last = now;
   r.poses = ridePoses(r);
   const focus = rideFocus(r);
@@ -558,6 +577,7 @@ function renderRideButton() {
   const b = $('ride');
   b.setAttribute('aria-pressed', String(!!r?.playing));
   b.textContent = r?.playing ? '❚❚ Пауза' : r && r.s > 0 && r.s < rideEnd(r) ? '▶ Дальше' : '▶ Проезд';
+  renderSpeedButton();
 }
 
 // ---------------------------------------------------------------- picture
@@ -743,6 +763,8 @@ function start() {
   });
   $('share').addEventListener('click', share);
   $('ride').addEventListener('click', toggleRide);
+  $('ride-speed').addEventListener('click', cycleRideSpeed);
+  renderSpeedButton();
   for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
   $('zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));

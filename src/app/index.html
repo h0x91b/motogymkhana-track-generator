@@ -22,7 +22,10 @@
       <button type="button" id="zoom-out" aria-label="Отдалить">−</button>
       <button type="button" id="zoom-fit" class="text">Вся трасса</button>
     </div>
-    <button type="button" id="ride" class="ride" aria-pressed="false">▶ Проезд</button>
+    <div class="ride-controls" role="group" aria-label="Проезд">
+      <button type="button" id="ride-speed" class="speed" aria-label="Скорость проезда 1×" hidden>1×</button>
+      <button type="button" id="ride" class="ride" aria-pressed="false">▶ Проезд</button>
+    </div>
     <div class="element-card" id="element-card" hidden></div>
   </section>
 

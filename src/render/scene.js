@@ -4,6 +4,7 @@
 
 import { TYPE_NAMES } from '../generator/catalog.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
+import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 
 const TAU = Math.PI * 2;
 // Below this many pixels per metre only the selected element shows its dimensions.
@@ -52,17 +53,22 @@ export function makeProjector(cam, W, H, site, focus = null) {
   const co = Math.abs(cosY);
   const si = Math.abs(sinY);
   const padX = 28;
-  const padY = 44;
+  const padTop = 44;
+  const padBottom = 90; // the row of ride, scale bar and zoom buttons, and the plates under the site
   const ew = site.width * co + site.length * si + 6;
   const eh = (site.width * si + site.length * co + 6) * cosT + 1.5 * sinT;
-  const base = Math.min((W - 2 * padX) / ew, (H - 2 * padY) / eh);
+  const base = Math.min((W - 2 * padX) / ew, (H - padTop - padBottom) / eh);
   const scale = base * cam.zoom;
+  // The whole site sits at the middle of the stage unless that would put it
+  // under the bottom row; then it moves up just enough.
+  const half = (eh * base) / 2;
+  const midY = Math.max(padTop + half, Math.min(H / 2, H - padBottom - half));
   const project = (x, y, z = 0) => {
     const X = x - cx;
     const Y = y - cy;
     const u = X * cosY - Y * sinY;
     const w = X * sinY + Y * cosY;
-    return { x: W / 2 + cam.panX + u * scale, y: H / 2 + cam.panY - (w * cosT + z * sinT) * scale, d: -w * sinT + z * cosT };
+    return { x: W / 2 + cam.panX + u * scale, y: midY + cam.panY - (w * cosT + z * sinT) * scale, d: -w * sinT + z * cosT };
   };
   return { project, scale, base, W, H, focus };
 }
@@ -152,7 +158,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Slab: shadow, sides (3D only), surface, faint 5 m grid, margin line.
+  // Slab: shadow, sides (3D only), surface, grid, margin line.
   const { width: SW, length: SL } = site;
   if (tilted) {
     path([[0.7, -0.6, -0.5], [SW + 0.7, -0.6, -0.5], [SW + 0.7, SL - 0.6, -0.5], [0.7, SL - 0.6, -0.5]], null, 0, '#14232f22', true);
@@ -166,8 +172,8 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     sides.sort((a, b) => depth(a) - depth(b)).forEach((s) => path(s, null, 0, PALETTE.side, true));
   }
   path([[0, 0], [SW, 0], [SW, SL], [0, SL]], null, 0, PALETTE.slab, true);
-  for (let x = 5; x < SW; x += 5) path([[x, 0, 0.002], [x, SL, 0.002]], '#ffffff10', 0.035);
-  for (let y = 5; y < SL; y += 5) path([[0, y, 0.002], [SW, y, 0.002]], '#ffffff10', 0.035);
+  for (let x = GRID_STEP; x < SW; x += GRID_STEP) path([[x, 0, 0.002], [x, SL, 0.002]], '#ffffff24', 0.05);
+  for (let y = GRID_STEP; y < SL; y += GRID_STEP) path([[0, y, 0.002], [SW, y, 0.002]], '#ffffff24', 0.05);
   const m = course ? course.site.margin : 1;
   path([[m, m, 0.004], [SW - m, m, 0.004], [SW - m, SL - m, 0.004], [m, SL - m, 0.004]], '#bac7c355', 0.06, null, true, [0.4, 0.4]);
   onGround('h0x91B', SW - 2.2, SL - 0.55, 0.42, '#98a9aa');
@@ -183,7 +189,19 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   plate(`${SW} м`, SW / 2, 0, { size: 11, dy: 18, bg: '#3c484f', fill: '#e7eeef' });
   plate(`${SL} м`, 0, SL / 2, { size: 11, dx: -22, bg: '#3c484f', fill: '#e7eeef' });
 
-  if (!course) return { hits, view };
+  // Scale bar at the bottom, between the corner buttons. The projection is
+  // orthographic, so a horizontal screen length is the same ground distance in
+  // the plan and the 3D view.
+  const scaleBar = () =>
+    drawScaleBar(ctx, W / 2, H - 30, scale, {
+      maxWidth: Math.max(50, Math.min(150, W - 250)), minSegment: 24, height: 6, fontSize: 11,
+      ink: '#1f2a31', paper: '#f4f7f5', text: '#1f2a31', halo: '#f4f7f5cc',
+    });
+
+  if (!course) {
+    scaleBar();
+    return { hits, view };
+  }
 
   const colors = coneColors(course);
   const byId = new Map(course.cones.map((c) => [c.id, c]));
@@ -418,6 +436,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     plate(d.label, spot[0], spot[1], { size: 12, z: 0.03, bg: '#3c484f', fill: '#e7eeef' });
   }
   for (const [text, x, y, o] of labels) plate(text, x, y, o);
+  scaleBar();
   return { hits, view };
 }
 

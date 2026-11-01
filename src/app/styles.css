@@ -104,13 +104,18 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 }
 .zoom button { font-size: 20px; font-weight: 700; padding: 0; width: 44px; }
 .zoom button.text { width: auto; font-size: 13px; padding: 0 10px; }
-.ride {
+.ride-controls {
   position: absolute;
   left: calc(env(safe-area-inset-left) + 8px);
   bottom: 10px;
-  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
-.view-toggle button, .zoom button, .ride { background: color-mix(in srgb, var(--panel) 88%, transparent); }
+.ride { font-weight: 700; }
+.speed { width: 44px; padding: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.view-toggle button, .zoom button, .ride, .speed { background: color-mix(in srgb, var(--panel) 88%, transparent); }
 .ride[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 .view-toggle button[aria-pressed="true"] { background: var(--ink); }
 
