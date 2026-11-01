@@ -15,7 +15,7 @@ import {
   pointsBounds, polylineHitsObb, polylineLength, round2,
 } from './geometry.js';
 import { createStream } from './prng.js';
-import { usableTypes } from './recipe.js';
+import { usableTypes, WALLED_TYPES } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
 import { GENERATOR_VERSION } from './version.js';
 
@@ -47,7 +47,8 @@ export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
 // «Паровозик», a column of riders: the route never crosses itself or comes
 // back within 1.5 m of itself, or two riders of the column could meet. Checked
 // on 0.5 m samples, with a margin for the sampling error; samples closer than
-// TRAIN_NEAR along the route are the same stretch.
+// TRAIN_NEAR along the route are the same stretch. The passes of a walled
+// element are the exception: a wall of cones keeps them apart.
 const TRAIN_CLEARANCE = 2;
 const TRAIN_NEAR = 4;
 const TRAIN_STEP = 0.5;
@@ -59,20 +60,30 @@ const TRAIN_STEP = 0.5;
 const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
 const trainCell = (x, y) => `${Math.floor(x / TRAIN_CLEARANCE)},${Math.floor(y / TRAIN_CLEARANCE)}`;
 
-/** Samples of polylines ridden straight after `track`, continuing its distance along. */
+/**
+ * The trajectory of a placed element as the train check rides it: a walled
+ * one comes wrapped, and its samples are never checked against each other.
+ */
+const ridden = (el) => (WALLED_TYPES.includes(el.tpl.type) ? { points: el.path } : el.path);
+
+/**
+ * Samples of polylines ridden straight after `track`, continuing its distance
+ * along. Samples of a wrapped polyline carry it as their owner.
+ */
 function continueTrack(track, polylines) {
   const samples = [];
   let s = track.length;
   let prev = track.last;
-  for (const pts of polylines) {
-    for (const p of pts) {
-      if (!prev) samples.push({ x: p[0], y: p[1], s });
+  for (const line of polylines) {
+    const owner = line.points ? line : null;
+    for (const p of line.points ?? line) {
+      if (!prev) samples.push({ x: p[0], y: p[1], s, owner });
       else {
         const dx = p[0] - prev[0];
         const dy = p[1] - prev[1];
         const len = Math.sqrt(dx * dx + dy * dy);
         const k = Math.max(1, Math.ceil(len / TRAIN_STEP));
-        for (let j = 1; j <= k; j++) samples.push({ x: prev[0] + (dx * j) / k, y: prev[1] + (dy * j) / k, s: s + (len * j) / k });
+        for (let j = 1; j <= k; j++) samples.push({ x: prev[0] + (dx * j) / k, y: prev[1] + (dy * j) / k, s: s + (len * j) / k, owner });
         s += len;
       }
       prev = p;
@@ -105,6 +116,7 @@ function trainClear(track, next, closes = false) {
   const meets = (p, cell) => {
     if (!cell) return false;
     for (const q of cell) {
+      if (p.owner && p.owner === q.owner) continue;
       const along = p.s - q.s;
       const gap = closes && length - along < along ? length - along : along;
       if (gap < TRAIN_NEAR) continue;
@@ -426,7 +438,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     if (i === 0) return EMPTY_TRACK;
     const kept = tracks[i];
     if (kept && kept.owner === placed[i - 1]) return kept.track;
-    const track = extendTrack(trackBefore(i - 1), [legs[i - 1].points, placed[i - 1].path]);
+    const track = extendTrack(trackBefore(i - 1), [legs[i - 1].points, ridden(placed[i - 1])]);
     tracks[i] = { owner: placed[i - 1], track };
     return track;
   }
@@ -449,11 +461,11 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (!zoneClear(terminal, zones, paths)) return null;
       if (obbOverlap(terminal.zone, cand.zone)) return null;
       entryLeg = straightLeg(terminal.center, cand.entry);
-      if (track && !trainClear(track, [entryLeg.points, cand.path])) return null;
+      if (track && !trainClear(track, [entryLeg.points, ridden(cand)])) return null;
     } else {
       const prev = placed[i - 1];
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
-      const accept = track && ((pts) => trainClear(track, [pts, cand.path]));
+      const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
       entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], MAX_CONNECTOR_TURN, accept);
       if (!entryLeg) return null;
     }
@@ -466,7 +478,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         // across the start's own lead-in; it arrives on the zone edge at the line.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand];
         // In «паровозик» it keeps clear of the whole route, and rides back into its start.
-        const before = track && extendTrack(track, [entryLeg.points, cand.path]);
+        const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts], true));
         exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn, accept);
         if (!exitLeg) return null;
@@ -477,7 +489,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         if (!zoneClear(finishTerminalCand, others, [...paths, entryLeg])) return null;
         if (obbOverlap(finishTerminalCand.zone, cand.zone)) return null;
         exitLeg = straightLeg(cand.exit, finishTerminalCand.center);
-        if (track && !trainClear(extendTrack(track, [entryLeg.points, cand.path]), [exitLeg.points])) return null;
+        if (track && !trainClear(extendTrack(track, [entryLeg.points, ridden(cand)]), [exitLeg.points])) return null;
       }
     }
     const tl = turnLeft + entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);

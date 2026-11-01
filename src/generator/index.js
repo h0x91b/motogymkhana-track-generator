@@ -5,7 +5,7 @@ import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
-export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS } from './recipe.js';
+export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS, WALLED_TYPES } from './recipe.js';
 export { BIG_ELEMENT_AREA, TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 

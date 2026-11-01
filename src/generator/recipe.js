@@ -28,7 +28,12 @@ export const ELEMENT_TYPES = [
 
 // Types whose trajectory passes the same spot twice a few metres of route
 // apart: in «паровозик», a column of riders, they would meet there.
-export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'mirror', 'gate-turn', 'snail', 'box-eight', 'keyhole'];
+export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'mirror', 'gate-turn', 'box-eight', 'keyhole'];
+
+// Types whose passes run close to each other, but always with a wall of cones
+// between them: a column rides them without meeting, so in «паровозик» their
+// own passes are not checked against each other.
+export const WALLED_TYPES = ['snail'];
 
 // Types too tight or too long for a beginner: the generator uses them from
 // these difficulties only. The other types are used at every difficulty.
