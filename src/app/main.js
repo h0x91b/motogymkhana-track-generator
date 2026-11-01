@@ -220,7 +220,7 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = state.stale ? 0.45 : 1;
-  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected });
+  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet });
   ctx.globalAlpha = 1;
   state.hits = hits;
 }

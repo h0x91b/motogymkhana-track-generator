@@ -125,6 +125,52 @@ describe('setup sheet', () => {
     expect(seen).toBeGreaterThan(3);
   });
 
+  test('dimension lines run along or across the axis, are multiples of 0.5 m and are labelled with their length', () => {
+    for (const course of courses) {
+      for (const card of buildSetupSheet(course).cards) {
+        expect(card.dims.length > 0, `${card.type}`).toBe(card.type !== 'pivot-turn');
+        const [sx, sy] = card.axis.vector;
+        for (const d of card.dims) {
+          const dx = d.to.x - d.from.x;
+          const dy = d.to.y - d.from.y;
+          const parallel = Math.abs(dx * sy - dy * sx) < 1e-9;
+          const perpendicular = Math.abs(dx * sx + dy * sy) < 1e-9;
+          expect(parallel || perpendicular, `seed ${course.seed} ${card.type}`).toBe(true);
+          for (const v of [d.from.x, d.from.y, d.to.x, d.to.y]) expect(isHalf(v)).toBe(true);
+          if (card.axis.diagonal) {
+            expect(Math.abs(dx)).toBe(Math.abs(dy));
+            expect(d.value).toBe(Math.abs(dx));
+            expect(d.label).toBe(`${String(d.value).replace('.', ',')} м по X и Y`);
+          } else {
+            expect(d.value).toBe(Math.hypot(dx, dy));
+            expect(d.label).toBe(`${String(d.value).replace('.', ',')} м`);
+          }
+          expect(d.value > 0 && isHalf(d.value), `seed ${course.seed} ${card.type}`).toBe(true);
+          // The sheet's notes give the same number.
+          expect(card.notes.join(' '), `seed ${course.seed} ${card.type}`).toContain(`${String(d.value).replace('.', ',')} м`);
+        }
+      }
+    }
+  });
+
+  test('the defining size of a gate, figure eight and box is dimensioned between its real cones', () => {
+    const seen = new Set();
+    for (const course of courses) {
+      const byId = new Map(course.cones.map((c) => [c.id, [c.hx / 2, c.hy / 2]]));
+      const defined = (c) => !c.axis.diagonal && ['gate', 'figure-eight', 'box'].includes(c.type);
+      for (const card of buildSetupSheet(course).cards.filter(defined)) {
+        const e = course.elements.find((x) => x.id === card.element);
+        const [p0, p1] = e.cones.map((id) => byId.get(id));
+        const between = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+        const lengths = card.dims.map((d) => d.value);
+        if (card.type === 'gate' || card.type === 'figure-eight') expect(lengths).toEqual([between]);
+        if (card.type === 'box') expect(lengths).toEqual([between, between]);
+        seen.add(card.type);
+      }
+    }
+    for (const type of ['gate', 'figure-eight', 'box']) expect(seen.has(type), type).toBe(true);
+  });
+
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {

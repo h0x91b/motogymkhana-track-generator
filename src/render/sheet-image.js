@@ -4,6 +4,7 @@
 // No recipe, seed or hidden marks on it (SPEC, «Картинка схемы»).
 
 import { fmt } from '../sheet/setup-sheet.js';
+import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 
 const W = 1080;
 const PAD = 40;
@@ -253,6 +254,20 @@ function planBlock(course, sheet) {
       ctx.fillText(text, tx, ty + 1);
     }
 
+    // Dimension lines between cone centres, when the plan is large enough to read them.
+    const dimensions = s < 10 ? [] : sheet.cards.flatMap((card) =>
+      card.dims.map((d) => ({ d, layout: dimensionLayout(d, zoneCentre(elements.get(card.element).zone)) })));
+    ctx.strokeStyle = MUTED;
+    for (const { layout } of dimensions) {
+      for (const [seg, width] of [[layout.line, 2], ...layout.extensions.map((e) => [e, 1.2]), ...layout.ticks.map((t) => [t, 2])]) {
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(X(seg[0][0]), Y(seg[0][1]));
+        ctx.lineTo(X(seg[1][0]), Y(seg[1][1]));
+        ctx.stroke();
+      }
+    }
+
     // Cones (anchors ringed).
     const anchors = new Set(course.elements.map((e) => e.anchor));
     const r = Math.max(8, Math.min(12, s * 0.45));
@@ -262,7 +277,30 @@ function planBlock(course, sheet) {
 
     // Element numbers: the zone point nearest its centre that keeps clear of
     // every cone and of the element's own trajectory.
-    const conePts = course.cones.map((c) => [c.hx / 2, c.hy / 2]);
+    // Dimension labels keep clear of the cones and of each other; element
+    // numbers keep clear of all of them.
+    font(ctx, 16, 700);
+    const taken = course.cones.map((c) => [X(c.hx / 2) - r - 3, Y(c.hy / 2) - r - 3, X(c.hx / 2) + r + 3, Y(c.hy / 2) + r + 3]);
+    for (const dim of dimensions) {
+      const w = ctx.measureText(dim.d.label).width;
+      const boxAt = ([x, y]) => [X(x) - w / 2 - 5, Y(y) - 11, X(x) + w / 2 + 5, Y(y) + 11];
+      const { spot, box } = placeLabel(dim.layout, 24 / s, boxAt, taken);
+      taken.push(box);
+      dim.spot = spot;
+    }
+    for (const { d, spot } of dimensions) {
+      const [mx, my] = [X(spot[0]), Y(spot[1])];
+      const w = ctx.measureText(d.label).width;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.roundRect(mx - w / 2 - 5, my - 11, w + 10, 22, 4);
+      ctx.fill();
+      ctx.fillStyle = INK;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(d.label, mx, my + 1);
+    }
+    const conePts = [...course.cones.map((c) => [c.hx / 2, c.hy / 2]), ...dimensions.map(({ spot }) => spot)];
     const clearance = (p, pts) => Math.min(...pts.map((q) => Math.hypot(q[0] - p[0], q[1] - p[1])));
     const pathClearance = (p, path) => {
       let best = Infinity;

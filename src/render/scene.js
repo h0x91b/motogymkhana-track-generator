@@ -3,8 +3,11 @@
 // metric scene. Draws only when asked (no animation loop).
 
 import { TYPE_NAMES } from '../generator/catalog.js';
+import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 
 const TAU = Math.PI * 2;
+// Below this many pixels per metre only the selected element shows its dimensions.
+const DIMENSIONS_FROM_SCALE = 16;
 
 export const PALETTE = {
   red: '#ee624d',
@@ -82,7 +85,7 @@ export function coneColors(course) {
  * Draws the course. Returns hit targets for taps: element labels and zones in
  * screen coordinates.
  */
-export function drawScene(ctx, course, cam, W, H, { selected = null } = {}) {
+export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null } = {}) {
   const site = course ? course.site : { width: 40, length: 60 };
   const view = makeProjector(cam, W, H, site);
   const { project, scale } = view;
@@ -263,6 +266,17 @@ export function drawScene(ctx, course, cam, W, H, { selected = null } = {}) {
     path(ring, PALETTE.anchor, e.id === selected ? 0.09 : 0.06);
   }
 
+  // Dimension lines between cone centres: for the selected element, and for
+  // every element once zoomed in far enough to read them.
+  const dimensions = (sheet?.cards ?? [])
+    .filter((card) => card.element === selected || scale >= DIMENSIONS_FROM_SCALE)
+    .flatMap((card) => card.dims.map((d) => ({ d, layout: dimensionLayout(d, zoneCentre(elements.get(card.element).zone)) })));
+  const onSlab = (p) => [p[0], p[1], 0.012];
+  for (const { layout } of dimensions) {
+    path(layout.line.map(onSlab), '#d5dee0', 0.04);
+    for (const seg of [...layout.extensions, ...layout.ticks]) path(seg.map(onSlab), '#d5dee0', 0.03);
+  }
+
   // Cones, far to near.
   const exaggerate = Math.min(3, Math.max(1, 4.5 / (0.2 * scale)));
   const sorted = [...course.cones].sort((a, b) => project(a.hx / 2, a.hy / 2).d - project(b.hx / 2, b.hy / 2).d);
@@ -320,21 +334,43 @@ export function drawScene(ctx, course, cam, W, H, { selected = null } = {}) {
     faces.sort((a, b) => a.d - b.d).forEach((f) => path(f.p, null, 0, f.c, true));
   }
 
-  // Element numbers in passing order; full names when zoomed in or selected.
+  // Labels. Element numbers (full names when zoomed in or selected) and the
+  // selected anchor claim their place first; dimension labels keep clear of
+  // them and of the cones.
+  const plateBox = (text, x, y, size, z, dy = 0) => {
+    const p = project(x, y, z);
+    ctx.font = `600 ${size}px system-ui, -apple-system, sans-serif`;
+    const w = ctx.measureText(text).width;
+    return [p.x - w / 2 - 7, p.y + dy - size / 2 - 5, p.x + w / 2 + 7, p.y + dy + size / 2 + 5];
+  };
+  const labels = [];
   for (const e of course.elements) {
-    const cx = (e.zone[0][0] + e.zone[2][0]) / 2;
-    const cy = (e.zone[0][1] + e.zone[2][1]) / 2;
+    const [cx, cy] = zoneCentre(e.zone);
     const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
     const text = wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order);
     const sel = e.id === selected;
-    plate(text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id });
+    labels.push([text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = byId.get(e.anchor);
       const below = project(a.hx / 2, a.hy / 2, 0).y >= project(cx, cy, 0.05).y;
-      plate(`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, dy: below ? 22 : -22, bg: '#4a3d12', fill: '#ffe7a3' });
+      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, z: 0, dy: below ? 22 : -22, bg: '#4a3d12', fill: '#ffe7a3' }]);
     }
   }
+  const coneRadius = Math.max(6, 0.35 * scale);
+  const taken = [
+    ...course.cones.map((c) => {
+      const p = project(c.hx / 2, c.hy / 2, 0);
+      return [p.x - coneRadius, p.y - coneRadius, p.x + coneRadius, p.y + coneRadius];
+    }),
+    ...labels.map(([text, x, y, o]) => plateBox(text, x, y, o.size, o.z, o.dy)),
+  ];
+  for (const { d, layout } of dimensions) {
+    const { spot, box } = placeLabel(layout, 22 / scale, (p) => plateBox(d.label, p[0], p[1], 10, 0.03), taken);
+    taken.push(box);
+    plate(d.label, spot[0], spot[1], { size: 10, z: 0.03, bg: '#3c484f', fill: '#e7eeef' });
+  }
+  for (const [text, x, y, o] of labels) plate(text, x, y, o);
   return { hits, view };
 }
 
