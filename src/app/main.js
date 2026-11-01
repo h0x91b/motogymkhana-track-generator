@@ -1,6 +1,7 @@
 import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
-import { createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
+import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
+import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImage } from '../render/sheet-image.js';
 import { createGenerator } from './generator-client.js';
 import { loadForm, saveForm } from './storage.js';
@@ -28,6 +29,7 @@ const state = {
   selected: null,
   setupStep: null,
   setupWanted: false, // «Расстановка» tapped while a course was still being generated
+  ride: null, // { track, s, pose, playing, last } while the schematic rider is on the course
   camera: createCamera(),
   hits: [],
   requestId: 0,
@@ -137,6 +139,7 @@ const generator = createGenerator(({ id, result }) => {
     return;
   }
   state.courseKey = key;
+  stopRide();
   state.course = course;
   state.sheet = buildSetupSheet(course);
   state.stale = false;
@@ -230,7 +233,7 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = state.stale ? 0.45 : 1;
-  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet });
+  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, rider: state.ride?.pose });
   ctx.globalAlpha = 1;
   state.hits = hits;
 }
@@ -324,7 +327,7 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 function onTap(x, y) {
-  if (!state.course || state.setupStep !== null) return;
+  if (!state.course || state.setupStep !== null || state.ride?.playing) return;
   const id = hitTest(state.hits, x, y);
   if (id && id !== state.selected) selectElement(id);
   else {
@@ -443,6 +446,7 @@ function enterSetup() {
     return;
   }
   if (!state.course || state.stale) return;
+  stopRide();
   hideElementCard();
   $('toast').hidden = true; // it would cover the step's anchor
   state.setupStep = 0;
@@ -458,6 +462,67 @@ function exitSetup() {
   $('setup-panel').hidden = true;
   resetCamera(state.camera);
   invalidate();
+}
+
+// ---------------------------------------------------------------- ride
+
+/**
+ * «Проезд»: a schematic motorcycle rides the route at a set speed in the 3D
+ * view, the camera following it a little zoomed in. Pause keeps its place;
+ * after the finish the next tap starts over.
+ */
+function toggleRide() {
+  if (!state.course || state.stale) return;
+  if (state.ride?.playing) return pauseRide();
+  if (state.setupStep !== null) exitSetup();
+  state.selected = null;
+  hideElementCard();
+  if (state.camera.mode !== 'angle') setView('angle');
+  if (!state.ride || state.ride.s >= state.ride.track.length) {
+    const track = buildRide(state.course);
+    state.ride = { track, s: 0, pose: rideAt(track, 0) };
+    // About 18 m of the course around the rider fills the stage.
+    const { x, y } = state.ride.pose;
+    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, [x - 9, y - 9, x + 9, y + 9]);
+  }
+  state.ride.playing = true;
+  state.ride.last = performance.now();
+  renderRideButton();
+  requestAnimationFrame(rideFrame);
+}
+
+function rideFrame(now) {
+  const r = state.ride;
+  if (!r?.playing) return;
+  r.s = Math.min(r.track.length, r.s + RIDE_SPEED * Math.min(0.1, (now - r.last) / 1000));
+  r.last = now;
+  r.pose = rideAt(r.track, r.s);
+  centreOn(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, r.pose.x, r.pose.y);
+  if (r.s >= r.track.length) {
+    r.playing = false;
+    renderRideButton();
+  } else requestAnimationFrame(rideFrame);
+  invalidate();
+}
+
+function pauseRide() {
+  if (!state.ride?.playing) return;
+  state.ride.playing = false;
+  renderRideButton();
+}
+
+function stopRide() {
+  if (!state.ride) return;
+  state.ride = null;
+  renderRideButton();
+  invalidate();
+}
+
+function renderRideButton() {
+  const r = state.ride;
+  const b = $('ride');
+  b.setAttribute('aria-pressed', String(!!r?.playing));
+  b.textContent = r?.playing ? '❚❚ Пауза' : r && r.s > 0 && r.s < r.track.length ? '▶ Дальше' : '▶ Проезд';
 }
 
 // ---------------------------------------------------------------- picture
@@ -537,6 +602,7 @@ async function share() {
 const BEHIND_FORM = ['stage', 'dock', 'setup-panel'];
 let formOpener = null;
 function openForm() {
+  pauseRide();
   formOpener = document.activeElement;
   for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
@@ -634,6 +700,7 @@ function start() {
     } else exitSetup();
   });
   $('share').addEventListener('click', share);
+  $('ride').addEventListener('click', toggleRide);
   for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
   $('zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
