@@ -193,18 +193,23 @@ function planBlock(course, sheet, maxHeight) {
       maxWidth: 280, minSegment: 60, height: 12, fontSize: 20, ink: INK, paper: '#fff', text: INK,
     });
 
-    // Closed sides of boxes and U-turn zones: not marked on the asphalt, drawn
-    // dotted so they cannot be mistaken for a connector without colour.
-    ctx.setLineDash([2, 6]);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#8d9a9f';
+    // Walls between low cones (closed sides of boxes and U-turns, corridors):
+    // not marked on the asphalt, drawn dotted so they cannot be mistaken for a
+    // connector without colour. Chalk lines are painted: drawn solid and thick.
     for (const e of course.elements) {
-      if (e.type !== 'box' && e.type !== 'u-turn') continue;
-      const pts = e.cones.map((id) => byId.get(id));
-      const closed = e.type === 'u-turn' ? pts : pts.slice(1);
-      ctx.beginPath();
-      closed.forEach((c, i) => (i ? ctx.lineTo(X(c.hx / 2), Y(c.hy / 2)) : ctx.moveTo(X(c.hx / 2), Y(c.hy / 2))));
-      ctx.stroke();
+      for (const line of e.lines ?? []) {
+        const chalk = line.kind === 'chalk';
+        ctx.setLineDash(chalk ? [] : [2, 6]);
+        ctx.lineWidth = chalk ? 6 : 2;
+        ctx.strokeStyle = chalk ? '#5d6a70' : '#8d9a9f';
+        ctx.beginPath();
+        line.cones.forEach((id, i) => {
+          const c = byId.get(id);
+          if (i) ctx.lineTo(X(c.hx / 2), Y(c.hy / 2));
+          else ctx.moveTo(X(c.hx / 2), Y(c.hy / 2));
+        });
+        ctx.stroke();
+      }
     }
     ctx.setLineDash([]);
 
@@ -401,8 +406,14 @@ function textBlock(lines) {
   };
 }
 
+// A card with more cones than this spans both columns, its cone table in three.
+const WIDE_CONES = 16;
+const isWide = (card) => card.cones.length > WIDE_CONES;
+
 function cardBlock(card, width) {
   const inner = width - 36;
+  const tables = isWide(card) ? 3 : 1;
+  const rows = Math.ceil(card.cones.length / tables);
   const head = textBlock([
     { text: card.name, size: 28, weight: 700, gap: 4 },
     { text: `Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: card.fromPrevious ? 2 : 6 },
@@ -416,9 +427,10 @@ function cardBlock(card, width) {
   return {
     measure(ctx) {
       this.headH = head.measure(ctx, inner - 44);
-      this.height = 18 + this.headH + 14 + rowH * (card.cones.length + 1) + (card.axis.diagonal ? 0 : 30) + 18;
+      this.height = 18 + this.headH + 14 + rowH * (rows + 1) + (card.axis.diagonal ? 0 : 30) + 18;
       return this.height;
     },
+    wide: tables > 1,
     draw(ctx, x, y) {
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#b9c3c0';
@@ -429,22 +441,32 @@ function cardBlock(card, width) {
       ctx.stroke();
       badge(ctx, x + 36, y + 36, String(card.number), 20);
       head.draw(ctx, x + 66, y + 18);
-      let ty = y + 18 + this.headH + 14;
-      const colX = [x + 22, x + 78, x + 200, x + 330];
+      const top = y + 18 + this.headH + 14;
+      // One table, or several side by side (the glyph alone tells high from low there).
+      const tableW = (width - 32) / tables;
+      const colsAt = (k) => {
+        const tx = x + 16 + k * tableW;
+        return tables > 1 ? [tx + 6, tx + 52, tx + 92, tx + 200] : [x + 22, x + 78, x + 200, x + 330];
+      };
       font(ctx, 18, 600);
       ctx.fillStyle = MUTED;
       ctx.textBaseline = 'middle';
-      cols.forEach((c, i) => {
-        ctx.textAlign = 'left';
-        ctx.fillText(c, colX[i], ty + rowH / 2);
-      });
-      ty += rowH;
-      for (const cone of card.cones) {
+      for (let k = 0; k < tables; k++) {
+        const colX = colsAt(k);
+        cols.forEach((c, i) => {
+          ctx.textAlign = 'left';
+          if (tables === 1 || i !== 1) ctx.fillText(c, colX[i], top + rowH / 2);
+        });
+      }
+      card.cones.forEach((cone, n) => {
+        const k = Math.floor(n / rows);
+        const colX = colsAt(k);
+        const ty = top + rowH * (1 + (n % rows));
         ctx.strokeStyle = RULE;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x + 16, ty);
-        ctx.lineTo(x + width - 16, ty);
+        ctx.moveTo(x + 16 + k * tableW, ty);
+        ctx.lineTo(x + 16 + (k + 1) * tableW - (tables > 1 ? 12 : 0), ty);
         ctx.stroke();
         font(ctx, 20, 600);
         ctx.fillStyle = INK;
@@ -455,16 +477,16 @@ function cardBlock(card, width) {
         ctx.fillStyle = MUTED;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(cone.height === 'tall' ? 'высокий' : 'низкий', colX[1] + 36, ty + rowH / 2);
+        if (tables === 1) ctx.fillText(cone.height === 'tall' ? 'высокий' : 'низкий', colX[1] + 36, ty + rowH / 2);
         font(ctx, 22, 700);
         ctx.fillStyle = INK;
         ctx.textAlign = 'left';
         const a = card.axis.diagonal ? cone.dx : cone.along;
         const b = card.axis.diagonal ? cone.dy : cone.across;
-        ctx.fillText(`${fmt(a)} м`, colX[2] + 20, ty + rowH / 2);
+        ctx.fillText(`${fmt(a)} м`, colX[2] + (tables === 1 ? 20 : 0), ty + rowH / 2);
         ctx.fillText(`${fmt(b)} м`, colX[3], ty + rowH / 2);
-        ty += rowH;
-      }
+      });
+      const ty = top + rowH * (rows + 1);
       if (!card.axis.diagonal) {
         font(ctx, 17);
         ctx.fillStyle = MUTED;
@@ -508,8 +530,14 @@ function packCards(cards, available) {
   const frames = [];
   let current = [];
   let used = 0;
-  for (let i = 0; i < cards.length; i += 2) {
-    const row = cards.slice(i, i + 2);
+  // Rows of two cards in passing order; a wide card takes a row of its own.
+  const rows = [];
+  for (const card of cards) {
+    const last = rows[rows.length - 1];
+    if (!card.wide && last && last.length === 1 && !last[0].wide) last.push(card);
+    else rows.push([card]);
+  }
+  for (const row of rows) {
     const h = Math.max(...row.map((c) => c.height)) + 20;
     if (current.length && used + h > available) {
       frames.push(current);
@@ -545,7 +573,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
       ]),
   ]);
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка, точки — закрытые стороны коробки и разворота (не размечаются), толстые штрихи — линия старта и финиша.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка, точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша.', size: 20, color: '#2f3d45' },
   ]);
   const { tallBlue, tallRed, low } = sheet.coneList;
   const list = textBlock([
@@ -559,7 +587,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const plan = planBlock(course, sheet, H - 2 * PAD - FOOTER - hIntro - 20 - 16 - hLegend - 20 - hTerm - 20 - hList);
 
   const colW = (width - 20) / 2;
-  const cards = sheet.cards.map((c) => cardBlock(c, colW));
+  const cards = sheet.cards.map((c) => cardBlock(c, isWide(c) ? width : colW));
   cards.forEach((c) => c.measure(probe));
   const heading = (from, to) => textBlock([
     { text: `Карточки элементов ${from}–${to}`, size: 40, weight: 800, gap: 4 },

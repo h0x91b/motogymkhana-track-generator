@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { generateCourse, parseRecipe } from '../src/generator/index.js';
+import { ELEMENT_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
 
 const baseRecipe = {
   width: 40,
@@ -87,9 +87,17 @@ describe('recipe input', () => {
     expect(generateCourse({ ...baseRecipe, train: true, types: ['box'] }, 1).error.code).toBe('invalid-input');
   });
 
-  test('all eight types are allowed by default', () => {
+  test('every type is allowed by default', () => {
     const result = generateCourse(baseRecipe, 1);
-    expect(result.course.recipe.types).toHaveLength(8);
+    expect(result.course.recipe.types).toEqual(ELEMENT_TYPES);
+    expect(ELEMENT_TYPES).toHaveLength(19);
+  });
+
+  test('only the types kept for medium and hard, ticked at easy, are a types error', () => {
+    const result = parseRecipe({ ...baseRecipe, difficulty: 'easy', types: ['snail', 'keyhole'] });
+    expect(result.ok).toBe(false);
+    expect(result.errors.types).toBeTruthy();
+    expect(parseRecipe({ ...baseRecipe, difficulty: 'medium', types: ['snail', 'keyhole'] }).ok).toBe(true);
   });
 });
 

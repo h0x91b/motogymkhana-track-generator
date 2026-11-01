@@ -1,4 +1,4 @@
-import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
+import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -17,8 +17,18 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'medium', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'hard', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
 };
+
+// The types a form saved before `knownTypes` was stored had to choose from.
+const FIRST_TYPES = ELEMENT_TYPES.slice(0, 8);
+
+/** The saved type ticks, with every type added since that form was saved ticked. */
+function savedTypes(saved) {
+  if (!Array.isArray(saved?.types)) return [...ELEMENT_TYPES];
+  const known = Array.isArray(saved.knownTypes) ? saved.knownTypes : FIRST_TYPES;
+  return ELEMENT_TYPES.filter((t) => saved.types.includes(t) || !known.includes(t));
+}
 
 const state = {
   form: null,
@@ -46,17 +56,28 @@ function buildTypeChecks() {
   for (const t of ELEMENT_TYPES) {
     const label = document.createElement('label');
     label.className = 'check';
-    label.innerHTML = `<input type="checkbox" name="types" value="${t}"> ${TYPE_NAMES[t]}${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}`;
+    // Name and hints in one span: the label is a flex row, so loose text would wrap as a separate column.
+    label.innerHTML = `<input type="checkbox" name="types" value="${t}"> <span>${TYPE_NAMES[t]}`
+      + `${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}`
+      + `${TYPE_LEVELS[t] ? '<span class="level-off"> — со средней сложности</span>' : ''}</span>`;
     box.append(label);
   }
 }
 
-/** In «паровозик» the looped types are off whatever is ticked: say so on the boxes. */
-function syncTrain() {
+/**
+ * Types the generator leaves out whatever is ticked — looped ones in
+ * «паровозик», the medium-and-up ones at easy: say so on the boxes.
+ */
+function syncTypes() {
   const train = form.train.checked;
+  const difficulty = form.querySelector('[name="difficulty"]:checked')?.value;
   $('train-hint').hidden = !train;
-  for (const t of LOOPED_TYPES) form.querySelector(`[name="types"][value="${t}"]`).disabled = train;
+  for (const t of ELEMENT_TYPES) {
+    const level = TYPE_LEVELS[t] && !TYPE_LEVELS[t].includes(difficulty);
+    form.querySelector(`[name="types"][value="${t}"]`).disabled = (train && LOOPED_TYPES.includes(t)) || !!level;
+  }
   for (const s of form.querySelectorAll('.train-off')) s.hidden = !train;
+  for (const s of form.querySelectorAll('.level-off')) s.hidden = difficulty !== 'easy';
 }
 
 function writeForm(f) {
@@ -68,7 +89,7 @@ function writeForm(f) {
   form.train.checked = !!f.train;
   form.seed.value = f.seed;
   for (const c of form.querySelectorAll('[name="types"]')) c.checked = f.types.includes(c.value);
-  syncTrain();
+  syncTypes();
 }
 
 function readForm() {
@@ -105,7 +126,7 @@ function onFormChange(immediate = false) {
   const run = () => {
     const raw = readForm();
     state.form = raw;
-    saveForm(raw);
+    saveForm({ ...raw, knownTypes: ELEMENT_TYPES });
     const v = validate(raw);
     showErrors(v.errors);
     if (!v.ok) {
@@ -360,6 +381,8 @@ function coneDot(cone) {
   return `<span class="dot ${cone.color}" title="${title}" aria-hidden="true">${letter}</span><span class="sr-only">${title}</span>`;
 }
 
+const LONG_TABLE = 16;
+
 function coneTable(card, big = false) {
   const diag = card.axis.diagonal;
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
@@ -369,7 +392,9 @@ function coneTable(card, big = false) {
     return `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${fmt(a)} м</td><td>${fmt(b)} м</td></tr>`;
   }).join('');
   const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';
-  return `<table class="cones${big ? ' big' : ''}"><tr>${head}</tr>${rows}</table>${note}`;
+  const table = `<table class="cones${big ? ' big' : ''}"><tr>${head}</tr>${rows}</table>${note}`;
+  // A snail has some eighty cones: the table is there, but folded.
+  return card.cones.length > LONG_TABLE ? `<details class="cones-fold"><summary>Таблица конусов: ${card.cones.length} шт.</summary>${table}</details>` : table;
 }
 
 function cardHtml(card, big = false) {
@@ -799,13 +824,14 @@ function start() {
   $('version').textContent = String(GENERATOR_VERSION);
   buildTypeChecks();
   const saved = loadForm();
-  const initial = { ...DEFAULT_FORM, ...(saved ?? {}) };
-  if (!Array.isArray(initial.types)) initial.types = [...ELEMENT_TYPES];
+  const initial = { ...DEFAULT_FORM, ...(saved ?? {}), types: savedTypes(saved) };
+  delete initial.knownTypes;
   writeForm(initial);
   state.form = readForm();
 
   form.addEventListener('input', () => onFormChange());
-  form.train.addEventListener('change', syncTrain);
+  form.train.addEventListener('change', syncTypes);
+  for (const r of form.querySelectorAll('[name="difficulty"]')) r.addEventListener('change', syncTypes);
   form.addEventListener('change', () => onFormChange());
   form.addEventListener('submit', (e) => {
     e.preventDefault();

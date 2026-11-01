@@ -1,7 +1,7 @@
 // Hard rules of a course, checked on hundreds of seeds through generateCourse.
 
 import { describe, expect, test } from 'bun:test';
-import { generateCourse } from '../src/generator/index.js';
+import { generateCourse, LOOPED_TYPES, TYPE_LEVELS } from '../src/generator/index.js';
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
@@ -37,6 +37,22 @@ const each = (fn) => {
 const label = (c) => `seed ${c.seed} ${c.site.width}×${c.site.length}`;
 
 const near = (a, b, tol = 0.011) => Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol;
+
+/** Where the path crosses the segment a–b: the signed crossing direction of each crossing. */
+function crossingsOf(path, a, b) {
+  const out = [];
+  const side = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  for (let i = 1; i < path.length; i++) {
+    const s0 = side(path[i - 1]);
+    const s1 = side(path[i]);
+    if (s0 === 0 || Math.sign(s0) === Math.sign(s1)) continue;
+    const t = s0 / (s0 - s1);
+    const x = [path[i - 1][0] + t * (path[i][0] - path[i - 1][0]), path[i - 1][1] + t * (path[i][1] - path[i - 1][1])];
+    const along = ((x[0] - a[0]) * (b[0] - a[0]) + (x[1] - a[1]) * (b[1] - a[1])) / ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2);
+    if (along > 0 && along < 1) out.push(s1 - s0);
+  }
+  return out;
+}
 
 describe('placement', () => {
   test('every cone is inside the site with the 1 m margin', () => {
@@ -197,7 +213,7 @@ describe('cone sides, from the actual geometry of the route', () => {
         if (p.kind === 'gate') {
           note(p.left, 'left');
           note(p.right, 'right');
-        } else note(p.cone, p.side);
+        } else if (p.kind === 'cone') note(p.cone, p.side);
       }
       for (const cone of c.cones) {
         if (cone.height === 'tall') expect(sides.get(cone.id)?.size, `${label(c)} ${cone.id}`).toBe(1);
@@ -238,14 +254,14 @@ describe('element shapes', () => {
     expect(seen).toBeGreaterThan(20);
   });
 
-  test('pivot turns are 270° or 360° around their cone, as the pass says', () => {
+  test('pivot turns are 270°, 360° or 720° around their cone, as the pass says', () => {
     let seen = 0;
     each((c) => {
       const byId = conesById(c);
       for (const e of c.elements.filter((x) => x.type === 'pivot-turn')) {
         seen++;
         const pass = c.passes.find((p) => p.element === e.id);
-        expect([270, 360]).toContain(pass.angle);
+        expect([270, 360, 720]).toContain(pass.angle);
         const cone = coneXY(byId.get(e.anchor));
         const r = Math.min(...e.path.map((p) => Math.hypot(p[0] - cone[0], p[1] - cone[1])));
         const arc = e.path.filter((p) => Math.hypot(p[0] - cone[0], p[1] - cone[1]) <= r * 1.02);
@@ -290,12 +306,77 @@ describe('element shapes', () => {
     expect(seen).toBeGreaterThan(20);
   });
 
-  test('pivot angles follow the difficulty: easy 270°, hard 360°', () => {
+  test('pivot angles follow the difficulty: easy 270°, hard 360° or two laps', () => {
     for (const { recipe, courses } of generated) {
       const angles = courses.flatMap((c) => c.passes.filter((p) => p.angle).map((p) => p.angle));
       if (recipe.difficulty === 'easy') expect(angles.every((a) => a === 270)).toBe(true);
-      if (recipe.difficulty === 'hard') expect(angles.every((a) => a === 360)).toBe(true);
+      if (recipe.difficulty === 'hard') expect(angles.every((a) => a === 360 || a === 720)).toBe(true);
     }
+  });
+
+  test('the ridden line of an element keeps at least 0.5 m from every one of its cones', () => {
+    each((c) => {
+      const byId = conesById(c);
+      for (const e of c.elements) {
+        for (const id of e.cones) {
+          expect(distanceToPath(e.path, coneXY(byId.get(id))), `${label(c)} ${e.id} ${e.type} ${id}`).toBeGreaterThan(0.5);
+        }
+      }
+    });
+  });
+
+  test('a mirror is ridden over its line: the wheel crosses the line between its two low cones', () => {
+    let seen = 0;
+    each((c) => {
+      const byId = conesById(c);
+      const elements = new Map(c.elements.map((e) => [e.id, e]));
+      for (const pass of c.passes.filter((p) => p.kind === 'line')) {
+        seen++;
+        const e = elements.get(pass.element);
+        expect(e.type).toBe('mirror');
+        const a = coneXY(byId.get(pass.from));
+        const b = coneXY(byId.get(pass.to));
+        expect(byId.get(pass.from).height).toBe('low');
+        expect(e.lines).toEqual([{ kind: 'chalk', cones: [pass.from, pass.to] }]);
+        expect(crossingsOf(e.path, a, b).length, `${label(c)} ${e.id}`).toBeGreaterThan(0);
+      }
+    });
+    expect(seen).toBeGreaterThan(10);
+  });
+
+  test('wall and chalk lines join cones of their own element', () => {
+    each((c) => {
+      for (const e of c.elements) {
+        for (const line of e.lines ?? []) {
+          expect(['wall', 'chalk']).toContain(line.kind);
+          expect(line.cones.length).toBeGreaterThanOrEqual(2);
+          for (const id of line.cones) expect(e.cones).toContain(id);
+        }
+      }
+    });
+  });
+
+  test('a gate turn goes through its gate and comes back through the same gate the other way', () => {
+    let seen = 0;
+    each((c) => {
+      const byId = conesById(c);
+      for (const e of c.elements.filter((x) => x.type === 'gate-turn')) {
+        seen++;
+        const [a, b] = e.cones.map((id) => coneXY(byId.get(id)));
+        const crossings = crossingsOf(e.path, a, b);
+        expect(crossings.length, `${label(c)} ${e.id}`).toBe(2);
+        expect(Math.sign(crossings[0]) === -Math.sign(crossings[1])).toBe(true);
+      }
+    });
+    expect(seen).toBeGreaterThan(10);
+  });
+
+  test('a snail, licence-test eight and keyhole appear only from medium difficulty', () => {
+    each((c, recipe) => {
+      for (const e of c.elements) {
+        if (TYPE_LEVELS[e.type]) expect(TYPE_LEVELS[e.type], `${label(c)} ${e.type}`).toContain(recipe.difficulty);
+      }
+    });
   });
 
   test('slalom steps and gate widths stay in the difficulty ranges', () => {
@@ -396,10 +477,10 @@ const TRAIN_NEAR = 4.5; // metres of route; closer than this is the same stretch
 describe('паровозик', () => {
   const trains = generated.filter(({ recipe }) => recipe.train);
 
-  test('has no looped elements: no pivot turn, figure eight or box', () => {
+  test('has no looped elements: no pivot turn, figure eight, box, circle, mirror, gate turn, snail or keyhole', () => {
     for (const { courses } of trains) {
       for (const c of courses) {
-        for (const e of c.elements) expect(['pivot-turn', 'figure-eight', 'box']).not.toContain(e.type);
+        for (const e of c.elements) expect(LOOPED_TYPES).not.toContain(e.type);
       }
     }
   });

@@ -13,14 +13,35 @@ export const ELEMENT_TYPES = [
   'pivot-turn',
   'figure-eight',
   'box',
+  'circle',
+  'mirror',
+  'gate-turn',
+  'snail',
+  'tunnel',
+  'zigzag',
+  'corridor-slalom',
+  'box-eight',
+  'keyhole',
+  'crescent',
+  'swerve',
 ];
 
 // Types whose trajectory passes the same spot twice a few metres of route
 // apart: in «паровозик», a column of riders, they would meet there.
-export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box'];
+export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'mirror', 'gate-turn', 'snail', 'box-eight', 'keyhole'];
 
-/** The types the generator may use: the allowed ones, without loops in «паровозик». */
-export const usableTypes = (recipe) => (recipe.train ? recipe.types.filter((t) => !LOOPED_TYPES.includes(t)) : recipe.types);
+// Types too tight or too long for a beginner: the generator uses them from
+// these difficulties only. The other types are used at every difficulty.
+export const TYPE_LEVELS = { snail: ['medium', 'hard'], 'box-eight': ['medium', 'hard'], keyhole: ['medium', 'hard'] };
+
+const atLevel = (type, difficulty) => !TYPE_LEVELS[type] || TYPE_LEVELS[type].includes(difficulty);
+
+/**
+ * The types the generator may use: the allowed ones at this difficulty,
+ * without loops in «паровозик».
+ */
+export const usableTypes = (recipe) =>
+  recipe.types.filter((t) => atLevel(t, recipe.difficulty) && !(recipe.train && LOOPED_TYPES.includes(t)));
 
 export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
@@ -95,7 +116,11 @@ export function parseRecipe(input) {
   }
   if (!types || types.length === 0) errors.types = 'Отметьте хотя бы один тип элемента';
   else if (train && types.every((t) => LOOPED_TYPES.includes(t))) {
-    errors.types = 'В паровозике нет вращения, восьмёрки и коробки: отметьте другой тип';
+    errors.types = 'В паровозике нет элементов с петлями и встречной ездой: отметьте другой тип';
+  } else if (difficulty && types.every((t) => !atLevel(t, difficulty))) {
+    errors.types = 'Улитка, восьмёрка в габарите и замочная скважина — только для средней и сложной: отметьте другой тип';
+  } else if (difficulty && train && usableTypes({ types, difficulty, train }).length === 0) {
+    errors.types = 'Ни один отмеченный тип не подходит для паровозика на этой сложности: отметьте другой тип';
   }
 
   if (Object.keys(errors).length) return { ok: false, errors };

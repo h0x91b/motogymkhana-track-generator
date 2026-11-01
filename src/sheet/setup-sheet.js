@@ -20,9 +20,9 @@ function axisLabel(axis) {
 
 export const travelLabel = (dir) => DIR_LABELS[dir];
 
-const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box']);
+const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box', 'circle', 'mirror', 'gate-turn', 'keyhole']);
 
-/** Net turning of a U-turn, pivot or box (±180° or more, never near zero). */
+/** Net turning of an element that turns one way (±180° or more, never near zero). */
 function netTurn(path) {
   let total = 0;
   for (let i = 2; i < path.length; i++) {
@@ -35,7 +35,7 @@ function netTurn(path) {
   return total >= 0 ? 'left' : 'right';
 }
 
-/** Which way the second gate of a lane change is shifted, seen in the direction of travel. */
+/** Which way the second gate of a lane change or tunnel is shifted, seen in the direction of travel. */
 function shiftSide(element, byId) {
   const [a, b, c, d] = element.cones.map((id) => byId.get(id));
   const mx = c.hx + d.hx - a.hx - b.hx;
@@ -58,6 +58,18 @@ const DIMENSIONS = {
   'pivot-turn': [],
   'figure-eight': [['along', 0, 1]],
   box: [['along', 0, 1], ['across', 1, 2]],
+  // Rings, curved walls and arcs are laid out from their centres (see arcs).
+  circle: [],
+  mirror: [['across', 0, 1]],
+  'gate-turn': [['across', 0, 1]],
+  snail: [],
+  tunnel: [['across', 0, 1], ['along', 0, 2], ['across', 0, 2]],
+  zigzag: [['along', 0, 2], ['across', 0, 1], ['across', 0, 2]],
+  'corridor-slalom': [['along', 0, 1], ['across', 1, 2], ['along', 0, 4], ['across', 4, 5]],
+  'box-eight': [['along', 0, 1], ['across', 2, 3], ['along', 4, 5], ['across', 5, 6]],
+  keyhole: [],
+  crescent: [],
+  swerve: [['across', 0, 1], ['along', 0, 4], ['along', 4, 6]],
 };
 
 const half = (v) => Math.round(v * 2) / 2 + 0;
@@ -98,7 +110,10 @@ function describe(element, cones, diagonal, turn, shift, dims) {
   const size = (m) => (diagonal ? `${metres(m)} по X и ${metres(m)} по Y` : metres(m));
   const len = (steps) => size(steps * 0.5);
   const first = cones[0];
+  const last = cones[cones.length - 1];
   const colour = (c) => (c.color === 'blue' ? 'синий' : 'красный');
+  const colours = (c) => (c.color === 'blue' ? 'синих' : 'красных');
+  const colourOf = (c) => (c.color === 'blue' ? 'синего' : 'красного');
   switch (element.type) {
     case 'straight-slalom':
       return [`${p.count} конусов, шаг: ${len(p.step)}`, `Первый конус ${colour(first)}, дальше цвета чередуются`];
@@ -124,6 +139,72 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       return [`Между центрами: ${len(p.distance)}`, `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`, 'Петли вытянуты вдоль линии центров'];
     case 'box':
       return [`Сторона коробки: ${len(p.size)}`, `Внутри поворот на 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];
+    case 'circle':
+      return [
+        p.stretch
+          ? `${cones.length} конусов по овалу: две полуокружности радиусом ${len(p.radius)}, центры в ${len(p.stretch)} друг от друга вдоль оси`
+          : `${cones.length} конусов по кругу радиусом ${len(p.radius)}`,
+        `Один круг ${CLOCK[turn]} снаружи конусов, выезд поворотом в другую сторону`,
+      ];
+    case 'mirror':
+      return [
+        `Линия мелом поперёк оси между двумя низкими конусами: ${size(dims[0].value)}`,
+        `Разворот ${TURN[turn]}: на вершине колесо пересекает линию или касается её`,
+        'Въезд и выезд с одной стороны линии, следы перекрещиваются перед ней',
+      ];
+    case 'gate-turn':
+      return [
+        `Ворота из двух низких конусов, ширина: ${len(p.width)}`,
+        `Через ворота, петля ${TURN[turn]} за ними и обратно через те же ворота`,
+        'Туда и обратно — по разным половинам ворот',
+      ];
+    case 'snail':
+      return [
+        `Двойная спираль из низких конусов, коридор шириной ${len(p.corridor)}`,
+        'По одному коридору к центру, в центре перекладка буквой S, наружу по второму коридору между витками первого',
+        'Стенки — полуокружности вокруг двух центров, конус примерно через 1,5 м',
+      ];
+    case 'tunnel':
+      return [
+        `Трое ворот, ширина: ${len(p.width)}`,
+        `Между воротами вдоль оси: ${size(dims[1].value)}`,
+        `Средние ворота смещены ${shift === 'left' ? 'влево' : 'вправо'} на ${len(p.shift)}`,
+      ];
+    case 'zigzag':
+      return [
+        `${cones.length / 2} пары низких конусов, шаг вдоль оси: ${len(p.step)}`,
+        `Ширина коридора: ${len(p.width)}`,
+        `Пары попеременно смещены вбок на ${len(p.shift)}, ехать посередине`,
+      ];
+    case 'corridor-slalom':
+      return [
+        `Коридор из низких конусов: длина ${size(dims[0].value)}, ширина ${len(p.width)}`,
+        `Три перегородки через ${len(p.step)}, попеременно от стенок, длина перегородки ${len(Math.floor(p.width / 2))}`,
+        'Змейкой вокруг концов перегородок',
+      ];
+    case 'box-eight':
+      return [
+        `Между центрами: ${len(p.distance)}`,
+        `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`,
+        `Посередине ворота из двух низких конусов, ширина: ${len(p.gate)}`,
+        `Габарит по угловым конусам: ${size(dims[2].value)} × ${size(dims[3].value)}, въезд и выезд — через длинные стороны у края`,
+      ];
+    case 'keyhole':
+      return [
+        `Кольцо из ${cones.length} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} к подъезду`,
+        `Въезд в проём наискосок, круг ${CLOCK[turn]} внутри, выезд через тот же проём`,
+      ];
+    case 'crescent':
+      return [
+        `Полукруг радиусом ${len(p.radius)} снаружи пяти ${colours(first)} конусов`,
+        `Затем рывок в другую сторону: четверть круга вокруг ${colourOf(last)} конуса`,
+      ];
+    case 'swerve':
+      return [
+        `Коридор из низких конусов: ширина ${len(p.width)}, длина ${size(dims[1].value)}`,
+        `Тупик из трёх низких конусов в ${size(dims[2].value)} от конца коридора`,
+        `Объезд тупика ${element.mirrored ? 'справа' : 'слева'}; на тренировке сторону показывает помощник в последний момент`,
+      ];
     default:
       return [];
   }
@@ -145,7 +226,7 @@ export function buildSetupSheet(course) {
     if (pass.kind === 'gate') {
       color.set(pass.left, 'blue');
       color.set(pass.right, 'red');
-    } else {
+    } else if (pass.kind === 'cone') {
       color.set(pass.cone, pass.side === 'left' ? 'blue' : 'red');
     }
   }
@@ -165,10 +246,17 @@ export function buildSetupSheet(course) {
       return { ...base, along: dx * sx + dy * sy + 0, across: -dx * sy + dy * sx + 0 };
     });
     const turn = ONE_WAY.has(e.type) ? netTurn(e.path) : null;
-    const shift = e.type === 'lane-change' ? shiftSide(e, byId) : null;
+    const shift = e.type === 'lane-change' || e.type === 'tunnel' ? shiftSide(e, byId) : null;
     const pivot = course.passes.find((p) => p.element === e.id && p.angle);
     const points = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, d));
+    const arcs = (e.guides ?? []).map((g) => ({
+      center: { x: g.x, y: g.y },
+      radii: g.radii,
+      from: g.from,
+      to: g.to,
+      label: `Центр X ${fmt(g.x)} · Y ${fmt(g.y)}: ${g.radii.length > 1 ? 'дуги радиусом' : 'дуга радиусом'} ${g.radii.map(fmt).join('; ')} м`,
+    }));
     return {
       number: e.order,
       element: e.id,
@@ -179,9 +267,10 @@ export function buildSetupSheet(course) {
       travel: travelLabel(e.entry.dir),
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
-      notes: describe(e, cones, diagonal, turn, shift, dims),
+      notes: [...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
       cones,
       dims,
+      arcs,
     };
   });
 

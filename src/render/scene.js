@@ -85,7 +85,7 @@ export function coneColors(course) {
     if (p.kind === 'gate') {
       colors.set(p.left, 'blue');
       colors.set(p.right, 'red');
-    } else colors.set(p.cone, p.side === 'left' ? 'blue' : 'red');
+    } else if (p.kind === 'cone') colors.set(p.cone, p.side === 'left' ? 'blue' : 'red');
   }
   return colors;
 }
@@ -216,14 +216,14 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     if (e.id === selected || riders.some((r) => r.element === e.id)) path(e.zone.map(([x, y]) => [x, y, 0.005]), '#d8f7ee99', 0.06, '#8bd5bd26', true);
   }
 
-  // Guides along the closed sides of boxes and U-turn zones (not marked on the asphalt).
+  // Walls between low cones (closed sides of boxes and U-turns, corridors) are
+  // guides, not marked on the asphalt; a mirror's chalk line is painted.
   for (const e of course.elements) {
-    if (e.type !== 'box' && e.type !== 'u-turn') continue;
-    const pts = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2, 0.008]);
-    // Only the closed sides: a U-turn zone is open on its entry side (corners
-    // 4–1), a box on its entry (4–1) and exit (1–2) sides.
-    const closed = e.type === 'u-turn' ? pts : pts.slice(1);
-    path(closed, '#b8c6c0aa', 0.06, null, false, [0.25, 0.3]);
+    for (const line of e.lines ?? []) {
+      const pts = line.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2, 0.008]);
+      if (line.kind === 'chalk') path(pts, PALETTE.paint, 0.18);
+      else path(pts, '#b8c6c0aa', 0.06, null, false, [0.25, 0.3]);
+    }
   }
 
   // Start / finish lines: a chequered band between the two low cones.

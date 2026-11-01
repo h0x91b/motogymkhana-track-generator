@@ -9,6 +9,7 @@
 
 import { chooseParams, instantiate, minimalParams, DIFFICULTY_TABLE, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
+import { PI } from './dmath.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap,
   pointsBounds, polylineHitsObb, polylineLength, round2,
@@ -26,7 +27,10 @@ const RUN_OUT = 2; // free space past the finish line
 const LINE_STEPS = { side: 3, diagonal: 2 }; // half-width of a start/finish line in half-metre lattice steps
 const CANDIDATES = 24; // placements drawn per element and type
 const BRANCH = 3; // best placements explored per element and type before backtracking
-const TYPE_TRIES = 3; // types tried per element, in its seeded order of preference
+// Types tried per element, in its seeded order of preference. Every allowed
+// type is tried only on sites where no course fits with the first few: with
+// many large types allowed, all three can be too big for a small site.
+export const TYPE_TRY_LIMITS = [3, Infinity];
 const CONNECTOR_RADII = [1, 1.5]; // × the minimum turning radius
 const BUDGET_BASE = 720; // evaluated placements per attempt…
 const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
@@ -182,6 +186,12 @@ function placeTemplate(tpl, axis, ax, ay) {
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
       path,
+      // Arcs to lay curved walls and rings out with a tape: centre in metres,
+      // radii in metres, angles in degrees anticlockwise from +x.
+      guides: tpl.guides.map((g) => {
+        const from = (((g.from * 180) / PI + 45 * axis) % 360 + 360) % 360;
+        return { center: toM(...g.center), radii: g.radii.map((r) => r * tpl.unit), from, to: from + ((g.to - g.from) * 180) / PI };
+      }),
     }),
   };
 }
@@ -343,7 +353,7 @@ class BudgetExhausted extends Error {}
 /**
  * @returns {{ok: true, course: object} | {ok: false}}
  */
-export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
+export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, typeTries = TYPE_TRY_LIMITS[0]) {
   const inner = innerRect(recipe);
   const site = [0, 0, recipe.width, recipe.length];
   const feasible = feasibleTypes(recipe);
@@ -476,7 +486,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
     if (i === n) return true;
     const prev = i > 0 ? placed[i - 1].tpl.type : null;
     // Two identical types in a row only when the user allowed a single type.
-    const types = preferences[i].filter((t) => usableTypes(recipe).length === 1 || t !== prev).slice(0, TYPE_TRIES);
+    const types = preferences[i].filter((t) => usableTypes(recipe).length === 1 || t !== prev).slice(0, typeTries);
     for (const type of types) {
       for (const option of candidates(i, type)) {
         const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;
@@ -555,6 +565,8 @@ function assemble(recipe, seed, placed, legs, start, finish) {
       const base = { id: `p${passes.length + 1}`, element: id };
       if (pass.kind === 'gate') {
         passes.push({ ...base, kind: 'gate', left: ids[pass.left], right: ids[pass.right] });
+      } else if (pass.kind === 'line') {
+        passes.push({ ...base, kind: 'line', from: ids[pass.from], to: ids[pass.to] });
       } else {
         passes.push({ ...base, kind: 'cone', cone: ids[pass.cone], side: pass.side, ...(pass.angle ? { angle: pass.angle } : {}) });
       }
@@ -572,6 +584,14 @@ function assemble(recipe, seed, placed, legs, start, finish) {
       exit: { x: round2(p.exit[0]), y: round2(p.exit[1]), dir: p.exitDir },
       path: world.path.map(rp),
       zone: zoneCorners(p.zone),
+      ...(p.tpl.lines.length ? { lines: p.tpl.lines.map((l) => ({ kind: l.kind, cones: l.cones.map((k) => ids[k]) })) } : {}),
+      ...(world.guides.length
+        ? {
+          guides: world.guides.map((g) => ({
+            x: round2(g.center[0]), y: round2(g.center[1]), radii: g.radii.map(round2), from: round2(g.from), to: round2(g.to),
+          })),
+        }
+        : {}),
     });
   });
   const finishOut = recipe.closed ? startOut : terminalOut(finish);

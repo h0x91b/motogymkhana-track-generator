@@ -13,6 +13,8 @@ const RECIPES = [
 const courses = RECIPES.flatMap((r) => Array.from({ length: 40 }, (_, seed) => generateCourse(r, seed).course));
 
 const key = ([x, y]) => `${x},${y}`;
+// Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
+const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'snail', 'keyhole', 'crescent'];
 const isHalf = (v) => Number.isInteger(v * 2);
 
 /** Rebuilds cone positions (metres) using nothing but the sheet. */
@@ -85,7 +87,7 @@ describe('setup sheet', () => {
       sheet.cards.forEach((card, i) => {
         const element = course.elements[i];
         const ids = element.cones;
-        for (const pass of course.passes.filter((p) => p.element === element.id)) {
+        for (const pass of course.passes.filter((p) => p.element === element.id && p.kind !== 'line')) {
           const sides = pass.kind === 'gate' ? [[pass.left, 'left'], [pass.right, 'right']] : [[pass.cone, pass.side]];
           for (const [id, side] of sides) {
             expect(card.cones[ids.indexOf(id)].color).toBe(side === 'left' ? 'blue' : 'red');
@@ -128,7 +130,7 @@ describe('setup sheet', () => {
   test('dimension lines run along or across the axis, are multiples of 0.5 m and are labelled with their length', () => {
     for (const course of courses) {
       for (const card of buildSetupSheet(course).cards) {
-        expect(card.dims.length > 0, `${card.type}`).toBe(card.type !== 'pivot-turn');
+        expect(card.dims.length > 0, `${card.type}`).toBe(!LAID_FROM_CENTRES.includes(card.type));
         const [sx, sy] = card.axis.vector;
         for (const d of card.dims) {
           const dx = d.to.x - d.from.x;
@@ -191,7 +193,9 @@ describe('setup sheet', () => {
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {
-        if (['u-turn', 'pivot-turn', 'box'].includes(card.type)) expect(['left', 'right']).toContain(card.turn);
+        if (['u-turn', 'pivot-turn', 'box', 'circle', 'mirror', 'gate-turn', 'keyhole'].includes(card.type)) {
+          expect(['left', 'right']).toContain(card.turn);
+        }
         else expect(card.turn).toBeNull();
       }
     }

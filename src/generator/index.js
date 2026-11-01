@@ -1,11 +1,11 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
 import { DIFFICULTY_TABLE, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
-import { buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN } from './generate.js';
+import { buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
-export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX } from './recipe.js';
+export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS } from './recipe.js';
 export { TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
@@ -52,8 +52,10 @@ function siteTooSmall(recipe) {
  * elements does not fit, it is simplified: rebuilt with the same seed and one
  * element fewer until it fits, so (N, seed) simplified to K equals (K, seed).
  * A closed course is first sought with a loop-free closing connector at every
- * size; only when none fits is the search repeated with the looser limit. The
- * equality still holds: every strict build for K or fewer already failed.
+ * size; only when none fits is the search repeated with the looser limit, and
+ * only when none fits with either is it repeated trying every allowed type per
+ * element. The equality still holds: every earlier build for K or fewer
+ * already failed.
  *
  * @returns {{ok: true, course: object} | {ok: false, error: object}}
  */
@@ -66,11 +68,13 @@ export function generateCourse(recipeInput, seedInput) {
   }
   const recipe = parsed.recipe;
   const limits = recipe.closed ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
-  for (const closingTurn of limits) {
-    for (let k = recipe.elements; k >= 1; k--) {
-      const result = buildCourse(recipe, seed.seed, k, closingTurn);
-      if (result.ok) {
-        return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k } };
+  for (const typeTries of TYPE_TRY_LIMITS) {
+    for (const closingTurn of limits) {
+      for (let k = recipe.elements; k >= 1; k--) {
+        const result = buildCourse(recipe, seed.seed, k, closingTurn, typeTries);
+        if (result.ok) {
+          return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k } };
+        }
       }
     }
   }
