@@ -375,6 +375,7 @@ function coneTable(card, big = false) {
 function cardHtml(card, big = false) {
   return `<h3>${card.number}. ${esc(card.name)}</h3>
     <p class="anchor${big ? ' big' : ''}">Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м</p>
+    ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
     <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>
     ${card.notes.map((n) => `<p>${esc(n)}</p>`).join('')}
     ${coneTable(card, big)}`;
@@ -392,9 +393,8 @@ function selectElement(id) {
   });
   box.hidden = false;
   // Frame the element in the part of the stage the card leaves free.
-  const free = canvas.clientHeight - box.offsetHeight - 10;
-  frameBounds(state.camera, canvas.clientWidth, Math.max(120, free), state.course.site, elementBounds(id));
-  state.camera.panY -= (canvas.clientHeight - Math.max(120, free)) / 2;
+  const free = Math.max(120, canvas.clientHeight - box.offsetHeight - 10);
+  frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: canvas.clientHeight - free + 16 });
   invalidate();
 }
 
@@ -402,10 +402,18 @@ function hideElementCard() {
   $('element-card').hidden = true;
 }
 
+/** The element's zone, and the previous anchor its own is measured from. */
 function elementBounds(id) {
   const e = state.course.elements.find((x) => x.id === id);
-  const xs = e.zone.map((p) => p[0]);
-  const ys = e.zone.map((p) => p[1]);
+  const points = [...e.zone];
+  const step = state.sheet.cards.find((c) => c.element === id).fromPrevious;
+  if (step) {
+    // With room for the chain's labels, which sit on the outside of the L.
+    const { anchor } = state.sheet.cards.find((c) => c.number === step.from);
+    points.push([anchor.x - 2, anchor.y - 2], [anchor.x + 2, anchor.y + 2]);
+  }
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 

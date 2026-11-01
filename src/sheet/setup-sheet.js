@@ -185,6 +185,20 @@ export function buildSetupSheet(course) {
     };
   });
 
+  // Each anchor also from the previous one in passing order: a short tape run
+  // from the element just laid out instead of a long one from corner A.
+  const signed = (v) => (v > 0 ? `+${fmt(v)}` : v < 0 ? `−${fmt(-v)}` : '0');
+  cards.forEach((card, i) => {
+    const prev = cards[i - 1];
+    if (!prev) {
+      card.fromPrevious = null;
+      return;
+    }
+    const dx = card.anchor.x - prev.anchor.x + 0;
+    const dy = card.anchor.y - prev.anchor.y + 0;
+    card.fromPrevious = { from: prev.number, dx, dy, label: `От якоря ${prev.number}: X ${signed(dx)} м · Y ${signed(dy)} м` };
+  });
+
   const coneList = { tallBlue: 0, tallRed: 0, low: 0 };
   for (const c of course.cones) {
     if (c.height === 'low') coneList.low++;

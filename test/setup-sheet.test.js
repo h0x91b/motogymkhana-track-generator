@@ -171,6 +171,23 @@ describe('setup sheet', () => {
     for (const type of ['gate', 'figure-eight', 'box']) expect(seen.has(type), type).toBe(true);
   });
 
+  test('each element after the first is placed from the previous anchor, and that chain alone rebuilds every anchor', () => {
+    const signed = (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
+    for (const course of courses) {
+      const { cards } = buildSetupSheet(course);
+      expect(cards[0].fromPrevious).toBeNull();
+      let at = cards[0].anchor;
+      for (const card of cards.slice(1)) {
+        const step = card.fromPrevious;
+        expect(step.from).toBe(card.number - 1);
+        expect(Number.isInteger(step.dx) && Number.isInteger(step.dy)).toBe(true);
+        at = { x: at.x + step.dx, y: at.y + step.dy };
+        expect(at, `seed ${course.seed} card ${card.number}`).toEqual(card.anchor);
+        expect(step.label).toBe(`От якоря ${step.from}: X ${signed(step.dx)} м · Y ${signed(step.dy)} м`);
+      }
+    }
+  });
+
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {

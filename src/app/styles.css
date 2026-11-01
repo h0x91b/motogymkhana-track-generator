@@ -135,6 +135,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .element-card h3, .setup-body h3 { margin: 0 0 4px; font-size: 17px; }
 .anchor { font-size: 18px; font-weight: 800; }
 .anchor.big { font-size: 26px; }
+.anchor + .from-previous { margin-top: -8px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 .cones { width: 100%; border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .cones th { text-align: left; font-weight: 600; color: var(--muted); font-size: 13px; }

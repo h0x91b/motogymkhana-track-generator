@@ -3,6 +3,7 @@
 // metric scene. Draws only when asked (no animation loop).
 
 import { TYPE_NAMES } from '../generator/catalog.js';
+import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 
@@ -299,6 +300,29 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     for (const seg of [...layout.extensions, ...layout.ticks]) path(seg.map(onSlab), '#d5dee0', 0.03);
   }
 
+  // From the previous anchor to this one, for the selected or ridden element:
+  // an L along X, then along Y, each leg labelled with its signed length.
+  const chains = (sheet?.cards ?? [])
+    .filter((card) => card.fromPrevious && (card.element === selected || riders.some((r) => r.element === card.element)))
+    .flatMap((card) => {
+      const { from, dx, dy } = card.fromPrevious;
+      const p = sheet.cards.find((c) => c.number === from).anchor;
+      const q = card.anchor;
+      const signed = (v) => (v > 0 ? `+${fmt(v)}` : `−${fmt(-v)}`);
+      const legs = [];
+      // Labels go to the outside of the L, away from the other leg.
+      if (dx) legs.push({ a: [p.x, p.y], b: [q.x, p.y], label: `X ${signed(dx)} м`, normal: [0, dy > 0 ? -1 : 1] });
+      if (dy) legs.push({ a: [q.x, p.y], b: [q.x, q.y], label: `Y ${signed(dy)} м`, normal: [dx < 0 ? -1 : 1, 0] });
+      return legs;
+    });
+  for (const { a, b, normal } of chains) {
+    path([a, b].map(onSlab), PALETTE.anchor, 0.05, null, false, [0.35, 0.25]);
+    for (const end of [a, b]) {
+      const t = [normal[0] * 0.25, normal[1] * 0.25];
+      path([[end[0] - t[0], end[1] - t[1]], [end[0] + t[0], end[1] + t[1]]].map(onSlab), PALETTE.anchor, 0.05);
+    }
+  }
+
   // Cones, far to near.
   const exaggerate = Math.min(3, Math.max(1, 4.5 / (0.2 * scale)));
   const sorted = [...course.cones].sort((a, b) => project(a.hx / 2, a.hy / 2).d - project(b.hx / 2, b.hy / 2).d);
@@ -434,6 +458,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const { spot, box } = placeLabel(layout, 24 / scale, (p) => plateBox(d.label, p[0], p[1], 12, 0.03), taken);
     taken.push(box);
     plate(d.label, spot[0], spot[1], { size: 12, z: 0.03, bg: '#3c484f', fill: '#e7eeef' });
+  }
+  for (const { a, b, label, normal } of chains) {
+    const layout = { mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], normal };
+    const { spot, box } = placeLabel(layout, 24 / scale, (p) => plateBox(label, p[0], p[1], 12, 0.03), taken);
+    taken.push(box);
+    plate(label, spot[0], spot[1], { size: 12, z: 0.03, bg: '#4a3d12', fill: '#ffe7a3' });
   }
   for (const [text, x, y, o] of labels) plate(text, x, y, o);
   scaleBar();

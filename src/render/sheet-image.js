@@ -405,7 +405,8 @@ function cardBlock(card, width) {
   const inner = width - 36;
   const head = textBlock([
     { text: card.name, size: 28, weight: 700, gap: 4 },
-    { text: `Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: 6 },
+    { text: `Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: card.fromPrevious ? 2 : 6 },
+    ...(card.fromPrevious ? [{ text: card.fromPrevious.label, size: 21, weight: 600, color: '#6b4c00', gap: 6 }] : []),
     { text: `Ось: ${card.axis.label}`, size: 20 },
     { text: `Проезд: ${card.travel}`, size: 20, gap: 6 },
     ...card.notes.map((n) => ({ text: n, size: 20, color: '#2f3d45' })),
