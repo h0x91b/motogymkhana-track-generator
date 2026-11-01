@@ -1,6 +1,6 @@
 {
  "name": "seed7-eights-slaloms-medium-closed-6",
- "generatorVersion": 4,
+ "generatorVersion": 5,
  "recipe": {
   "width": 40,
   "length": 60,
@@ -13,7 +13,7 @@
   ]
  },
  "seed": 7,
- "hash": "8434f419a0f66070",
+ "hash": "b6eeff79d97a662b",
  "course": {
   "cones": [
    {
@@ -2250,7 +2250,7 @@
     ]
    }
   ],
-  "generatorVersion": 4,
+  "generatorVersion": 5,
   "passes": [
    {
     "cone": "c3",
@@ -2412,7 +2412,7 @@
    "closed": true,
    "difficulty": "medium",
    "elements": 6,
-   "generatorVersion": 4,
+   "generatorVersion": 5,
    "length": 60,
    "train": false,
    "types": [

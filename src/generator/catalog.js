@@ -10,7 +10,7 @@
 // The generator only talks to `typeOptions`, `chooseParams`, `minimalParams`
 // and `instantiate`; everything else here is private to the catalog.
 
-import { atan2, PI } from './dmath.js';
+import { atan, atan2, PI, sin } from './dmath.js';
 import { arcPoints, ellipsePoints, latticeUnit, smoothPath, turning } from './geometry.js';
 
 /**
@@ -121,14 +121,25 @@ const TYPES = {
     build({ width, shift }, unit) {
       const length = 3 * shift;
       const lead = LEAD / unit;
-      const pts = [[-lead, -width / 2], [0, -width / 2], [length, shift - width / 2], [length + lead, shift - width / 2]];
+      // Straight through each gate; between them an S of two equal arcs, leaning
+      // towards the shift first and changing lean (перекладка) halfway.
+      const y0 = -width / 2;
+      const y1 = shift - width / 2;
+      const sweep = 2 * atan(shift / length);
+      const r = length / (2 * sin(sweep));
+      const path = [
+        [-lead, y0],
+        ...arcPoints([0, y0 + r], r, -PI / 2, sweep, PI / 36),
+        ...arcPoints([length, y1 - r], r, PI / 2 + sweep, -sweep, PI / 36).slice(1),
+        [length + lead, y1],
+      ];
       return {
         cones: [
           { a: 0, b: 0, height: 'tall' }, { a: 0, b: -width, height: 'tall' },
           { a: length, b: shift, height: 'tall' }, { a: length, b: shift - width, height: 'tall' },
         ],
         passes: [{ kind: 'gate', left: 0, right: 1 }, { kind: 'gate', left: 2, right: 3 }],
-        path: smoothPath(pts, [1, 0], [1, 0]),
+        path,
         entryDir: [1, 0],
         exitDir: [1, 0],
       };

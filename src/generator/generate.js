@@ -40,66 +40,86 @@ const MAX_CONNECTOR_TURN = 300;
 // bringing the rider back round to the start there can need a full turnaround.
 export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
 
-// «Паровозик», a column of riders: the route may pass near a spot again only
-// once the whole column has cleared it (30 m of route, 1.5 m apart). Checked on
-// 0.5 m samples, with margins for the sampling error.
-const TRAIN_GAP = 30.5; // metres of route between two passes near one spot
-const TRAIN_CLEARANCE = 2; // metres; closer is the same spot
-const TRAIN_NEAR = 4; // closer than this along the route is the same stretch
+// «Паровозик», a column of riders: the route never crosses itself or comes
+// back within 1.5 m of itself, or two riders of the column could meet. Checked
+// on 0.5 m samples, with a margin for the sampling error; samples closer than
+// TRAIN_NEAR along the route are the same stretch.
+const TRAIN_CLEARANCE = 2;
+const TRAIN_NEAR = 4;
 const TRAIN_STEP = 0.5;
 
-/** Samples every TRAIN_STEP m along polylines joined in route order, with their distance along. */
-function sampleAlong(polylines) {
-  const points = [];
-  let s = 0;
-  let prev = null;
+/**
+ * The route ridden so far, as samples every TRAIN_STEP m with their distance
+ * along, hashed into a grid of TRAIN_CLEARANCE cells.
+ */
+const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
+const trainCell = (x, y) => `${Math.floor(x / TRAIN_CLEARANCE)},${Math.floor(y / TRAIN_CLEARANCE)}`;
+
+/** Samples of polylines ridden straight after `track`, continuing its distance along. */
+function continueTrack(track, polylines) {
+  const samples = [];
+  let s = track.length;
+  let prev = track.last;
   for (const pts of polylines) {
     for (const p of pts) {
-      if (!prev) points.push({ x: p[0], y: p[1], s: 0 });
+      if (!prev) samples.push({ x: p[0], y: p[1], s });
       else {
         const dx = p[0] - prev[0];
         const dy = p[1] - prev[1];
         const len = Math.sqrt(dx * dx + dy * dy);
         const k = Math.max(1, Math.ceil(len / TRAIN_STEP));
-        for (let j = 1; j <= k; j++) points.push({ x: prev[0] + (dx * j) / k, y: prev[1] + (dy * j) / k, s: s + (len * j) / k });
+        for (let j = 1; j <= k; j++) samples.push({ x: prev[0] + (dx * j) / k, y: prev[1] + (dy * j) / k, s: s + (len * j) / k });
         s += len;
       }
       prev = p;
     }
   }
-  return { points, length: s };
+  return { samples, length: s, last: prev };
+}
+
+function addToGrid(grid, p) {
+  const key = trainCell(p.x, p.y);
+  if (!grid.has(key)) grid.set(key, []);
+  grid.get(key).push(p);
+}
+
+function extendTrack(track, polylines) {
+  const { samples, length, last } = continueTrack(track, polylines);
+  const grid = new Map([...track.grid].map(([key, cell]) => [key, [...cell]]));
+  for (const p of samples) addToGrid(grid, p);
+  return { grid, length, last };
 }
 
 /**
- * Whether `next`, ridden straight after `before` (polylines in route order),
- * keeps clear of every stretch of either that a column of riders is still on.
- * Only pairs involving `next` are checked; `before` was checked when laid.
+ * Whether `next`, ridden straight after `track`, keeps clear of the route so
+ * far and of itself. When it `closes` the route back onto its start, distance
+ * along also counts the way through the finish.
  */
-function trainClear(before, next) {
-  const { points } = sampleAlong([...before, ...next]);
-  const from = sampleAlong(before).length;
-  const cell = (v) => Math.floor(v / TRAIN_CLEARANCE);
-  const grid = new Map();
-  for (const p of points) {
-    const key = `${cell(p.x)},${cell(p.y)}`;
-    if (!grid.has(key)) grid.set(key, []);
-    grid.get(key).push(p);
-  }
-  for (const p of points) {
-    if (p.s < from) continue;
-    const cx = cell(p.x);
-    const cy = cell(p.y);
+function trainClear(track, next, closes = false) {
+  const { samples, length } = continueTrack(track, next);
+  const fresh = new Map();
+  const meets = (p, cell) => {
+    if (!cell) return false;
+    for (const q of cell) {
+      const along = p.s - q.s;
+      const gap = closes && length - along < along ? length - along : along;
+      if (gap < TRAIN_NEAR) continue;
+      const dx = p.x - q.x;
+      const dy = p.y - q.y;
+      if (dx * dx + dy * dy < TRAIN_CLEARANCE * TRAIN_CLEARANCE) return true;
+    }
+    return false;
+  };
+  for (const p of samples) {
+    const cx = Math.floor(p.x / TRAIN_CLEARANCE);
+    const cy = Math.floor(p.y / TRAIN_CLEARANCE);
     for (let i = -1; i <= 1; i++) {
       for (let j = -1; j <= 1; j++) {
-        for (const q of grid.get(`${cx + i},${cy + j}`) ?? []) {
-          const gap = p.s > q.s ? p.s - q.s : q.s - p.s;
-          if (gap < TRAIN_NEAR || gap >= TRAIN_GAP) continue;
-          const dx = p.x - q.x;
-          const dy = p.y - q.y;
-          if (dx * dx + dy * dy < TRAIN_CLEARANCE * TRAIN_CLEARANCE) return false;
-        }
+        const key = `${cx + i},${cy + j}`;
+        if (meets(p, track.grid.get(key)) || meets(p, fresh.get(key))) return false;
       }
     }
+    addToGrid(fresh, p);
   }
   return true;
 }
@@ -377,36 +397,20 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
     return out.slice(0, BRANCH);
   }
 
-  /** The last stretch of the route placed so far, as far back as a column of riders reaches. */
-  function routeTail() {
-    const parts = [];
-    let len = 0;
-    for (let k = placed.length - 1; k >= 0 && len < TRAIN_GAP; k--) {
-      parts.unshift(placed[k].path);
-      len += polylineLength(placed[k].path);
-      if (len >= TRAIN_GAP) break;
-      parts.unshift(legs[k].points);
-      len += legs[k].length;
-    }
-    return parts;
-  }
-
-  /** The first stretch of the route, which a closed course runs into again after the finish. */
-  function routeHead(first) {
-    const parts = [];
-    let len = 0;
-    const order = placed.length ? placed.flatMap((p, k) => [legs[k].points, p.path]) : first;
-    for (const pts of order) {
-      if (len >= TRAIN_GAP) break;
-      parts.push(pts);
-      len += polylineLength(pts);
-    }
-    return parts;
+  // In «паровозик», the route ridden before element i, kept per depth of the search.
+  const tracks = [];
+  function trackBefore(i) {
+    if (i === 0) return EMPTY_TRACK;
+    const kept = tracks[i];
+    if (kept && kept.owner === placed[i - 1]) return kept.track;
+    const track = extendTrack(trackBefore(i - 1), [legs[i - 1].points, placed[i - 1].path]);
+    tracks[i] = { owner: placed[i - 1], track };
+    return track;
   }
 
   function evaluate(i, cand) {
     if (!cand.core.every((p) => inside(inner, p))) return null;
-    const tail = recipe.train ? routeTail() : null;
+    const track = recipe.train ? trackBefore(i) : null;
     const paths = [...legs];
     if (!zoneClear(cand, zones, paths)) return null;
     let entryLeg;
@@ -422,10 +426,11 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
       if (!zoneClear(terminal, zones, paths)) return null;
       if (obbOverlap(terminal.zone, cand.zone)) return null;
       entryLeg = straightLeg(terminal.center, cand.entry);
+      if (track && !trainClear(track, [entryLeg.points, cand.path])) return null;
     } else {
       const prev = placed[i - 1];
-      // In «паровозик» the connector and the element it leads into keep clear of the column behind.
-      const accept = tail && ((pts) => trainClear(tail, [pts, cand.path]));
+      // In «паровозик» the connector and the element it leads into keep clear of the route so far.
+      const accept = track && ((pts) => trainClear(track, [pts, cand.path]));
       entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], MAX_CONNECTOR_TURN, accept);
       if (!entryLeg) return null;
     }
@@ -437,10 +442,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
         // The start zone is an obstacle too, so the closing connector cannot cut
         // across the start's own lead-in; it arrives on the zone edge at the line.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand];
-        // In «паровозик» it also keeps clear of the start, which the column rides into again.
-        const before = tail && [...tail, entryLeg.points, cand.path];
-        const head = tail && routeHead([entryLeg.points, cand.path]);
-        const accept = tail && ((pts) => trainClear(before, [pts]) && trainClear([...before, pts], head));
+        // In «паровозик» it keeps clear of the whole route, and rides back into its start.
+        const before = track && extendTrack(track, [entryLeg.points, cand.path]);
+        const accept = track && ((pts) => trainClear(before, [pts], true));
         exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn, accept);
         if (!exitLeg) return null;
       } else {
@@ -450,6 +454,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
         if (!zoneClear(finishTerminalCand, others, [...paths, entryLeg])) return null;
         if (obbOverlap(finishTerminalCand.zone, cand.zone)) return null;
         exitLeg = straightLeg(cand.exit, finishTerminalCand.center);
+        if (track && !trainClear(extendTrack(track, [entryLeg.points, cand.path]), [exitLeg.points])) return null;
       }
     }
     const tl = turnLeft + entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);

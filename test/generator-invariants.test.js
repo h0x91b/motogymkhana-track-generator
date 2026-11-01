@@ -255,6 +255,41 @@ describe('element shapes', () => {
     expect(seen).toBeGreaterThan(20);
   });
 
+  test('a lane change is ridden straight through both gates and changes lean once between them', () => {
+    let seen = 0;
+    each((c) => {
+      const byId = conesById(c);
+      for (const e of c.elements.filter((x) => x.type === 'lane-change')) {
+        seen++;
+        const [a, b, d, f] = e.cones.map((id) => coneXY(byId.get(id)));
+        const g1 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const g2 = [(d[0] + f[0]) / 2, (d[1] + f[1]) / 2];
+        const u = [Math.cos((e.entry.dir * Math.PI) / 4), Math.sin((e.entry.dir * Math.PI) / 4)];
+        const local = e.path.map((p) => [(p[0] - g1[0]) * u[0] + (p[1] - g1[1]) * u[1], -(p[0] - g1[0]) * u[1] + (p[1] - g1[1]) * u[0]]);
+        const gap = (g2[0] - g1[0]) * u[0] + (g2[1] - g1[1]) * u[1];
+        const slopes = [];
+        for (let i = 1; i < local.length; i++) {
+          const [x0, y0] = local[i - 1];
+          const [x1, y1] = local[i];
+          slopes.push({ from: x0, to: x1, slope: (y1 - y0) / (x1 - x0) });
+        }
+        // Through each gate the trajectory runs along the axis, within 3°.
+        for (const at of [0, gap]) {
+          const s = slopes.find((x) => x.from <= at + 1e-6 && x.to > at + 1e-6) ?? slopes.find((x) => x.from < at && x.to >= at);
+          expect(Math.abs(s.slope), `${label(c)} ${e.id} at ${at.toFixed(1)} m`).toBeLessThan(Math.tan((3 * Math.PI) / 180));
+        }
+        // Between them it turns towards the shift, then back: the slope grows, then falls.
+        const between = slopes.filter((x) => x.from >= -1e-6 && x.to <= gap + 1e-6).map((x) => Math.abs(x.slope));
+        const peak = between.indexOf(Math.max(...between));
+        expect(peak > 0 && peak < between.length - 1, `${label(c)} ${e.id}`).toBe(true);
+        between.forEach((v, i) => {
+          if (i > 0) expect(i <= peak ? v >= between[i - 1] - 1e-9 : v <= between[i - 1] + 1e-9, `${label(c)} ${e.id}`).toBe(true);
+        });
+      }
+    });
+    expect(seen).toBeGreaterThan(20);
+  });
+
   test('pivot angles follow the difficulty: easy 270°, hard 360°', () => {
     for (const { recipe, courses } of generated) {
       const angles = courses.flatMap((c) => c.passes.filter((p) => p.angle).map((p) => p.angle));
@@ -355,8 +390,8 @@ describe('route', () => {
 // «Паровозик»: several riders follow each other. Two passes of the route near
 // one spot must be far enough apart along the route for the whole column to
 // clear it, or riders meet there.
-const TRAIN_GAP = 30; // metres of route
-const TRAIN_CLEARANCE = 1.5; // closer than this is the same spot
+const TRAIN_CLEARANCE = 1.5; // metres; closer than this the riders can collide
+const TRAIN_NEAR = 4.5; // metres of route; closer than this is the same stretch, not a crossing
 
 describe('паровозик', () => {
   const trains = generated.filter(({ recipe }) => recipe.train);
@@ -369,7 +404,7 @@ describe('паровозик', () => {
     }
   });
 
-  test(`the route never comes back within ${TRAIN_CLEARANCE} m of itself sooner than ${TRAIN_GAP} m of route`, () => {
+  test(`the route never crosses itself or comes back within ${TRAIN_CLEARANCE} m of itself`, () => {
     for (const { name, courses } of trains) {
       for (const c of courses) {
         const pts = densify(fullRoute(c), 0.25);
@@ -381,7 +416,7 @@ describe('паровозик', () => {
             const along = at[j] - at[i];
             // A closed course is ridden round and round: count the way through the finish too.
             const gap = c.route.closed ? Math.min(along, total - along) : along;
-            if (gap < 4 || gap >= TRAIN_GAP) continue;
+            if (gap < TRAIN_NEAR) continue;
             const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]);
             if (d < TRAIN_CLEARANCE) throw new Error(`${name} seed ${c.seed}: ${d.toFixed(2)} m apart after ${gap.toFixed(1)} m of route at (${pts[i].map((v) => v.toFixed(1))})`);
           }
