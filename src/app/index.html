@@ -26,7 +26,7 @@
   </section>
 
   <section class="dock" id="dock">
-    <button type="button" class="summary" id="summary" aria-label="Открыть рецепт"></button>
+    <button type="button" class="summary" id="summary"></button>
     <div class="actions">
       <button type="button" id="open-form">Рецепт</button>
       <button type="button" id="new-seed" class="primary">Новый seed</button>
@@ -48,26 +48,26 @@
   </section>
 
   <div class="backdrop" id="backdrop" hidden></div>
-  <section class="sheet" id="form-sheet" hidden aria-label="Рецепт трассы">
+  <section class="sheet" id="form-sheet" hidden role="dialog" aria-modal="true" aria-label="Рецепт трассы" tabindex="-1">
     <form id="form" novalidate autocomplete="off">
       <div class="grid2">
         <label>Ширина, м
-          <input name="width" inputmode="numeric" enterkeyhint="done">
+          <input name="width" inputmode="numeric" enterkeyhint="done" aria-describedby="err-width">
         </label>
         <label>Длина, м
-          <input name="length" inputmode="numeric" enterkeyhint="done">
+          <input name="length" inputmode="numeric" enterkeyhint="done" aria-describedby="err-length">
         </label>
       </div>
-      <p class="err" data-for="width"></p>
-      <p class="err" data-for="length"></p>
+      <p class="err" id="err-width" data-for="width"></p>
+      <p class="err" id="err-length" data-for="length"></p>
       <label>Элементов
         <span class="stepper">
           <button type="button" data-step="-1" aria-label="Меньше">−</button>
-          <input name="elements" inputmode="numeric" enterkeyhint="done">
+          <input name="elements" inputmode="numeric" enterkeyhint="done" aria-describedby="err-elements">
           <button type="button" data-step="1" aria-label="Больше">+</button>
         </span>
       </label>
-      <p class="err" data-for="elements"></p>
+      <p class="err" id="err-elements" data-for="elements"></p>
       <fieldset class="segmented">
         <legend>Сложность</legend>
         <label><input type="radio" name="difficulty" value="easy"><span>Лёгкая</span></label>
@@ -77,15 +77,15 @@
       <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
       <label>Seed
         <span class="seed-row">
-          <input name="seed" inputmode="numeric" enterkeyhint="done">
+          <input name="seed" inputmode="numeric" enterkeyhint="done" aria-describedby="err-seed">
           <button type="button" id="form-new-seed">Новый</button>
         </span>
       </label>
-      <p class="err" data-for="seed"></p>
+      <p class="err" id="err-seed" data-for="seed"></p>
       <details>
         <summary>Ещё: типы элементов</summary>
-        <div class="types" id="types"></div>
-        <p class="err" data-for="types"></p>
+        <div class="types" id="types" role="group" aria-label="Типы элементов" aria-describedby="err-types"></div>
+        <p class="err" id="err-types" data-for="types"></p>
       </details>
       <button type="button" id="close-form" class="primary wide">Готово</button>
     </form>

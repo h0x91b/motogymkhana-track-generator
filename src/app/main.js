@@ -145,8 +145,11 @@ const generator = createGenerator(({ id, result }) => {
   hideElementCard();
   if (state.setupStep !== null) exitSetup();
   resetCamera(state.camera);
-  if (course.placed < course.requested) showBanner(`Влезло ${course.placed} из ${course.requested} элементов`, 'warn');
-  else hideBanner();
+  // The count stays in the summary; the hint only needs to be seen once.
+  hideBanner();
+  if (course.placed < course.requested) {
+    toast(`Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`, 6000);
+  }
   renderSummary();
   invalidate();
   prepareImageSoon();
@@ -179,21 +182,28 @@ function hideBanner() {
 function renderSummary() {
   const f = state.form;
   const c = state.course;
+  const short = c && !state.stale && c.placed < c.requested;
   const parts = [`${f.width || '?'} × ${f.length || '?'} м`];
-  if (c && !state.stale) parts.push(`${c.placed} из ${c.requested} эл.`);
+  if (c && !state.stale) parts.push(short ? `влезло ${c.placed} из ${c.requested} эл.` : `${c.placed} из ${c.requested} эл.`);
   parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
   parts.push(f.closed ? 'замкнутая' : 'открытая');
   parts.push(`seed ${f.seed || '—'}`);
-  $('summary').textContent = parts.filter(Boolean).join(' · ');
+  const shown = parts.filter(Boolean);
+  const summary = $('summary');
+  summary.replaceChildren(...shown.flatMap((text, i) => {
+    const node = short && i === 1 ? Object.assign(document.createElement('span'), { className: 'warn', textContent: text }) : document.createTextNode(text);
+    return i ? [document.createTextNode(' · '), node] : [node];
+  }));
+  summary.setAttribute('aria-label', `${shown.join(' · ')}. Открыть рецепт`);
 }
 
 let toastTimer = 0;
-function toast(text) {
+function toast(text, ms = 2800) {
   const t = $('toast');
   t.textContent = text;
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 2800);
+  toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
 
 // ---------------------------------------------------------------- canvas
@@ -331,7 +341,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 function coneDot(cone) {
   const letter = cone.height === 'tall' ? (cone.color === 'blue' ? 'Л' : 'П') : '';
   const title = cone.height === 'tall' ? `${cone.color === 'blue' ? 'синий' : 'красный'} высокий` : 'низкий';
-  return `<span class="dot ${cone.color}" title="${title}" aria-label="${title}">${letter}</span>`;
+  return `<span class="dot ${cone.color}" title="${title}" aria-hidden="true">${letter}</span><span class="sr-only">${title}</span>`;
 }
 
 function coneTable(card, big = false) {
@@ -383,8 +393,14 @@ function elementBounds(id) {
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
+/** Frames bounds in the part of the stage the view controls at the top leave free. */
+function frameInSetup(bounds) {
+  const top = document.querySelector('.view-toggle').getBoundingClientRect().bottom - canvas.getBoundingClientRect().top;
+  frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, bounds, { top: top + 8, bottom: 16 });
+}
+
 function focusElement(id) {
-  frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id));
+  frameInSetup(elementBounds(id));
 }
 
 function setupSteps() {
@@ -414,7 +430,7 @@ function renderSetup() {
     state.selected = null;
     const xs = t.cones.map((c) => c.x);
     const ys = t.cones.map((c) => c.y);
-    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, [Math.min(...xs) - 4, Math.min(...ys) - 4, Math.max(...xs) + 4, Math.max(...ys) + 4]);
+    frameInSetup([Math.min(...xs) - 4, Math.min(...ys) - 4, Math.max(...xs) + 4, Math.max(...ys) + 4]);
   }
   $('setup-prev').disabled = state.setupStep === 0;
   $('setup-next').textContent = state.setupStep === steps.length - 1 ? 'Готово' : 'Дальше';
@@ -428,6 +444,7 @@ function enterSetup() {
   }
   if (!state.course || state.stale) return;
   hideElementCard();
+  $('toast').hidden = true; // it would cover the step's anchor
   state.setupStep = 0;
   $('dock').hidden = true;
   $('setup-panel').hidden = false;
@@ -497,7 +514,7 @@ async function share() {
     try {
       file = await buildImageFile();
     } catch {
-      toast('Не удалось нарисовать картинку');
+      toast('Не удалось нарисовать картинку. Попробуйте ещё раз');
       return;
     }
   }
@@ -515,15 +532,34 @@ async function share() {
 
 // ---------------------------------------------------------------- sheet (form panel)
 
+// The form is modal: everything behind it is inert while it is open, and focus
+// returns to whatever opened it.
+const BEHIND_FORM = ['stage', 'dock', 'setup-panel'];
+let formOpener = null;
 function openForm() {
+  formOpener = document.activeElement;
+  for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
   $('form-sheet').hidden = false;
+  $('form-sheet').focus({ preventScroll: true });
 }
 function closeForm() {
   document.activeElement?.blur?.();
+  for (const id of BEHIND_FORM) $(id).inert = false;
   $('backdrop').hidden = true;
   $('form-sheet').hidden = true;
   onFormChange(true);
+  formOpener?.focus?.({ preventScroll: true });
+  formOpener = null;
+}
+/** «Готово»: closes a valid form; otherwise shows the errors and focuses the first one. */
+function submitForm() {
+  const v = validate(readForm());
+  if (v.ok) return closeForm();
+  onFormChange(true);
+  const first = ['width', 'length', 'elements', 'seed'].find((name) => v.errors[name]);
+  if (first) form[first].focus();
+  else form.querySelector('summary').focus();
 }
 
 // Keep the form above the on-screen keyboard (iOS does not resize the layout viewport).
@@ -537,7 +573,8 @@ if (window.visualViewport) {
   vv.addEventListener('scroll', onViewport);
 }
 form.addEventListener('focusin', (e) => {
-  if (e.target.matches('input')) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+  const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  if (e.target.matches('input')) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior }), 250);
 });
 
 // ---------------------------------------------------------------- wiring
@@ -555,7 +592,10 @@ function start() {
   form.addEventListener('change', () => onFormChange());
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    closeForm();
+    submitForm();
+  });
+  $('form-sheet').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeForm();
   });
   form.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.matches('input')) {
@@ -573,7 +613,7 @@ function start() {
     });
   }
   $('form-new-seed').addEventListener('click', newSeed);
-  $('close-form').addEventListener('click', closeForm);
+  $('close-form').addEventListener('click', submitForm);
   $('backdrop').addEventListener('click', closeForm);
   $('open-form').addEventListener('click', openForm);
   $('summary').addEventListener('click', openForm);

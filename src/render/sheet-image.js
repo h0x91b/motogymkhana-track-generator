@@ -12,8 +12,8 @@ const INK = '#1f2a31';
 const MUTED = '#5b6870';
 const RULE = '#d5dcda';
 const ROUTE = '#0f8b8d';
-const BLUE = '#2f7fd8';
-const RED = '#df4f3b';
+const BLUE = '#2b72c4';
+const RED = '#cc4330';
 const ANCHOR = '#b07d00';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 

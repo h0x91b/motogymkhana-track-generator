@@ -42,7 +42,7 @@ function parseIntegerInRange(value, min, max) {
 
 export function parseSeed(value) {
   const seed = parseIntegerInRange(value, 0, SEED_MAX);
-  if (seed === null) return { ok: false, error: `Seed — целое число от 0 до ${SEED_MAX}` };
+  if (seed === null) return { ok: false, error: `Введите целое число от 0 до ${SEED_MAX}` };
   return { ok: true, seed };
 }
 
@@ -61,13 +61,13 @@ export function parseRecipe(input) {
   const src = input && typeof input === 'object' ? input : {};
 
   const width = parseIntegerInRange(src.width, SITE_MIN, SITE_MAX);
-  if (width === null) errors.width = `Ширина — целое число метров от ${SITE_MIN} до ${SITE_MAX}`;
+  if (width === null) errors.width = `Введите ширину целым числом метров от ${SITE_MIN} до ${SITE_MAX}`;
 
   const length = parseIntegerInRange(src.length, SITE_MIN, SITE_MAX);
-  if (length === null) errors.length = `Длина — целое число метров от ${SITE_MIN} до ${SITE_MAX}`;
+  if (length === null) errors.length = `Введите длину целым числом метров от ${SITE_MIN} до ${SITE_MAX}`;
 
   const elements = parseIntegerInRange(src.elements, ELEMENTS_MIN, ELEMENTS_MAX);
-  if (elements === null) errors.elements = `Число элементов — от ${ELEMENTS_MIN} до ${ELEMENTS_MAX}`;
+  if (elements === null) errors.elements = `Введите число элементов от ${ELEMENTS_MIN} до ${ELEMENTS_MAX}`;
 
   const difficulty = DIFFICULTIES.includes(src.difficulty) ? src.difficulty : null;
   if (difficulty === null) errors.difficulty = 'Выберите сложность';

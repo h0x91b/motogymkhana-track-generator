@@ -178,8 +178,8 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   plate('X', 4.6, 0, { size: 10, bg: null, fill: '#ffd166' });
   plate('Y', 0, 4.6, { size: 10, bg: null, fill: '#ffd166' });
   plate('A (0,0)', 0, 0, { size: 10, dy: 16, dx: -6, bg: '#4a3d12', fill: '#ffe7a3' });
-  plate(`${SW} м`, SW / 2, 0, { size: 10, dy: 18, bg: '#3c484f', fill: '#e7eeef' });
-  plate(`${SL} м`, 0, SL / 2, { size: 10, dx: -22, bg: '#3c484f', fill: '#e7eeef' });
+  plate(`${SW} м`, SW / 2, 0, { size: 11, dy: 18, bg: '#3c484f', fill: '#e7eeef' });
+  plate(`${SL} м`, 0, SL / 2, { size: 11, dx: -22, bg: '#3c484f', fill: '#e7eeef' });
 
   if (!course) return { hits, view };
 
@@ -222,7 +222,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
         path([pt(s0, o0), pt(s1, o0), pt(s1, o1), pt(s0, o1)], null, 0, (i + j) % 2 ? '#253239' : '#edf0df', true);
       }
     }
-    plate(label, t.x - ux * 1.6, t.y - uy * 1.6, { size: 10, bg: '#2e3a42' });
+    plate(label, t.x - ux * 1.6, t.y - uy * 1.6, { size: 11, bg: '#2e3a42' });
   }
 
   // Route: element trajectories solid, connectors dashed, arrows every 5 m.
@@ -349,12 +349,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
     const text = wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order);
     const sel = e.id === selected;
-    labels.push([text, cx, cy, { size: 12, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id }]);
+    labels.push([text, cx, cy, { size: 13, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = byId.get(e.anchor);
       const below = project(a.hx / 2, a.hy / 2, 0).y >= project(cx, cy, 0.05).y;
-      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 11, z: 0, dy: below ? 22 : -22, bg: '#4a3d12', fill: '#ffe7a3' }]);
+      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3' }]);
     }
   }
   const coneRadius = Math.max(6, 0.35 * scale);
@@ -366,9 +366,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     ...labels.map(([text, x, y, o]) => plateBox(text, x, y, o.size, o.z, o.dy)),
   ];
   for (const { d, layout } of dimensions) {
-    const { spot, box } = placeLabel(layout, 22 / scale, (p) => plateBox(d.label, p[0], p[1], 10, 0.03), taken);
+    const { spot, box } = placeLabel(layout, 24 / scale, (p) => plateBox(d.label, p[0], p[1], 12, 0.03), taken);
     taken.push(box);
-    plate(d.label, spot[0], spot[1], { size: 10, z: 0.03, bg: '#3c484f', fill: '#e7eeef' });
+    plate(d.label, spot[0], spot[1], { size: 12, z: 0.03, bg: '#3c484f', fill: '#e7eeef' });
   }
   for (const [text, x, y, o] of labels) plate(text, x, y, o);
   return { hits, view };
@@ -392,15 +392,15 @@ export function hitTest(hits, x, y) {
 }
 
 /** Camera zoom/pan that frames the given world bounds [x0, y0, x1, y1]. */
-export function frameBounds(cam, W, H, site, bounds) {
+export function frameBounds(cam, W, H, site, bounds, { top = 60, bottom = 60 } = {}) {
   const base = makeProjector({ ...cam, zoom: 1, panX: 0, panY: 0 }, W, H, site);
   const w = Math.max(6, bounds[2] - bounds[0]);
   const h = Math.max(6, bounds[3] - bounds[1]);
-  const zoom = Math.max(0.8, Math.min(4, Math.min((W - 60) / (w * base.scale), (H - 120) / (h * base.scale * Math.max(0.4, Math.cos(cam.tilt))))));
+  const zoom = Math.max(0.8, Math.min(4, Math.min((W - 60) / (w * base.scale), (H - top - bottom) / (h * base.scale * Math.max(0.4, Math.cos(cam.tilt))))));
   cam.zoom = zoom;
   cam.panX = 0;
   cam.panY = 0;
   const p = makeProjector(cam, W, H, site).project((bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2);
   cam.panX = W / 2 - p.x;
-  cam.panY = H / 2 - p.y;
+  cam.panY = top + (H - top - bottom) / 2 - p.y;
 }
