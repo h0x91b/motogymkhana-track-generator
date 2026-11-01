@@ -1,6 +1,6 @@
 {
  "name": "seed42-25x30-easy-closed-5-simplified",
- "generatorVersion": 6,
+ "generatorVersion": 7,
  "recipe": {
   "width": 25,
   "length": 30,
@@ -9,7 +9,7 @@
   "closed": true
  },
  "seed": 42,
- "hash": "c0c05234da4eed37",
+ "hash": "6a623886b18e7d77",
  "course": {
   "cones": [
    {
@@ -567,14 +567,14 @@
     ]
    }
   ],
-  "generatorVersion": 6,
+  "generatorVersion": 7,
   "passes": [],
   "placed": 2,
   "recipe": {
    "closed": true,
    "difficulty": "easy",
    "elements": 5,
-   "generatorVersion": 6,
+   "generatorVersion": 7,
    "length": 30,
    "train": false,
    "types": [

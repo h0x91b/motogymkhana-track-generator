@@ -1,12 +1,12 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
 import { DIFFICULTY_TABLE, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
-import { buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
+import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
 export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS } from './recipe.js';
-export { TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
+export { BIG_ELEMENT_AREA, TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -57,6 +57,11 @@ function siteTooSmall(recipe) {
  * element. The equality still holds: every earlier build for K or fewer
  * already failed.
  *
+ * A course has at most one big element, so when every usable type is big even
+ * at its most compact sizes it has one element whatever was ordered; it says
+ * so in `limitedBy`. Building from one directly is the same as simplifying
+ * down to it: every larger build would fail on the rule.
+ *
  * @returns {{ok: true, course: object} | {ok: false, error: object}}
  */
 export function generateCourse(recipeInput, seedInput) {
@@ -68,12 +73,15 @@ export function generateCourse(recipeInput, seedInput) {
   }
   const recipe = parsed.recipe;
   const limits = recipe.closed ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
+  const onlyBig = usableTypes(recipe).every((t) => alwaysBig(t, recipe.difficulty));
+  const most = onlyBig ? 1 : recipe.elements;
+  const limitedBy = onlyBig && recipe.elements > 1 ? { limitedBy: 'big-elements' } : {};
   for (const typeTries of TYPE_TRY_LIMITS) {
     for (const closingTurn of limits) {
-      for (let k = recipe.elements; k >= 1; k--) {
+      for (let k = most; k >= 1; k--) {
         const result = buildCourse(recipe, seed.seed, k, closingTurn, typeTries);
         if (result.ok) {
-          return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k } };
+          return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k, ...limitedBy } };
         }
       }
     }

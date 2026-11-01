@@ -50,6 +50,19 @@ export const DIFFICULTY_TABLE = {
 /** Clearance around an element's cones and trajectory that no other element or connector may enter. */
 export const ZONE_PAD = 0.75;
 
+// A big element takes a good part of a site: its core (cones and trajectory,
+// without the clearance) covers this many square metres or more at the sizes
+// it was given. A course has at most one. A snail and a crescent are always
+// big; an offset slalom often, an easy figure eight sometimes, an easy circle
+// rarely; every other type stays under 90 m².
+export const BIG_ELEMENT_AREA = 120;
+
+/** Area of a template's core in square metres. */
+export const coreArea = (tpl) => (tpl.core[2] - tpl.core[0]) * (tpl.core[3] - tpl.core[1]) * tpl.unit * tpl.unit;
+
+/** Is an element of this template a big element? */
+export const isBig = (tpl) => coreArea(tpl) >= BIG_ELEMENT_AREA;
+
 export const TYPE_NAMES = {
   'straight-slalom': 'Прямой слалом',
   'offset-slalom': 'Офсетный слалом',
@@ -636,6 +649,7 @@ const TYPES = {
 };
 
 const unitFor = (diagonal) => latticeUnit(diagonal);
+
 
 /**
  * Lattice options for a type at a difficulty on one axis class, or null when

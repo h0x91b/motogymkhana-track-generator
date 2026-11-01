@@ -7,7 +7,7 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { chooseParams, instantiate, minimalParams, DIFFICULTY_TABLE, ZONE_PAD } from './catalog.js';
+import { chooseParams, instantiate, isBig, minimalParams, DIFFICULTY_TABLE, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import { PI } from './dmath.js';
 import {
@@ -316,6 +316,14 @@ export function feasibleTypes(recipe) {
   });
 }
 
+/** Is the type a big element even at its most compact sizes, on every axis class? */
+export function alwaysBig(type, difficulty) {
+  const p = minimalParams(type, difficulty);
+  return [p.side && instantiate(type, p.side, false, false), p.diagonal && instantiate(type, p.diagonal, true, false)]
+    .filter(Boolean)
+    .every(isBig);
+}
+
 /** Seeded order of preference over the feasible types, one list per element. */
 function typePreferences(seed, feasible, n) {
   // Deal types like cards from a shuffled deck, so a course uses every
@@ -333,12 +341,16 @@ function typePreferences(seed, feasible, n) {
   return dealt.slice(0, n).map((first) => [first, ...shuffle(feasible.filter((t) => t !== first))]);
 }
 
-/** Sizes of element i when it is of `type`: drawn from its own stream, compacted if they do not fit. */
-function makePlan(recipe, seed, i, type, inner) {
+/**
+ * Sizes of element i when it is of `type`: drawn from its own stream,
+ * compacted if they do not fit — or, when `small`, if they make a big element.
+ * A type that is big even at its most compact sizes gets no axes then.
+ */
+function makePlan(recipe, seed, i, type, inner, small) {
   const plan = { type, params: chooseParams(type, recipe.difficulty, createStream(seed, `params:${i}:${type}`)), templates: {} };
   const fitsAxis = (axis) => {
     const tpl = templateFor(plan, axis % 2 === 1, false);
-    return tpl && templateFits(tpl, inner);
+    return tpl && templateFits(tpl, inner) && !(small && isBig(tpl));
   };
   if (![0, 1].some(fitsAxis)) {
     plan.params = minimalParams(type, recipe.difficulty);
@@ -360,9 +372,10 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   if (!feasible.length) return { ok: false };
   const preferences = typePreferences(seed, feasible, n);
   const plans = new Map();
-  const planFor = (i, type) => {
-    const key = `${i}:${type}`;
-    if (!plans.has(key)) plans.set(key, makePlan(recipe, seed, i, type, inner));
+  // After a big element, every later one must be small.
+  const planFor = (i, type, small) => {
+    const key = `${i}:${type}:${small ? 1 : 0}`;
+    if (!plans.has(key)) plans.set(key, makePlan(recipe, seed, i, type, inner, small));
     return plans.get(key);
   };
   const targets = layoutTargets(inner, n, recipe.closed, createStream(seed, 'layout'));
@@ -382,7 +395,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   let turnRight = 0;
 
   function candidates(i, type) {
-    const plan = planFor(i, type);
+    const plan = planFor(i, type, placed.some((p) => isBig(p.tpl)));
     const target = targets[i];
     const out = [];
     for (let c = 0; c < CANDIDATES; c++) {
@@ -485,8 +498,13 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   function search(i) {
     if (i === n) return true;
     const prev = i > 0 ? placed[i - 1].tpl.type : null;
-    // Two identical types in a row only when the user allowed a single type.
-    const types = preferences[i].filter((t) => usableTypes(recipe).length === 1 || t !== prev).slice(0, typeTries);
+    // Two identical types in a row only when the user allowed a single type,
+    // and never a second big element: a type that is big at any size is not
+    // tried once one stands.
+    const small = placed.some((p) => isBig(p.tpl));
+    const types = preferences[i]
+      .filter((t) => (usableTypes(recipe).length === 1 || t !== prev) && !(small && planFor(i, t, true).axes.length === 0))
+      .slice(0, typeTries);
     for (const type of types) {
       for (const option of candidates(i, type)) {
         const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;

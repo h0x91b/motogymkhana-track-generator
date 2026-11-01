@@ -1,4 +1,4 @@
-import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
+import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -184,7 +184,9 @@ const generator = createGenerator(({ id, result }) => {
   hideBanner();
   // Not over the open form: the summary shows the count after it closes.
   if (course.placed < course.requested && $('form-sheet').hidden) {
-    toast(`Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`, 6000);
+    toast(course.limitedBy === 'big-elements'
+      ? `Один элемент из ${course.requested}: отмеченные типы на этой сложности всегда большие (от ${BIG_ELEMENT_AREA} м²), а большой элемент на трассе может быть только один. Отметьте и другие типы`
+      : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`, 6000);
   }
   renderSummary();
   invalidate();
@@ -220,7 +222,10 @@ function renderSummary() {
   const c = state.course;
   const short = c && !state.stale && c.placed < c.requested;
   const parts = [`${f.width || '?'} × ${f.length || '?'} м`];
-  if (c && !state.stale) parts.push(short ? `влезло ${c.placed} из ${c.requested} эл.` : `${c.placed} из ${c.requested} эл.`);
+  if (c && !state.stale) {
+    const count = c.limitedBy === 'big-elements' ? `${c.placed} из ${c.requested} эл.: большой один` : `влезло ${c.placed} из ${c.requested} эл.`;
+    parts.push(short ? count : `${c.placed} из ${c.requested} эл.`);
+  }
   parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
   parts.push(f.closed ? 'замкнутая' : 'открытая');
   if (f.train) parts.push('паровозик');

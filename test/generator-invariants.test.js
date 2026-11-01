@@ -1,7 +1,7 @@
 // Hard rules of a course, checked on hundreds of seeds through generateCourse.
 
 import { describe, expect, test } from 'bun:test';
-import { generateCourse, LOOPED_TYPES, TYPE_LEVELS } from '../src/generator/index.js';
+import { BIG_ELEMENT_AREA, generateCourse, LOOPED_TYPES, TYPE_LEVELS } from '../src/generator/index.js';
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
@@ -19,6 +19,16 @@ const RECIPES = [
   { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', closed: true }, seeds: 60 },
   { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true, train: true }, seeds: 80 },
   { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', closed: false, train: true }, seeds: 50 },
+  {
+    name: 'only big types',
+    recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', closed: true, types: ['snail', 'crescent'] },
+    seeds: 30,
+  },
+  {
+    name: 'only big types, train',
+    recipe: { width: 40, length: 60, elements: 4, difficulty: 'hard', closed: false, train: true, types: ['snail', 'crescent', 'figure-eight'] },
+    seeds: 30,
+  },
 ];
 
 const generated = RECIPES.map(({ name, recipe, seeds }) => {
@@ -37,6 +47,13 @@ const each = (fn) => {
 const label = (c) => `seed ${c.seed} ${c.site.width}×${c.site.length}`;
 
 const near = (a, b, tol = 0.011) => Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol;
+
+/** Area of an element's core in m²: its zone without the 0.75 m clearance on each side. */
+function coreArea(e) {
+  const [a, b, c] = e.zone;
+  const side = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]) - 2 * 0.75;
+  return side(a, b) * side(b, c);
+}
 
 /** Where the path crosses the segment a–b: the signed crossing direction of each crossing. */
 function crossingsOf(path, a, b) {
@@ -456,6 +473,32 @@ describe('route', () => {
         if (i > 0) expect(e.type, `${label(c)} ${e.id}`).not.toBe(c.elements[i - 1].type);
       });
     });
+  });
+
+  test(`at most one big element (core of ${BIG_ELEMENT_AREA} m² or more) per course, whatever was allowed`, () => {
+    let seen = 0;
+    each((c) => {
+      // Zone corners are rounded to 1 cm, so the area is only good to about 0.2 m².
+      const big = c.elements.filter((e) => coreArea(e) >= BIG_ELEMENT_AREA + 0.2).length;
+      if (big) seen++;
+      expect(big, label(c)).toBeLessThanOrEqual(1);
+    });
+    expect(seen).toBeGreaterThan(100);
+  });
+
+  test('with only always-big types usable, the course has one element and says the rule is why', () => {
+    for (const { name, courses } of generated) {
+      const onlyBig = name.startsWith('only big types');
+      for (const c of courses) {
+        if (onlyBig) {
+          expect(c.placed, `${name} ${label(c)}`).toBe(1);
+          expect(c.limitedBy).toBe('big-elements');
+          expect(coreArea(c.elements[0])).toBeGreaterThan(BIG_ELEMENT_AREA);
+        } else {
+          expect(c.limitedBy, `${name} ${label(c)}`).toBeUndefined();
+        }
+      }
+    }
   });
 
   test('never more elements than ordered, and the count is reported', () => {
