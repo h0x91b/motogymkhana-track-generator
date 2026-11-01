@@ -1,6 +1,6 @@
 {
  "name": "seed2026-60x80-easy-open-15",
- "generatorVersion": 9,
+ "generatorVersion": 10,
  "recipe": {
   "width": 60,
   "length": 80,
@@ -9,7 +9,7 @@
   "closed": false
  },
  "seed": 2026,
- "hash": "29e874f6b85633dc",
+ "hash": "c96e07fb4bf36d30",
  "course": {
   "cones": [
    {
@@ -3463,7 +3463,7 @@
     ]
    }
   ],
-  "generatorVersion": 9,
+  "generatorVersion": 10,
   "passes": [
    {
     "angle": 270,
@@ -3690,7 +3690,7 @@
    "closed": false,
    "difficulty": "easy",
    "elements": 15,
-   "generatorVersion": 9,
+   "generatorVersion": 10,
    "length": 80,
    "train": false,
    "types": [

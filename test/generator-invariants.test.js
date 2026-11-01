@@ -1,7 +1,7 @@
 // Hard rules of a course, checked on hundreds of seeds through generateCourse.
 
 import { describe, expect, test } from 'bun:test';
-import { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TYPE_LEVELS, WALLED_TYPES } from '../src/generator/index.js';
+import { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from '../src/generator/index.js';
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
@@ -556,7 +556,7 @@ const TRAIN_NEAR = 4.5; // metres of route; closer than this is the same stretch
 describe('паровозик', () => {
   const trains = generated.filter(({ recipe }) => recipe.train);
 
-  test('has no looped elements: no pivot turn, figure eight, box, circle, mirror, gate turn, box eight or keyhole', () => {
+  test('has no looped elements: no pivot turn, figure eight, box, circle, gate turn, box eight or keyhole', () => {
     for (const { courses } of trains) {
       for (const c of courses) {
         for (const e of c.elements) expect(LOOPED_TYPES).not.toContain(e.type);
@@ -564,15 +564,16 @@ describe('паровозик', () => {
     }
   });
 
-  test('rides a snail: its two corridors are walled from each other', () => {
-    const snails = trains.flatMap(({ courses }) => courses.flatMap((c) => c.elements.filter((e) => e.type === 'snail')));
-    expect(snails.length).toBeGreaterThan(5);
+  test('rides a snail and a mirror', () => {
+    const elements = trains.flatMap(({ courses }) => courses.flatMap((c) => c.elements));
+    expect(elements.filter((e) => e.type === 'snail').length).toBeGreaterThan(5);
+    expect(elements.filter((e) => e.type === 'mirror').length).toBeGreaterThan(5);
   });
 
-  test(`the route never crosses itself or comes back within ${TRAIN_CLEARANCE} m of itself, except inside a snail`, () => {
+  test(`the route never crosses itself or comes back within ${TRAIN_CLEARANCE} m of itself, except inside a snail or a mirror`, () => {
     for (const { name, courses } of trains) {
       for (const c of courses) {
-        // Points of a walled element carry its id: its own passes may run close, a wall between them.
+        // Points of an exempt element carry its id: its own passes may meet.
         const byId = new Map(c.elements.map((e) => [e.id, e]));
         const pts = [];
         const owner = [];
@@ -580,7 +581,7 @@ describe('паровозик', () => {
           const e = leg.kind === 'connector' ? null : byId.get(leg.element);
           const dense = densify(e ? e.path : leg.path, 0.25);
           pts.push(...dense);
-          owner.push(...dense.map(() => (e && WALLED_TYPES.includes(e.type) ? e.id : null)));
+          owner.push(...dense.map(() => (e && TRAIN_EXEMPT_TYPES.includes(e.type) ? e.id : null)));
         }
         const at = [0];
         for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));

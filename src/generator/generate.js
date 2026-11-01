@@ -15,7 +15,7 @@ import {
   pointsBounds, polylineHitsObb, polylineLength, round2,
 } from './geometry.js';
 import { createStream } from './prng.js';
-import { usableTypes, WALLED_TYPES } from './recipe.js';
+import { TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
 import { GENERATOR_VERSION } from './version.js';
 
@@ -47,8 +47,8 @@ export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
 // «Паровозик», a column of riders: the route never crosses itself or comes
 // back within 1.5 m of itself, or two riders of the column could meet. Checked
 // on 0.5 m samples, with a margin for the sampling error; samples closer than
-// TRAIN_NEAR along the route are the same stretch. The passes of a walled
-// element are the exception: a wall of cones keeps them apart.
+// TRAIN_NEAR along the route are the same stretch. The passes of an exempt
+// element are not checked against each other (TRAIN_EXEMPT_TYPES).
 const TRAIN_CLEARANCE = 2;
 const TRAIN_NEAR = 4;
 const TRAIN_STEP = 0.5;
@@ -61,10 +61,10 @@ const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
 const trainCell = (x, y) => `${Math.floor(x / TRAIN_CLEARANCE)},${Math.floor(y / TRAIN_CLEARANCE)}`;
 
 /**
- * The trajectory of a placed element as the train check rides it: a walled
+ * The trajectory of a placed element as the train check rides it: an exempt
  * one comes wrapped, and its samples are never checked against each other.
  */
-const ridden = (el) => (WALLED_TYPES.includes(el.tpl.type) ? { points: el.path } : el.path);
+const ridden = (el) => (TRAIN_EXEMPT_TYPES.includes(el.tpl.type) ? { points: el.path } : el.path);
 
 /**
  * Samples of polylines ridden straight after `track`, continuing its distance

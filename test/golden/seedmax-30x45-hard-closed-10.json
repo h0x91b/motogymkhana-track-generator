@@ -1,6 +1,6 @@
 {
  "name": "seedmax-30x45-hard-closed-10",
- "generatorVersion": 9,
+ "generatorVersion": 10,
  "recipe": {
   "width": 30,
   "length": 45,
@@ -9,7 +9,7 @@
   "closed": true
  },
  "seed": 4294967295,
- "hash": "029a0541a5f5ce5b",
+ "hash": "dbdd241d094bf690",
  "course": {
   "cones": [
    {
@@ -1222,7 +1222,7 @@
     ]
    }
   ],
-  "generatorVersion": 9,
+  "generatorVersion": 10,
   "passes": [
    {
     "angle": 360,
@@ -1260,7 +1260,7 @@
    "closed": true,
    "difficulty": "hard",
    "elements": 10,
-   "generatorVersion": 9,
+   "generatorVersion": 10,
    "length": 45,
    "train": false,
    "types": [
