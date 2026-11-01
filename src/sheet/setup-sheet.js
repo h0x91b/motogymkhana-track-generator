@@ -298,6 +298,7 @@ export function buildSetupSheet(course) {
   const start = terminal(course.route.start, byId);
   return {
     site: { width: course.site.width, length: course.site.length },
+    bike: course.recipe.bike,
     closed: course.route.closed,
     requested: course.requested,
     placed: course.placed,

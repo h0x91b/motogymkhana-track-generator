@@ -1,15 +1,16 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
-import { DIFFICULTY_TABLE, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
 import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
-export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS, WALLED_TYPES } from './recipe.js';
-export { BIG_ELEMENT_AREA, TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
+export { parseRecipe, parseSeed, BIKES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TYPE_LEVELS, WALLED_TYPES } from './recipe.js';
+export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
+const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
 
 /**
@@ -28,9 +29,9 @@ function siteTooSmall(recipe) {
     const short = Math.min(a, b);
     if (!smallest || long * short < smallest.long * smallest.short) smallest = { type, name: TYPE_NAMES[type], long, short };
   }
-  const radius = DIFFICULTY_TABLE[recipe.difficulty].turnRadius;
+  const radius = BIKE_TURN_RADIUS[recipe.bike];
   const fits = feasibleTypes(recipe).length > 0;
-  const head = `Площадка ${recipe.width} × ${recipe.length} м мала для сложности «${DIFFICULTY_NAMES[recipe.difficulty]}»: `
+  const head = `Площадка ${recipe.width} × ${recipe.length} м мала для сложности «${DIFFICULTY_NAMES[recipe.difficulty]}» на мотоцикле «${BIKE_NAMES[recipe.bike]}»: `
     + `с отступом ${SITE_MARGIN} м от края остаётся ${usable.width} × ${usable.length} м.`;
   const tail = fits
     ? ` Элемент «${smallest.name}» (${fmt(smallest.long)} × ${fmt(smallest.short)} м) помещается, но не остаётся места `

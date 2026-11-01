@@ -1,7 +1,7 @@
 // Hard rules of a course, checked on hundreds of seeds through generateCourse.
 
 import { describe, expect, test } from 'bun:test';
-import { BIG_ELEMENT_AREA, generateCourse, LOOPED_TYPES, TYPE_LEVELS, WALLED_TYPES } from '../src/generator/index.js';
+import { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TYPE_LEVELS, WALLED_TYPES } from '../src/generator/index.js';
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
@@ -10,6 +10,7 @@ const RECIPES = [
   { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true }, seeds: 150 },
   { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', closed: false }, seeds: 80 },
   { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', closed: true }, seeds: 80 },
+  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', closed: true }, seeds: 60 },
   { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', closed: false }, seeds: 80 },
   {
     name: 'eights and slaloms only',
@@ -53,6 +54,30 @@ function coreArea(e) {
   const [a, b, c] = e.zone;
   const side = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]) - 2 * 0.75;
   return side(a, b) * side(b, c);
+}
+
+/**
+ * Radius of the tightest bend of a polyline: the circle through each vertex and
+ * the nearest vertices at least 2 m before and after it. The wide stencil keeps
+ * the 0.01 m rounding of the output from showing up as a sharp bend.
+ */
+function tightestBend(path) {
+  const at = [0];
+  for (let i = 1; i < path.length; i++) at.push(at[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
+  let best = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    let j = i;
+    while (j > 0 && at[i] - at[j] < 2) j--;
+    let k = i;
+    while (k < path.length - 1 && at[k] - at[i] < 2) k++;
+    if (at[i] - at[j] < 2 || at[k] - at[i] < 2) continue;
+    const [a, b, c] = [path[j], path[i], path[k]];
+    const cross = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+    if (cross < 1e-9) continue;
+    const r = (Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]) * Math.hypot(a[0] - c[0], a[1] - c[1])) / (2 * cross);
+    best = Math.min(best, r);
+  }
+  return best;
 }
 
 /** Where the path crosses the segment a–b: the signed crossing direction of each crossing. */
@@ -146,6 +171,16 @@ describe('placement', () => {
     });
   });
 
+  test('connectors turn no tighter than the bike allows: Ø 9 m on a cruiser, Ø 7.5 m on a sport bike', () => {
+    expect(BIKE_TURN_RADIUS).toEqual({ sport: 3.75, cruiser: 4.5 });
+    each((c, recipe) => {
+      const radius = BIKE_TURN_RADIUS[recipe.bike ?? 'cruiser'];
+      for (const leg of c.route.legs.filter((l) => l.kind === 'connector')) {
+        expect(tightestBend(leg.path), label(c)).toBeGreaterThan(radius * 0.97);
+      }
+    });
+  });
+
   test('connectors do not ride unmarked loops: at most 300° of turning, 400° for the closing one', () => {
     each((c) => {
       for (const leg of c.route.legs) {
@@ -162,7 +197,8 @@ describe('placement', () => {
     let loops = 0;
     for (const { name, recipe, courses } of generated) {
       if (!recipe.closed) continue;
-      const roomy = recipe.width >= 30 && recipe.length >= 45;
+      // Roomy for a cruiser's 9 m turns; on 30×45 it can take a loop to get back to the start.
+      const roomy = recipe.width >= 40 && recipe.length >= 60;
       for (const c of courses) {
         const last = c.route.legs[c.route.legs.length - 1];
         const t = turns(last.path);
@@ -566,7 +602,8 @@ describe('паровозик', () => {
   test('still lays out most of what was asked on a roomy site', () => {
     const [{ courses }] = trains;
     const placed = courses.reduce((n, c) => n + c.placed, 0) / courses.length;
-    // About 6.25 of 8: a snail, when there is one, takes some 300 m² of the 2400.
-    expect(placed).toBeGreaterThan(6);
+    // About 5 of 8: a cruiser's connectors turn on 9 m, and in a column they
+    // must keep clear of the whole route; a snail takes some 300 m² of the 2400.
+    expect(placed).toBeGreaterThan(4.5);
   });
 });

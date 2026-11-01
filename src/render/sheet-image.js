@@ -21,6 +21,7 @@ const BLUE = '#2b72c4';
 const RED = '#cc4330';
 const ANCHOR = '#b07d00';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const BIKE_LABELS = { sport: 'под спортбайк', cruiser: 'под крузер' };
 
 const font = (ctx, size, weight = 400) => {
   ctx.font = `${weight} ${size}px ${FONT}`;
@@ -559,7 +560,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const probe = makeCanvas(1, 1).getContext('2d');
   const width = W - 2 * PAD;
   const fmtCone = (c) => `X ${fmt(c.x)} · Y ${fmt(c.y)}`;
-  const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · все расстояния между центрами конусов, от опорного угла A`;
+  const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · ${BIKE_LABELS[sheet.bike]} · все расстояния между центрами конусов, от опорного угла A`;
   const intro = textBlock([
     { text: 'Схема расстановки трассы', size: 44, weight: 800, gap: 4 },
     { text: subtitle, size: 22, color: MUTED },

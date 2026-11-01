@@ -7,7 +7,8 @@ import { fullRoute, turns } from './helpers/course-geometry.js';
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true },
   { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: false },
-  { width: 30, length: 45, elements: 10, difficulty: 'hard', closed: true },
+  // A tight site: a cruiser fits about four elements there, too few to judge spread.
+  { width: 30, length: 45, elements: 10, difficulty: 'hard', bike: 'sport', closed: true },
   { width: 60, length: 80, elements: 12, difficulty: 'easy', closed: false },
 ];
 const SEEDS = 60;

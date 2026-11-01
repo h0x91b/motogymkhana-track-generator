@@ -209,7 +209,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .seed-row input { text-align: left; }
 .err { margin: 2px 0 0; color: var(--danger); font-size: 13px; min-height: 0; }
 .err:empty { display: none; }
-.segmented { border: 0; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.segmented { border: 0; padding: 0; margin: 12px 0 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
 .segmented legend { font-weight: 600; margin-bottom: 4px; padding: 0; }
 .segmented label { margin: 0; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
@@ -223,6 +223,7 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .types label { margin: 0; }
 .hint { margin: -4px 0 4px 32px; font-size: 13px; }
 .hint[hidden] { display: none; }
+.bike-hint { margin: 6px 0 0; }
 .check:has(input:disabled) { color: var(--muted); }
 .wide { width: 100%; margin-top: 16px; }
 .toast {

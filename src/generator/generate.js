@@ -7,9 +7,9 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { chooseParams, instantiate, isBig, minimalParams, DIFFICULTY_TABLE, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, chooseParams, instantiate, isBig, minimalParams, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
-import { PI } from './dmath.js';
+import { atan2, PI, wrapPi } from './dmath.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap,
   pointsBounds, polylineHitsObb, polylineLength, round2,
@@ -169,6 +169,26 @@ function templateFor(plan, diagonal, mirrored) {
     plan.templates[key] = params ? instantiate(plan.type, params, diagonal, mirrored) : null;
   }
   return plan.templates[key];
+}
+
+/**
+ * The axis whose entry faces the way the element is reached from `from`
+ * towards `to`, so the connector leads straight in instead of turning round
+ * on open asphalt; the first such axis in the plan's order on a tie.
+ */
+function facingAxis(plan, mirrored, from, to) {
+  const bearing = atan2(to[1] - from[1], to[0] - from[0]);
+  let best = null;
+  let off = Infinity;
+  for (const axis of plan.axes) {
+    const tpl = templateFor(plan, axis % 2 === 1, mirrored);
+    const d = Math.abs(wrapPi(dirAngle((localDirIndex(tpl.entryDir) + axis) % 8) - bearing));
+    if (d < off - 1e-9) {
+      off = d;
+      best = axis;
+    }
+  }
+  return best;
 }
 
 /** Places a local template: axis 0..7, anchor on whole metres. */
@@ -392,7 +412,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   };
   const targets = layoutTargets(inner, n, recipe.closed, createStream(seed, 'layout'));
   const place = createStream(seed, 'place');
-  const radius = DIFFICULTY_TABLE[recipe.difficulty].turnRadius;
+  const radius = BIKE_TURN_RADIUS[recipe.bike];
   const diagonal = Math.sqrt(recipe.width * recipe.width + recipe.length * recipe.length);
   const budget = BUDGET_BASE + BUDGET_PER_ELEMENT * n;
   let spent = 0;
@@ -412,8 +432,10 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     const out = [];
     for (let c = 0; c < CANDIDATES; c++) {
       if (++spent > roundEnd) throw new BudgetExhausted();
-      const axis = place.pick(plan.axes);
+      const drawn = place.pick(plan.axes);
       const mirrored = place.int(0, 1) === 1;
+      // Every other candidate faces the connector that leads into it.
+      const axis = i > 0 && c % 2 === 0 ? facingAxis(plan, mirrored, placed[i - 1].exit, target) : drawn;
       const reach = (0.03 + (0.3 * c) / CANDIDATES) * diagonal;
       const jx = place.range(-reach, reach);
       const jy = place.range(-reach, reach);

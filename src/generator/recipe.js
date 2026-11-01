@@ -50,6 +50,8 @@ export const usableTypes = (recipe) =>
 
 export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
+export const BIKES = ['sport', 'cruiser'];
+
 export const SITE_MIN = 10;
 export const SITE_MAX = 100;
 export const ELEMENTS_MIN = 1;
@@ -105,6 +107,10 @@ export function parseRecipe(input) {
   const difficulty = DIFFICULTIES.includes(src.difficulty) ? src.difficulty : null;
   if (difficulty === null) errors.difficulty = 'Выберите сложность';
 
+  // Without a class the course is for a cruiser: every bike rides that.
+  const bike = BIKES.includes(src.bike ?? 'cruiser') ? (src.bike ?? 'cruiser') : null;
+  if (bike === null) errors.bike = 'Выберите мотоцикл: спорт или крузер';
+
   const closed = parseBoolean(src.closed ?? false);
   if (closed === null) errors.closed = 'Замкнутость — да или нет';
 
@@ -131,6 +137,6 @@ export function parseRecipe(input) {
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, closed, train, generatorVersion: GENERATOR_VERSION },
+    recipe: { width, length, elements, types, difficulty, bike, closed, train, generatorVersion: GENERATOR_VERSION },
   };
 }

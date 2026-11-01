@@ -9,6 +9,7 @@ import { runSelfCheck } from './selfcheck.js';
 
 const $ = (id) => document.getElementById(id);
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
+const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 const DEBOUNCE_MS = 300;
 
 function randomSeed() {
@@ -17,7 +18,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -85,6 +86,7 @@ function writeForm(f) {
   form.length.value = f.length;
   form.elements.value = f.elements;
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.checked = r.value === f.difficulty;
+  for (const r of form.querySelectorAll('[name="bike"]')) r.checked = r.value === f.bike;
   form.closed.checked = !!f.closed;
   form.train.checked = !!f.train;
   form.seed.value = f.seed;
@@ -98,6 +100,7 @@ function readForm() {
     length: form.length.value,
     elements: form.elements.value,
     difficulty: form.querySelector('[name="difficulty"]:checked')?.value ?? '',
+    bike: form.querySelector('[name="bike"]:checked')?.value ?? '',
     closed: form.closed.checked,
     train: form.train.checked,
     seed: form.seed.value,
@@ -227,6 +230,7 @@ function renderSummary() {
     parts.push(short ? count : `${c.placed} из ${c.requested} эл.`);
   }
   parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
+  parts.push(BIKE_NAMES[f.bike] ?? '');
   parts.push(f.closed ? 'замкнутая' : 'открытая');
   if (f.train) parts.push('паровозик');
   parts.push(`seed ${f.seed || '—'}`);

@@ -24,14 +24,14 @@ import { arcPoints, ellipsePoints, latticeUnit, smoothPath, turning } from './ge
 export const DIFFICULTY_TABLE = {
   easy: {
     slalomStep: [4.5, 5], offsetStep: [5, 6], offsetShift: [1, 1.5], gateWidth: [2.5], laneShift: [2, 2.5],
-    uTurnWidth: [8], pivotRadius: 3, pivotAngles: [270], eightDistance: [9, 12], boxSize: [8], turnRadius: 4,
+    uTurnWidth: [8], pivotRadius: 3, pivotAngles: [270], eightDistance: [9, 12], boxSize: [8],
     circleRadius: [3.5], circleStretch: [0, 2], mirrorLine: [6], mirrorRadius: 3, gateTurnWidth: [4.5], loopRadius: 3.5,
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
   },
   medium: {
     slalomStep: [3.5, 4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
-    uTurnWidth: [7], pivotRadius: 2.5, pivotAngles: [270, 360], eightDistance: [7, 9], boxSize: [7], turnRadius: 3,
+    uTurnWidth: [7], pivotRadius: 2.5, pivotAngles: [270, 360], eightDistance: [7, 9], boxSize: [7],
     circleRadius: [2.5], circleStretch: [0, 2, 3], mirrorLine: [5.5], mirrorRadius: 2.5, gateTurnWidth: [4], loopRadius: 3,
     tunnelGap: [4.5], tunnelShift: [2], zigzagStep: [3.5], zigzagShift: [2], zigzagWidth: [2],
     snakeWidth: [4.5], snakeStep: [3], crescentRadius: [6], flickRadius: 3, swerveWidth: [2], swerveRun: [7],
@@ -39,13 +39,19 @@ export const DIFFICULTY_TABLE = {
   },
   hard: {
     slalomStep: [3, 3.5], offsetStep: [3.5, 4.5], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
-    uTurnWidth: [6], pivotRadius: 2, pivotAngles: [360, 720], eightDistance: [6, 7], boxSize: [6], turnRadius: 2.5,
+    uTurnWidth: [6], pivotRadius: 2, pivotAngles: [360, 720], eightDistance: [6, 7], boxSize: [6],
     circleRadius: [2], circleStretch: [0, 2], mirrorLine: [5], mirrorRadius: 2, gateTurnWidth: [3.5], loopRadius: 2.5,
     tunnelGap: [4], tunnelShift: [2.5], zigzagStep: [3], zigzagShift: [2.5], zigzagWidth: [1.5],
     snakeWidth: [4], snakeStep: [3], crescentRadius: [5], flickRadius: 2.5, swerveWidth: [2], swerveRun: [6],
     snailCorridor: [2], boxEightDistance: [6], boxEightGate: [2.5], keyholeRadius: [3], keyholeOpening: [2],
   },
 };
+
+// The tightest turn a rider of each bike class makes with room for a mistake,
+// as the radius of the line ridden: Ø 7–8 m on a sport bike, Ø 9 m on a cruiser
+// (an organiser's figures; 9 m is the most he has seen laid out in a confined
+// space, for a Vulcan 1700). Connectors turn no tighter.
+export const BIKE_TURN_RADIUS = { sport: 3.75, cruiser: 4.5 };
 
 /** Clearance around an element's cones and trajectory that no other element or connector may enter. */
 export const ZONE_PAD = 0.75;

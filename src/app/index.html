@@ -78,6 +78,12 @@
         <label><input type="radio" name="difficulty" value="medium"><span>Средняя</span></label>
         <label><input type="radio" name="difficulty" value="hard"><span>Сложная</span></label>
       </fieldset>
+      <fieldset class="segmented" aria-describedby="bike-hint">
+        <legend>Мотоцикл</legend>
+        <label><input type="radio" name="bike" value="sport"><span>Спорт</span></label>
+        <label><input type="radio" name="bike" value="cruiser"><span>Крузер</span></label>
+      </fieldset>
+      <p class="muted hint bike-hint" id="bike-hint">Связки между элементами поворачивают не круче, чем по кругу Ø 7,5 м на спорте и Ø 9 м на крузере.</p>
       <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
       <label class="check"><input type="checkbox" name="train" aria-describedby="train-hint"> Паровозик: несколько мотоциклов друг за другом</label>
       <p class="muted hint" id="train-hint">Без элементов с петлями и встречной ездой (вращение, восьмёрки, коробка, круг, зеркало, разворот за воротами, замочная скважина), и маршрут нигде не пересекает сам себя: мотоциклы колонны не встретятся. Улитку можно: её встречные коридоры разделены стенкой.</p>

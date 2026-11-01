@@ -80,6 +80,12 @@ describe('recipe input', () => {
     expect(parseRecipe({ ...baseRecipe, train: 'maybe' }).errors.train).toBeTruthy();
   });
 
+  test('a course is for a cruiser unless a sport bike is asked for', () => {
+    expect(parseRecipe(baseRecipe).recipe.bike).toBe('cruiser');
+    expect(parseRecipe({ ...baseRecipe, bike: 'sport' }).recipe.bike).toBe('sport');
+    expect(parseRecipe({ ...baseRecipe, bike: 'chopper' }).errors.bike).toBeTruthy();
+  });
+
   test('«паровозик» with only looped types ticked is a types error, not an empty course', () => {
     const result = parseRecipe({ ...baseRecipe, train: true, types: ['pivot-turn', 'figure-eight', 'box'] });
     expect(result.ok).toBe(false);
@@ -153,6 +159,6 @@ describe('simplification', () => {
     const result = generateCourse({ width: 10, length: 10, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('site-too-small');
-    expect(result.error.message).toContain('радиусом поворота 4 м');
+    expect(result.error.message).toContain('радиусом поворота 4,5 м');
   });
 });
