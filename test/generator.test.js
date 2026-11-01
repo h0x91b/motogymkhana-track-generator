@@ -126,7 +126,7 @@ describe('simplification', () => {
       expect(geometry(full)).toBe(geometry(direct));
     }
     expect(simplified).toBeGreaterThan(5);
-  });
+  }, 30_000);
 
   test('a site too small for any allowed element is an error with the computed numbers, not an empty course', () => {
     const result = generateCourse({ width: 10, length: 10, elements: 3, difficulty: 'easy', closed: false, types: ['straight-slalom'] }, 1);

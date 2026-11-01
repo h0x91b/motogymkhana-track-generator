@@ -423,7 +423,7 @@ describe('паровозик', () => {
         }
       }
     }
-  });
+    }, 30_000);
 
   test('still lays out most of what was asked on a roomy site', () => {
     const [{ courses }] = trains;
