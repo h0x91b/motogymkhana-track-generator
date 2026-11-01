@@ -1,4 +1,4 @@
-import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
+import { canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -17,7 +17,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'medium', closed: true, seed: '1', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'medium', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
 };
 
 const state = {
@@ -29,7 +29,7 @@ const state = {
   selected: null,
   setupStep: null,
   setupWanted: false, // «Расстановка» tapped while a course was still being generated
-  ride: null, // { track, s, pose, playing, last } while the schematic rider is on the course
+  ride: null, // { track, riders, s, poses, playing, last } while schematic riders are on the course
   camera: createCamera(),
   hits: [],
   requestId: 0,
@@ -46,9 +46,17 @@ function buildTypeChecks() {
   for (const t of ELEMENT_TYPES) {
     const label = document.createElement('label');
     label.className = 'check';
-    label.innerHTML = `<input type="checkbox" name="types" value="${t}"> ${TYPE_NAMES[t]}`;
+    label.innerHTML = `<input type="checkbox" name="types" value="${t}"> ${TYPE_NAMES[t]}${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}`;
     box.append(label);
   }
+}
+
+/** In «паровозик» the looped types are off whatever is ticked: say so on the boxes. */
+function syncTrain() {
+  const train = form.train.checked;
+  $('train-hint').hidden = !train;
+  for (const t of LOOPED_TYPES) form.querySelector(`[name="types"][value="${t}"]`).disabled = train;
+  for (const s of form.querySelectorAll('.train-off')) s.hidden = !train;
 }
 
 function writeForm(f) {
@@ -57,8 +65,10 @@ function writeForm(f) {
   form.elements.value = f.elements;
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.checked = r.value === f.difficulty;
   form.closed.checked = !!f.closed;
+  form.train.checked = !!f.train;
   form.seed.value = f.seed;
   for (const c of form.querySelectorAll('[name="types"]')) c.checked = f.types.includes(c.value);
+  syncTrain();
 }
 
 function readForm() {
@@ -68,6 +78,7 @@ function readForm() {
     elements: form.elements.value,
     difficulty: form.querySelector('[name="difficulty"]:checked')?.value ?? '',
     closed: form.closed.checked,
+    train: form.train.checked,
     seed: form.seed.value,
     types: [...form.querySelectorAll('[name="types"]:checked')].map((c) => c.value),
   };
@@ -150,7 +161,8 @@ const generator = createGenerator(({ id, result }) => {
   resetCamera(state.camera);
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
-  if (course.placed < course.requested) {
+  // Not over the open form: the summary shows the count after it closes.
+  if (course.placed < course.requested && $('form-sheet').hidden) {
     toast(`Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`, 6000);
   }
   renderSummary();
@@ -190,6 +202,7 @@ function renderSummary() {
   if (c && !state.stale) parts.push(short ? `влезло ${c.placed} из ${c.requested} эл.` : `${c.placed} из ${c.requested} эл.`);
   parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
   parts.push(f.closed ? 'замкнутая' : 'открытая');
+  if (f.train) parts.push('паровозик');
   parts.push(`seed ${f.seed || '—'}`);
   const shown = parts.filter(Boolean);
   const summary = $('summary');
@@ -233,7 +246,7 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = state.stale ? 0.45 : 1;
-  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, rider: state.ride?.pose });
+  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, riders: state.ride?.poses ?? [] });
   ctx.globalAlpha = 1;
   state.hits = hits;
 }
@@ -466,10 +479,27 @@ function exitSetup() {
 
 // ---------------------------------------------------------------- ride
 
+// In «паровозик» a column of riders this far apart rides the route.
+const TRAIN_RIDERS = 3;
+const TRAIN_SPACING = 8; // metres of route
+
+/** The riders on the course when the leader is s metres along: only those between start and finish. */
+function ridePoses(r) {
+  const poses = [];
+  for (let k = 0; k < r.riders; k++) {
+    const s = r.s - k * TRAIN_SPACING;
+    if (s >= 0 && s <= r.track.length) poses.push({ ...rideAt(r.track, s), rider: k });
+  }
+  return poses;
+}
+
+/** The camera follows the middle of the column, clamped to the route. */
+const rideFocus = (r) => rideAt(r.track, Math.max(0, Math.min(r.track.length, r.s - ((r.riders - 1) / 2) * TRAIN_SPACING)));
+
 /**
- * «Проезд»: a schematic motorcycle rides the route at a set speed in the 3D
- * view, the camera following it a little zoomed in. Pause keeps its place;
- * after the finish the next tap starts over.
+ * «Проезд»: a schematic motorcycle (in «паровозик», a column of three) rides the
+ * route at a set speed in the 3D view, the camera following it a little zoomed
+ * in. Pause keeps its place; after the finish the next tap starts over.
  */
 function toggleRide() {
   if (!state.course || state.stale) return;
@@ -478,11 +508,12 @@ function toggleRide() {
   state.selected = null;
   hideElementCard();
   if (state.camera.mode !== 'angle') setView('angle');
-  if (!state.ride || state.ride.s >= state.ride.track.length) {
+  if (!state.ride || state.ride.s >= rideEnd(state.ride)) {
     const track = buildRide(state.course);
-    state.ride = { track, s: 0, pose: rideAt(track, 0) };
+    state.ride = { track, riders: state.course.recipe.train ? TRAIN_RIDERS : 1, s: 0 };
+    state.ride.poses = ridePoses(state.ride);
     // About 18 m of the course around the rider fills the stage.
-    const { x, y } = state.ride.pose;
+    const { x, y } = rideFocus(state.ride);
     frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, [x - 9, y - 9, x + 9, y + 9]);
   }
   state.ride.playing = true;
@@ -491,14 +522,18 @@ function toggleRide() {
   requestAnimationFrame(rideFrame);
 }
 
+/** The leader's distance at which the last rider of the column has finished. */
+const rideEnd = (r) => r.track.length + (r.riders - 1) * TRAIN_SPACING;
+
 function rideFrame(now) {
   const r = state.ride;
   if (!r?.playing) return;
-  r.s = Math.min(r.track.length, r.s + RIDE_SPEED * Math.min(0.1, (now - r.last) / 1000));
+  r.s = Math.min(rideEnd(r), r.s + RIDE_SPEED * Math.min(0.1, (now - r.last) / 1000));
   r.last = now;
-  r.pose = rideAt(r.track, r.s);
-  centreOn(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, r.pose.x, r.pose.y);
-  if (r.s >= r.track.length) {
+  r.poses = ridePoses(r);
+  const focus = rideFocus(r);
+  centreOn(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, focus.x, focus.y);
+  if (r.s >= rideEnd(r)) {
     r.playing = false;
     renderRideButton();
   } else requestAnimationFrame(rideFrame);
@@ -522,7 +557,7 @@ function renderRideButton() {
   const r = state.ride;
   const b = $('ride');
   b.setAttribute('aria-pressed', String(!!r?.playing));
-  b.textContent = r?.playing ? '❚❚ Пауза' : r && r.s > 0 && r.s < r.track.length ? '▶ Дальше' : '▶ Проезд';
+  b.textContent = r?.playing ? '❚❚ Пауза' : r && r.s > 0 && r.s < rideEnd(r) ? '▶ Дальше' : '▶ Проезд';
 }
 
 // ---------------------------------------------------------------- picture
@@ -661,6 +696,7 @@ function start() {
   state.form = readForm();
 
   form.addEventListener('input', () => onFormChange());
+  form.train.addEventListener('change', syncTrain);
   form.addEventListener('change', () => onFormChange());
   form.addEventListener('submit', (e) => {
     e.preventDefault();

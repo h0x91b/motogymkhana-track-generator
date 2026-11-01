@@ -17,6 +17,8 @@ const RECIPES = [
     seeds: 60,
   },
   { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', closed: true }, seeds: 60 },
+  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true, train: true }, seeds: 80 },
+  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', closed: false, train: true }, seeds: 50 },
 ];
 
 const generated = RECIPES.map(({ name, recipe, seeds }) => {
@@ -347,5 +349,50 @@ describe('route', () => {
       expect(c.placed).toBeGreaterThanOrEqual(1);
       expect(c.placed).toBeLessThanOrEqual(recipe.elements);
     });
+  });
+});
+
+// «Паровозик»: several riders follow each other. Two passes of the route near
+// one spot must be far enough apart along the route for the whole column to
+// clear it, or riders meet there.
+const TRAIN_GAP = 30; // metres of route
+const TRAIN_CLEARANCE = 1.5; // closer than this is the same spot
+
+describe('паровозик', () => {
+  const trains = generated.filter(({ recipe }) => recipe.train);
+
+  test('has no looped elements: no pivot turn, figure eight or box', () => {
+    for (const { courses } of trains) {
+      for (const c of courses) {
+        for (const e of c.elements) expect(['pivot-turn', 'figure-eight', 'box']).not.toContain(e.type);
+      }
+    }
+  });
+
+  test(`the route never comes back within ${TRAIN_CLEARANCE} m of itself sooner than ${TRAIN_GAP} m of route`, () => {
+    for (const { name, courses } of trains) {
+      for (const c of courses) {
+        const pts = densify(fullRoute(c), 0.25);
+        const at = [0];
+        for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        const total = at[at.length - 1];
+        for (let i = 0; i < pts.length; i++) {
+          for (let j = i + 1; j < pts.length; j++) {
+            const along = at[j] - at[i];
+            // A closed course is ridden round and round: count the way through the finish too.
+            const gap = c.route.closed ? Math.min(along, total - along) : along;
+            if (gap < 4 || gap >= TRAIN_GAP) continue;
+            const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]);
+            if (d < TRAIN_CLEARANCE) throw new Error(`${name} seed ${c.seed}: ${d.toFixed(2)} m apart after ${gap.toFixed(1)} m of route at (${pts[i].map((v) => v.toFixed(1))})`);
+          }
+        }
+      }
+    }
+  });
+
+  test('still lays out most of what was asked on a roomy site', () => {
+    const [{ courses }] = trains;
+    const placed = courses.reduce((n, c) => n + c.placed, 0) / courses.length;
+    expect(placed).toBeGreaterThan(6.5);
   });
 });

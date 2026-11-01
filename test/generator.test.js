@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { generateCourse } from '../src/generator/index.js';
+import { generateCourse, parseRecipe } from '../src/generator/index.js';
 
 const baseRecipe = {
   width: 40,
@@ -72,6 +72,19 @@ describe('recipe input', () => {
     const a = generateCourse({ ...baseRecipe, types: ['box', 'gate', 'pivot-turn'] }, 11);
     const b = generateCourse({ ...baseRecipe, types: ['pivot-turn', 'box', 'gate'] }, 11);
     expect(JSON.stringify(a.course)).toBe(JSON.stringify(b.course));
+  });
+
+  test('«паровозик» is off unless asked for, and takes form strings like «Замкнутая»', () => {
+    expect(parseRecipe(baseRecipe).recipe.train).toBe(false);
+    expect(parseRecipe({ ...baseRecipe, train: 'true' }).recipe.train).toBe(true);
+    expect(parseRecipe({ ...baseRecipe, train: 'maybe' }).errors.train).toBeTruthy();
+  });
+
+  test('«паровозик» with only looped types ticked is a types error, not an empty course', () => {
+    const result = parseRecipe({ ...baseRecipe, train: true, types: ['pivot-turn', 'figure-eight', 'box'] });
+    expect(result.ok).toBe(false);
+    expect(result.errors.types).toBeTruthy();
+    expect(generateCourse({ ...baseRecipe, train: true, types: ['box'] }, 1).error.code).toBe('invalid-input');
   });
 
   test('all eight types are allowed by default', () => {

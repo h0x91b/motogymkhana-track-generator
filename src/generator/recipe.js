@@ -15,6 +15,13 @@ export const ELEMENT_TYPES = [
   'box',
 ];
 
+// Types whose trajectory passes the same spot twice a few metres of route
+// apart: in «паровозик», a column of riders, they would meet there.
+export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box'];
+
+/** The types the generator may use: the allowed ones, without loops in «паровозик». */
+export const usableTypes = (recipe) => (recipe.train ? recipe.types.filter((t) => !LOOPED_TYPES.includes(t)) : recipe.types);
+
 export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
 export const SITE_MIN = 10;
@@ -75,6 +82,9 @@ export function parseRecipe(input) {
   const closed = parseBoolean(src.closed ?? false);
   if (closed === null) errors.closed = 'Замкнутость — да или нет';
 
+  const train = parseBoolean(src.train ?? false);
+  if (train === null) errors.train = 'Паровозик — да или нет';
+
   let types = null;
   if (src.types === undefined) {
     types = [...ELEMENT_TYPES];
@@ -84,10 +94,13 @@ export function parseRecipe(input) {
     types = ELEMENT_TYPES.filter((t) => src.types.includes(t));
   }
   if (!types || types.length === 0) errors.types = 'Отметьте хотя бы один тип элемента';
+  else if (train && types.every((t) => LOOPED_TYPES.includes(t))) {
+    errors.types = 'В паровозике нет вращения, восьмёрки и коробки: отметьте другой тип';
+  }
 
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, closed, generatorVersion: GENERATOR_VERSION },
+    recipe: { width, length, elements, types, difficulty, closed, train, generatorVersion: GENERATOR_VERSION },
   };
 }

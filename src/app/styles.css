@@ -214,6 +214,9 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 details { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 6px; }
 summary { min-height: 44px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
 .types label { margin: 0; }
+.hint { margin: -4px 0 4px 32px; font-size: 13px; }
+.hint[hidden] { display: none; }
+.check:has(input:disabled) { color: var(--muted); }
 .wide { width: 100%; margin-top: 16px; }
 .toast {
   position: fixed;

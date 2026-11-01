@@ -8,6 +8,8 @@ import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 const TAU = Math.PI * 2;
 // Below this many pixels per metre only the selected element shows its dimensions.
 const DIMENSIONS_FROM_SCALE = 16;
+// Bike colours of the riders in a column, leader first.
+const RIDER_COLORS = ['#ff9f1c', '#ff5d8f', '#a3e635'];
 
 export const PALETTE = {
   red: '#ee624d',
@@ -85,7 +87,7 @@ export function coneColors(course) {
  * Draws the course. Returns hit targets for taps: element labels and zones in
  * screen coordinates.
  */
-export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, rider = null } = {}) {
+export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, riders = [] } = {}) {
   const site = course ? course.site : { width: 40, length: 60 };
   const view = makeProjector(cam, W, H, site);
   const { project, scale } = view;
@@ -192,7 +194,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (const e of course.elements) {
     const poly = e.zone.map(([x, y]) => project(x, y, 0.005));
     hits.push({ kind: 'zone', element: e.id, poly });
-    if (e.id === selected || e.id === rider?.element) path(e.zone.map(([x, y]) => [x, y, 0.005]), '#d8f7ee99', 0.06, '#8bd5bd26', true);
+    if (e.id === selected || riders.some((r) => r.element === e.id)) path(e.zone.map(([x, y]) => [x, y, 0.005]), '#d8f7ee99', 0.06, '#8bd5bd26', true);
   }
 
   // Guides along the closed sides of boxes and U-turn zones (not marked on the asphalt).
@@ -269,7 +271,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   // Dimension lines between cone centres: for the selected or ridden element,
   // and for every element once zoomed in far enough to read them (not while
   // riding, when they would only flicker past).
-  const shown = (id) => id === selected || id === rider?.element || (!rider && scale >= DIMENSIONS_FROM_SCALE);
+  const shown = (id) => id === selected || riders.some((r) => r.element === id) || (!riders.length && scale >= DIMENSIONS_FROM_SCALE);
   const dimensions = (sheet?.cards ?? [])
     .filter((card) => shown(card.element))
     .flatMap((card) => card.dims.map((d) => ({ d, layout: dimensionLayout(d, zoneCentre(elements.get(card.element).zone)) })));
@@ -282,13 +284,11 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   // Cones, far to near.
   const exaggerate = Math.min(3, Math.max(1, 4.5 / (0.2 * scale)));
   const sorted = [...course.cones].sort((a, b) => project(a.hx / 2, a.hy / 2).d - project(b.hx / 2, b.hy / 2).d);
-  const riderDepth = rider ? project(rider.x, rider.y).d : 0;
-  let riderDrawn = !rider;
+  // Riders go into the same far-to-near order as the cones.
+  const queue = riders.map((r) => ({ r, d: project(r.x, r.y).d })).sort((a, b) => a.d - b.d);
   for (const cone of sorted) {
-    if (!riderDrawn && project(cone.hx / 2, cone.hy / 2).d > riderDepth) {
-      drawRider(rider, exaggerate);
-      riderDrawn = true;
-    }
+    const d = project(cone.hx / 2, cone.hy / 2).d;
+    while (queue.length && queue[0].d < d) drawRider(queue.shift().r, exaggerate);
     const color = cone.height === 'tall' ? PALETTE[colors.get(cone.id)] : PALETTE.low;
     const dim = selected && elementOf.get(cone.id) !== selected;
     ctx.globalAlpha = dim ? 0.5 : 1;
@@ -341,13 +341,14 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     for (const f of faces) f.d = f.p.reduce((s, p) => s + project(...p).d, 0) / f.p.length;
     faces.sort((a, b) => a.d - b.d).forEach((f) => path(f.p, null, 0, f.c, true));
   }
-  if (!riderDrawn) drawRider(rider, exaggerate);
+  while (queue.length) drawRider(queue.shift().r, exaggerate);
 
   /**
    * Schematic motorcycle with rider, in metres along (forward, left, up) of the
    * bike, leaning into the turn about its forward axis.
    */
   function drawRider(r, k) {
+    const body = RIDER_COLORS[(r.rider ?? 0) % RIDER_COLORS.length];
     const ux = Math.cos(r.heading);
     const uy = Math.sin(r.heading);
     const cl = Math.cos(r.lean);
@@ -364,7 +365,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const front = project(...at(0.68, 0, 0.32)).d;
     const [far, near] = rear < front ? [-0.68, 0.68] : [0.68, -0.68];
     wheel(far);
-    path([at(-0.68, 0, 0.32), at(-0.3, 0, 0.74), at(0.25, 0, 0.8), at(0.52, 0, 0.92), at(0.68, 0, 0.32)], '#ff9f1c', 0.16);
+    path([at(-0.68, 0, 0.32), at(-0.3, 0, 0.74), at(0.25, 0, 0.8), at(0.52, 0, 0.92), at(0.68, 0, 0.32)], body, 0.16);
     path([at(0.45, 0.3, 0.98), at(0.45, -0.3, 0.98)], '#11181c', 0.05);
     path([at(-0.25, 0, 0.86), at(0.08, 0, 1.38)], '#eef2f3', 0.24);
     path([at(0.08, 0.16, 1.32), at(0.45, 0.3, 0.98)], '#eef2f3', 0.08);

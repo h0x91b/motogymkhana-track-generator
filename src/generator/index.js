@@ -2,10 +2,10 @@
 
 import { DIFFICULTY_TABLE, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
 import { buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN } from './generate.js';
-import { parseRecipe, parseSeed } from './recipe.js';
+import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
-export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, SEED_MAX } from './recipe.js';
+export { parseRecipe, parseSeed, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX } from './recipe.js';
 export { TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
@@ -19,7 +19,7 @@ const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
 function siteTooSmall(recipe) {
   const usable = { width: recipe.width - 2 * SITE_MARGIN, length: recipe.length - 2 * SITE_MARGIN };
   let smallest = null;
-  for (const type of recipe.types) {
+  for (const type of usableTypes(recipe)) {
     const p = minimalParams(type, recipe.difficulty).side;
     const tpl = instantiate(type, p, false, false);
     const a = (tpl.core[2] - tpl.core[0]) * tpl.unit;

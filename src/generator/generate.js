@@ -14,6 +14,7 @@ import {
   pointsBounds, polylineHitsObb, polylineLength, round2,
 } from './geometry.js';
 import { createStream } from './prng.js';
+import { usableTypes } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
 import { GENERATOR_VERSION } from './version.js';
 
@@ -38,6 +39,70 @@ const MAX_CONNECTOR_TURN = 300;
 // one is only for sites where no loop-free closed course fits at any size:
 // bringing the rider back round to the start there can need a full turnaround.
 export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
+
+// «Паровозик», a column of riders: the route may pass near a spot again only
+// once the whole column has cleared it (30 m of route, 1.5 m apart). Checked on
+// 0.5 m samples, with margins for the sampling error.
+const TRAIN_GAP = 30.5; // metres of route between two passes near one spot
+const TRAIN_CLEARANCE = 2; // metres; closer is the same spot
+const TRAIN_NEAR = 4; // closer than this along the route is the same stretch
+const TRAIN_STEP = 0.5;
+
+/** Samples every TRAIN_STEP m along polylines joined in route order, with their distance along. */
+function sampleAlong(polylines) {
+  const points = [];
+  let s = 0;
+  let prev = null;
+  for (const pts of polylines) {
+    for (const p of pts) {
+      if (!prev) points.push({ x: p[0], y: p[1], s: 0 });
+      else {
+        const dx = p[0] - prev[0];
+        const dy = p[1] - prev[1];
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const k = Math.max(1, Math.ceil(len / TRAIN_STEP));
+        for (let j = 1; j <= k; j++) points.push({ x: prev[0] + (dx * j) / k, y: prev[1] + (dy * j) / k, s: s + (len * j) / k });
+        s += len;
+      }
+      prev = p;
+    }
+  }
+  return { points, length: s };
+}
+
+/**
+ * Whether `next`, ridden straight after `before` (polylines in route order),
+ * keeps clear of every stretch of either that a column of riders is still on.
+ * Only pairs involving `next` are checked; `before` was checked when laid.
+ */
+function trainClear(before, next) {
+  const { points } = sampleAlong([...before, ...next]);
+  const from = sampleAlong(before).length;
+  const cell = (v) => Math.floor(v / TRAIN_CLEARANCE);
+  const grid = new Map();
+  for (const p of points) {
+    const key = `${cell(p.x)},${cell(p.y)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(p);
+  }
+  for (const p of points) {
+    if (p.s < from) continue;
+    const cx = cell(p.x);
+    const cy = cell(p.y);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        for (const q of grid.get(`${cx + i},${cy + j}`) ?? []) {
+          const gap = p.s > q.s ? p.s - q.s : q.s - p.s;
+          if (gap < TRAIN_NEAR || gap >= TRAIN_GAP) continue;
+          const dx = p.x - q.x;
+          const dy = p.y - q.y;
+          if (dx * dx + dy * dy < TRAIN_CLEARANCE * TRAIN_CLEARANCE) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
 
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
@@ -90,12 +155,13 @@ function placeTemplate(tpl, axis, ax, ay) {
   const exitDir = (localDirIndex(tpl.exitDir) + axis) % 8;
   const entry = toM(...tpl.path[0]);
   const exit = toM(...tpl.path[tpl.path.length - 1]);
+  const path = tpl.path.map(([a, b]) => toM(a, b));
   return {
-    tpl, axis, ax, ay, zone, zoneBounds: obbBounds(zone), core, entry, exit, entryDir, exitDir,
+    tpl, axis, ax, ay, zone, zoneBounds: obbBounds(zone), core, entry, exit, entryDir, exitDir, path,
     center: zone.c,
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
-      path: tpl.path.map(([a, b]) => toM(a, b)),
+      path,
     }),
   };
 }
@@ -146,12 +212,13 @@ function terminalInside(t, inner, site) {
  * radius behind the start line, then straight across it, so the rider is lined
  * up when crossing the line.
  */
-function closingLeg(fromPose, startT, radius, inner, zones, maxTurn) {
+function closingLeg(fromPose, startT, radius, inner, zones, maxTurn, accept = null) {
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
   if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
-  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, maxTurn);
+  const whole = accept && ((pts) => accept([...pts, startT.center]));
+  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, maxTurn, whole);
   if (!leg) return null;
   const points = [...leg.points, startT.center];
   return { ...leg, points, bounds: pointsBounds(points), length: leg.length + radius };
@@ -176,17 +243,18 @@ function zoneClear(candidate, zones, paths) {
 }
 
 /**
- * Shortest Dubins connector that stays inside the site and out of every zone.
- * Tried at the minimum turning radius first, then at a wider one, which gives
- * differently shaped detours around nearby zones.
+ * Shortest Dubins connector that stays inside the site, out of every zone and,
+ * when given, passes `accept`. Tried at the minimum turning radius first, then
+ * at a wider one, which gives differently shaped detours around nearby zones.
  */
-function connect(fromPose, toPose, radius, inner, zones, maxTurn = MAX_CONNECTOR_TURN) {
+function connect(fromPose, toPose, radius, inner, zones, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
       if (path.turnLeft + path.turnRight > maxTurn) continue;
       if (!path.points.every((p) => inside(inner, p))) continue;
       const bounds = pointsBounds(path.points);
       if (!pathClear(path.points, bounds, zones)) continue;
+      if (accept && !accept(path.points)) continue;
       return { points: path.points, bounds, length: path.length, turnLeft: path.turnLeft, turnRight: path.turnRight };
     }
   }
@@ -211,7 +279,7 @@ function straightLeg(a, b) {
 /** Allowed types that fit the site at their most compact sizes, in canonical order. */
 export function feasibleTypes(recipe) {
   const inner = innerRect(recipe);
-  return recipe.types.filter((type) => {
+  return usableTypes(recipe).filter((type) => {
     const p = minimalParams(type, recipe.difficulty);
     return [p.side && instantiate(type, p.side, false, false), p.diagonal && instantiate(type, p.diagonal, true, false)]
       .some((tpl) => tpl && templateFits(tpl, inner));
@@ -309,8 +377,36 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
     return out.slice(0, BRANCH);
   }
 
+  /** The last stretch of the route placed so far, as far back as a column of riders reaches. */
+  function routeTail() {
+    const parts = [];
+    let len = 0;
+    for (let k = placed.length - 1; k >= 0 && len < TRAIN_GAP; k--) {
+      parts.unshift(placed[k].path);
+      len += polylineLength(placed[k].path);
+      if (len >= TRAIN_GAP) break;
+      parts.unshift(legs[k].points);
+      len += legs[k].length;
+    }
+    return parts;
+  }
+
+  /** The first stretch of the route, which a closed course runs into again after the finish. */
+  function routeHead(first) {
+    const parts = [];
+    let len = 0;
+    const order = placed.length ? placed.flatMap((p, k) => [legs[k].points, p.path]) : first;
+    for (const pts of order) {
+      if (len >= TRAIN_GAP) break;
+      parts.push(pts);
+      len += polylineLength(pts);
+    }
+    return parts;
+  }
+
   function evaluate(i, cand) {
     if (!cand.core.every((p) => inside(inner, p))) return null;
+    const tail = recipe.train ? routeTail() : null;
     const paths = [...legs];
     if (!zoneClear(cand, zones, paths)) return null;
     let entryLeg;
@@ -328,7 +424,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
       entryLeg = straightLeg(terminal.center, cand.entry);
     } else {
       const prev = placed[i - 1];
-      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand]);
+      // In «паровозик» the connector and the element it leads into keep clear of the column behind.
+      const accept = tail && ((pts) => trainClear(tail, [pts, cand.path]));
+      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], MAX_CONNECTOR_TURN, accept);
       if (!entryLeg) return null;
     }
     let exitLeg = null;
@@ -339,7 +437,11 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
         // The start zone is an obstacle too, so the closing connector cannot cut
         // across the start's own lead-in; it arrives on the zone edge at the line.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand];
-        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn);
+        // In «паровозик» it also keeps clear of the start, which the column rides into again.
+        const before = tail && [...tail, entryLeg.points, cand.path];
+        const head = tail && routeHead([entryLeg.points, cand.path]);
+        const accept = tail && ((pts) => trainClear(before, [pts]) && trainClear([...before, pts], head));
+        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn, accept);
         if (!exitLeg) return null;
       } else {
         finishTerminalCand = finishTerminal(cand);
@@ -369,7 +471,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN) {
     if (i === n) return true;
     const prev = i > 0 ? placed[i - 1].tpl.type : null;
     // Two identical types in a row only when the user allowed a single type.
-    const types = preferences[i].filter((t) => recipe.types.length === 1 || t !== prev).slice(0, TYPE_TRIES);
+    const types = preferences[i].filter((t) => usableTypes(recipe).length === 1 || t !== prev).slice(0, TYPE_TRIES);
     for (const type of types) {
       for (const option of candidates(i, type)) {
         const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;
