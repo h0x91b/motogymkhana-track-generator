@@ -394,6 +394,14 @@ function circularTurns(path, minRadius) {
       };
     } else joined.push({ ...t, first: t.centre, last: t.centre });
   }
+  // Fits round nearby centres (one wider circle, or two overlapping runs whose
+  // shared points count twice) can overstate a turn: never count more than
+  // the run turns the heading, its neighbouring segments included, plus 15°
+  // for the coarse sampling at its ends.
+  for (const t of joined) {
+    const h = turns(path.slice(Math.max(0, t.lo - 1), Math.min(path.length, t.hi + 2)));
+    t.sweep = Math.sign(t.sweep) * Math.min(Math.abs(t.sweep), h.left + h.right + 15);
+  }
   return joined;
 }
 
