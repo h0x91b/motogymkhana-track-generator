@@ -46,7 +46,10 @@ const state = {
   requestId: 0,
   shownId: 0,
   image: null, // { id, files } — the setup-sheet frames, prepared ahead of a share tap
+  seedHistory: [], // seeds «Новый seed» replaced, newest last: «↶» brings them back
 };
+
+const SEED_HISTORY = 30;
 
 // ---------------------------------------------------------------- form
 
@@ -170,6 +173,7 @@ const generator = createGenerator(({ id, result }) => {
   // Same recipe and seed is the same course: keep the view, selection and setup step.
   const key = canonicalJSON({ recipe: course.recipe, seed: course.seed });
   if (state.course && !state.stale && key === state.courseKey) {
+    renderSummary();
     if (wanted) enterSetup();
     return;
   }
@@ -186,26 +190,54 @@ const generator = createGenerator(({ id, result }) => {
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
   // Not over the open form: the summary shows the count after it closes.
-  if (course.placed < course.requested && $('form-sheet').hidden) {
-    toast(course.limitedBy === 'big-elements'
-      ? `Один элемент из ${course.requested}: отмеченные типы на этой сложности всегда большие (от ${BIG_ELEMENT_AREA} м²), а большой элемент на трассе может быть только один. Отметьте и другие типы`
-      : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`, 6000);
-  }
+  // Not over the open form: the form says it in its own status line.
+  if (course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
   renderSummary();
   invalidate();
   prepareImageSoon();
   if (wanted) enterSetup();
 });
 
+/** Why the course has fewer elements than asked for, and what to change. */
+function shortfallText(course) {
+  return course.limitedBy === 'big-elements'
+    ? `Один элемент из ${course.requested}: отмеченные типы на этой сложности всегда большие (от ${BIG_ELEMENT_AREA} м²), а большой элемент на трассе может быть только один. Отметьте и другие типы`
+    : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`;
+}
+
 function generate(recipe, seed) {
   state.generatorMode = generator.mode;
   state.requestId++;
   generator.run({ id: state.requestId, recipe, seed });
+  // Only if it takes a moment: a quick course replaces the status before anyone sees «собираю».
+  const id = state.requestId;
+  setTimeout(() => {
+    if (state.requestId === id && state.shownId !== id) renderFormStatus();
+  }, 250);
 }
 
 function newSeed() {
+  const previous = form.seed.value;
+  if (parseSeed(previous).ok && state.seedHistory.at(-1) !== previous) {
+    state.seedHistory.push(previous);
+    if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
+  }
   form.seed.value = String(randomSeed());
+  renderSeedBack();
   onFormChange(true);
+}
+
+/** «↶»: the course before the last «Новый seed», so a good one is never lost to a curious tap. */
+function previousSeed() {
+  const seed = state.seedHistory.pop();
+  if (seed === undefined) return;
+  form.seed.value = seed;
+  renderSeedBack();
+  onFormChange(true);
+}
+
+function renderSeedBack() {
+  $('prev-seed').disabled = !state.seedHistory.length;
 }
 
 // ---------------------------------------------------------------- banner, summary, toast
@@ -241,6 +273,30 @@ function renderSummary() {
     return i ? [document.createTextNode(' · '), node] : [node];
   }));
   summary.setAttribute('aria-label', `${shown.join(' · ')}. Открыть рецепт`);
+  renderFormStatus();
+}
+
+const elementsWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'элемент' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'элемента' : 'элементов');
+
+/** The open form says what its recipe gives, since the course itself is behind it. */
+function renderFormStatus() {
+  const p = $('form-status');
+  const c = state.course;
+  let text = '';
+  let kind = '';
+  if (!validate(state.form).ok) {
+    text = 'Исправьте ошибки в форме';
+    kind = 'error';
+  } else if (state.requestId !== state.shownId) text = 'Собираю трассу…';
+  else if (!c) {
+    text = $('banner').hidden ? '' : $('banner').textContent;
+    kind = 'error';
+  } else if (c.placed < c.requested) {
+    text = shortfallText(c);
+    kind = 'warn';
+  } else text = `Трасса готова: ${c.placed} ${elementsWord(c.placed)}`;
+  p.textContent = text;
+  p.className = `form-status ${kind}`;
 }
 
 let toastTimer = 0;
@@ -477,7 +533,7 @@ function renderSetup() {
   const steps = setupSteps();
   const step = steps[state.setupStep];
   const body = $('setup-body');
-  const counter = `<p class="muted">Шаг ${state.setupStep + 1} из ${steps.length} · ведомость: синих ${state.sheet.coneList.tallBlue}, красных ${state.sheet.coneList.tallRed}, низких ${state.sheet.coneList.low}</p>`;
+  const counter = `<p class="step-counter"><b>Шаг ${state.setupStep + 1} из ${steps.length}</b><span class="muted"> · конусов: синих ${state.sheet.coneList.tallBlue}, красных ${state.sheet.coneList.tallRed}, низких ${state.sheet.coneList.low}</span></p>`;
   if (step.kind === 'element') {
     body.innerHTML = counter + cardHtml(step.card, true);
     state.selected = step.card.element;
@@ -495,6 +551,21 @@ function renderSetup() {
   invalidate();
 }
 
+function setupPrev() {
+  if (state.setupStep !== null && state.setupStep > 0) {
+    state.setupStep--;
+    renderSetup();
+  }
+}
+
+function setupNext() {
+  if (state.setupStep === null) return;
+  if (state.setupStep < setupSteps().length - 1) {
+    state.setupStep++;
+    renderSetup();
+  } else exitSetup();
+}
+
 function enterSetup() {
   if (state.requestId !== state.shownId) {
     state.setupWanted = true; // enter once the course being generated is shown
@@ -505,6 +576,7 @@ function enterSetup() {
   hideElementCard();
   $('toast').hidden = true; // it would cover the step's anchor
   state.setupStep = 0;
+  $('stage').classList.add('in-setup');
   $('dock').hidden = true;
   $('setup-panel').hidden = false;
   requestAnimationFrame(renderSetup);
@@ -513,6 +585,7 @@ function enterSetup() {
 function exitSetup() {
   state.setupStep = null;
   state.selected = null;
+  $('stage').classList.remove('in-setup');
   $('dock').hidden = false;
   $('setup-panel').hidden = true;
   resetCamera(state.camera);
@@ -698,6 +771,7 @@ async function openPicture() {
     return;
   }
   pauseRide();
+  $('toast').hidden = true;
   pictureOpener = document.activeElement;
   for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
@@ -787,6 +861,7 @@ const BEHIND_FORM = ['stage', 'dock', 'setup-panel'];
 let formOpener = null;
 function openForm() {
   pauseRide();
+  $('toast').hidden = true; // the form's status line says the same, and the toast would sit on the form
   formOpener = document.activeElement;
   for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
@@ -870,20 +945,28 @@ function start() {
   $('open-form').addEventListener('click', openForm);
   $('summary').addEventListener('click', openForm);
   $('new-seed').addEventListener('click', newSeed);
+  $('prev-seed').addEventListener('click', previousSeed);
+  $('form-x').addEventListener('click', closeForm);
+  $('toast').addEventListener('click', () => ($('toast').hidden = true));
   $('setup-mode').addEventListener('click', enterSetup);
   $('setup-close').addEventListener('click', exitSetup);
-  $('setup-prev').addEventListener('click', () => {
-    if (state.setupStep !== null && state.setupStep > 0) {
-      state.setupStep--;
-      renderSetup();
+  $('setup-prev').addEventListener('click', setupPrev);
+  $('setup-next').addEventListener('click', setupNext);
+  // Keyboard: arrows step through «Расстановка», Escape leaves it or closes the element card.
+  document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (!$('form-sheet').hidden || !$('picture-sheet').hidden || e.target.matches?.('input')) return;
+    if (state.setupStep !== null) {
+      if (e.key === 'ArrowRight') setupNext();
+      else if (e.key === 'ArrowLeft') setupPrev();
+      else if (e.key === 'Escape') exitSetup();
+      else return;
+      e.preventDefault();
+    } else if (e.key === 'Escape' && !$('element-card').hidden) {
+      state.selected = null;
+      hideElementCard();
+      invalidate();
     }
-  });
-  $('setup-next').addEventListener('click', () => {
-    if (state.setupStep === null) return;
-    if (state.setupStep < setupSteps().length - 1) {
-      state.setupStep++;
-      renderSetup();
-    } else exitSetup();
   });
   $('share').addEventListener('click', openPicture);
   $('close-picture').addEventListener('click', closePicture);
