@@ -51,6 +51,8 @@ describe('recipe input', () => {
     ['site too long', { length: 101 }, 'length'],
     ['site width as text', { width: 'сорок' }, 'width'],
     ['unknown difficulty', { difficulty: 'extreme' }, 'difficulty'],
+    ['unknown course shape', { shape: 'spiral' }, 'shape'],
+    ['«Замкнутая» neither yes nor no', { closed: 'maybe' }, 'shape'],
   ];
   for (const [name, patch, field] of cases) {
     test(`${name} is an explicit field error`, () => {
@@ -66,6 +68,16 @@ describe('recipe input', () => {
     const fromNumbers = generateCourse(baseRecipe, 5);
     expect(fromForm.ok).toBe(true);
     expect(JSON.stringify(fromForm.course)).toBe(JSON.stringify(fromNumbers.course));
+  });
+
+  test('a recipe saved before shapes: «Замкнутая» on is a closed course, off or missing an open one', () => {
+    const { closed, ...rest } = baseRecipe;
+    expect(parseRecipe({ ...rest, closed: true }).recipe.shape).toBe('closed');
+    expect(parseRecipe({ ...rest, closed: 'false' }).recipe.shape).toBe('open');
+    expect(parseRecipe(rest).recipe.shape).toBe('open');
+    expect(parseRecipe({ ...rest, closed: true, shape: 'return' }).recipe.shape).toBe('return');
+    expect(parseRecipe(baseRecipe).recipe).not.toHaveProperty('closed');
+    expect(geometry(generateCourse(baseRecipe, 4).course)).toBe(geometry(generateCourse({ ...rest, shape: 'closed' }, 4).course));
   });
 
   test('the order of ticked types does not matter', () => {
@@ -137,6 +149,19 @@ describe('simplification', () => {
       simplified++;
       const direct = generateCourse({ ...tight, elements: full.placed }, seed).course;
       expect(direct.placed).toBe(full.placed);
+      expect(geometry(full)).toBe(geometry(direct));
+    }
+    expect(simplified).toBeGreaterThan(5);
+  }, 30_000);
+
+  test('the same holds for a course finishing by the start', () => {
+    const home = { ...tight, shape: 'return' };
+    let simplified = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const full = generateCourse(home, seed).course;
+      if (full.placed === 6) continue;
+      simplified++;
+      const direct = generateCourse({ ...home, elements: full.placed }, seed).course;
       expect(geometry(full)).toBe(geometry(direct));
     }
     expect(simplified).toBeGreaterThan(5);

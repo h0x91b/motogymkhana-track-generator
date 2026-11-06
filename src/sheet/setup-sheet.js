@@ -324,15 +324,23 @@ export function buildSetupSheet(course) {
   }
 
   const start = terminal(course.route.start, byId);
+  const closed = course.route.shape === 'closed';
+  const finish = closed ? start : terminal(course.route.finish, byId);
+  // A finish by the start is measured from the start line: one short tape run.
+  if (course.route.shape === 'return') {
+    const dx = finish.center.x - start.center.x + 0;
+    const dy = finish.center.y - start.center.y + 0;
+    finish.fromStart = { dx, dy, label: `От середины старта: X ${signed(dx)} м · Y ${signed(dy)} м` };
+  }
   return {
     site: { width: course.site.width, length: course.site.length },
     bike: course.recipe.bike,
-    closed: course.route.closed,
+    shape: course.route.shape,
     requested: course.requested,
     placed: course.placed,
     generatorVersion: course.generatorVersion,
     start,
-    finish: course.route.closed ? start : terminal(course.route.finish, byId),
+    finish,
     cards,
     coneList,
   };

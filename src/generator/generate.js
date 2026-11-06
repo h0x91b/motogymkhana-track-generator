@@ -24,6 +24,13 @@ const START_LEAD = 2; // start line → entry of the first element, metres
 const FINISH_LEAD = 2; // exit of the last element → finish line
 const BEHIND_START = 2; // open course: room to wait behind the start line
 const RUN_OUT = 2; // free space past the finish line
+// Course whose finish is by the start: the finish line's centre lies within
+// HOME_REACH m of the start line's, its zone clear of the start's. Offsets
+// tried, in whole metres across and along the start's direction of travel.
+const HOME_REACH = 8;
+const HOME_ACROSS = [3, 4, 5, 6, 7, 8];
+const HOME_ALONG = [0, -2, 2, -4, 4];
+const HOME_TRIES = 8; // finish lines per placement given a connector to try
 const LINE_STEPS = { side: 3, diagonal: 2 }; // half-width of a start/finish line in half-metre lattice steps
 const CANDIDATES = 24; // placements drawn per element and type
 const BRANCH = 3; // best placements explored per element and type before backtracking
@@ -351,6 +358,47 @@ function conesClear(cones, inner, zones, paths) {
   return true;
 }
 
+/**
+ * Finish line by the start, in a fixed order of preference: closest to the
+ * start first, ties in the order tried (same direction of travel as the start
+ * before the opposite one, then left before right, then along). Its zone keeps
+ * clear of the start's and of every other zone and leg, and the last element's
+ * connector reaches it lined up, like the closing connector of a closed course,
+ * with its U-turn cones clear of the finish zone too.
+ */
+function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept) {
+  const u = axisVector(startT.dir);
+  const v = axisVector(startT.dir + 2);
+  const spots = [];
+  for (const dir of [startT.dir, (startT.dir + 4) % 8]) {
+    for (const across of HOME_ACROSS) {
+      for (const side of [1, -1]) {
+        for (const along of HOME_ALONG) {
+          const ideal = [
+            startT.center[0] + v[0] * across * side + u[0] * along,
+            startT.center[1] + v[1] * across * side + u[1] * along,
+          ];
+          const t = lineTerminal(ideal, dir, -FINISH_LEAD, RUN_OUT);
+          const dx = t.center[0] - startT.center[0];
+          const dy = t.center[1] - startT.center[1];
+          spots.push({ t, d2: dx * dx + dy * dy, order: spots.length });
+        }
+      }
+    }
+  }
+  spots.sort((a, b) => a.d2 - b.d2 || a.order - b.order);
+  let tries = 0;
+  for (const { t, d2 } of spots) {
+    if (d2 > HOME_REACH * HOME_REACH) break;
+    if (!terminalInside(t, inner, site)) continue;
+    if (obbOverlap(t.zone, startT.zone) || !zoneClear(t, zones, paths)) continue;
+    if (++tries > HOME_TRIES) break;
+    const leg = closingLeg(fromPose, t, radius, inner, zones, paths, maxTurn, accept);
+    if (leg && leg.cones.every((c) => !obbOverlap(c.zone, t.zone))) return { terminal: t, leg };
+  }
+  return null;
+}
+
 function pathClear(points, bounds, zones) {
   for (const z of zones) {
     if (!boundsOverlap(bounds, z.zoneBounds)) continue;
@@ -485,7 +533,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     if (!plans.has(key)) plans.set(key, makePlan(recipe, seed, i, type, inner, small));
     return plans.get(key);
   };
-  const targets = layoutTargets(inner, n, recipe.closed, createStream(seed, 'layout'));
+  const closed = recipe.shape === 'closed';
+  const targets = layoutTargets(inner, n, recipe.shape !== 'open', createStream(seed, 'layout'));
   const place = createStream(seed, 'place');
   const radius = BIKE_TURN_RADIUS[recipe.bike];
   const diagonal = Math.sqrt(recipe.width * recipe.width + recipe.length * recipe.length);
@@ -557,9 +606,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     let entryLeg;
     let terminal = null;
     if (i === 0) {
-      terminal = startTerminal(cand, recipe.closed);
+      terminal = startTerminal(cand, closed);
       if (!terminalInside(terminal, inner, site)) return null;
-      if (recipe.closed) {
+      if (closed) {
         // Room behind the line for the closing connector to line up.
         const u = axisVector(terminal.dir);
         if (!inside(inner, [terminal.center[0] - u[0] * radius, terminal.center[1] - u[1] * radius])) return null;
@@ -579,7 +628,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     let finishTerminalCand = null;
     if (i === n - 1) {
       const startT = terminal || start;
-      if (recipe.closed) {
+      if (closed) {
         // The start zone is an obstacle too, so the closing connector cannot cut
         // across the start's own lead-in; it arrives on the zone edge at the line.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
@@ -588,6 +637,16 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         const accept = track && ((pts) => trainClear(before, [pts], true));
         exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, entryLeg], closingTurn, accept);
         if (!exitLeg) return null;
+      } else if (recipe.shape === 'return') {
+        // Back to a finish line by the start; the start zone is an obstacle, and
+        // in «паровозик» the way there keeps clear of the whole route.
+        const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
+        const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
+        const accept = track && ((pts) => trainClear(before, [pts]));
+        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, entryLeg], closingTurn, accept);
+        if (!home) return null;
+        finishTerminalCand = home.terminal;
+        exitLeg = home.leg;
       } else {
         finishTerminalCand = finishTerminal(cand);
         if (!terminalInside(finishTerminalCand, inner, site)) return null;
@@ -750,7 +809,7 @@ function assemble(recipe, seed, placed, legs, start, finish) {
     });
   });
   for (let i = placed.length; i < legs.length; i++) connectorCones.push(legCones[i]());
-  const finishOut = recipe.closed ? startOut : terminalOut(finish);
+  const finishOut = recipe.shape === 'closed' ? startOut : terminalOut(finish);
   const routeLegs = [];
   legs.forEach((leg, i) => {
     const from = i === 0 ? 'start' : elements[i - 1].id;
@@ -767,6 +826,6 @@ function assemble(recipe, seed, placed, legs, start, finish) {
     cones,
     elements,
     passes,
-    route: { closed: recipe.closed, start: startOut, finish: finishOut, legs: routeLegs },
+    route: { shape: recipe.shape, start: startOut, finish: finishOut, legs: routeLegs },
   };
 }

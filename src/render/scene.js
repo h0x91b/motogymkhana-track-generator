@@ -232,8 +232,18 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     }
   }
 
+  // A finish by the start: the zone both lines stand in, dashed round them.
+  if (course.route.shape === 'return') {
+    const pts = [...course.route.start.cones, ...course.route.finish.cones].map((id) => byId.get(id));
+    const x0 = Math.min(...pts.map((c) => c.hx / 2)) - 1;
+    const x1 = Math.max(...pts.map((c) => c.hx / 2)) + 1;
+    const y0 = Math.min(...pts.map((c) => c.hy / 2)) - 1;
+    const y1 = Math.max(...pts.map((c) => c.hy / 2)) + 1;
+    path([[x0, y0, 0.01], [x1, y0, 0.01], [x1, y1, 0.01], [x0, y1, 0.01]], '#edf0dfcc', 0.07, null, true, [0.4, 0.3]);
+  }
+
   // Start / finish lines: a chequered band between the two low cones.
-  const terminals = course.route.closed ? [[course.route.start, 'СТАРТ · ФИНИШ']] : [[course.route.start, 'СТАРТ'], [course.route.finish, 'ФИНИШ']];
+  const terminals = course.route.shape === 'closed' ? [[course.route.start, 'СТАРТ · ФИНИШ']] : [[course.route.start, 'СТАРТ'], [course.route.finish, 'ФИНИШ']];
   for (const [t, label] of terminals) {
     const [a, b] = t.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const ux = Math.cos((t.dir * Math.PI) / 4);

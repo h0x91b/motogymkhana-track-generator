@@ -6,9 +6,10 @@ import { generateCourse } from '../src/generator/index.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 
 const RECIPES = [
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true },
-  { width: 40, length: 60, elements: 6, difficulty: 'easy', closed: false },
-  { width: 30, length: 45, elements: 10, difficulty: 'hard', closed: true },
+  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
+  { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' },
+  { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' },
+  { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true },
 ];
 const courses = RECIPES.flatMap((r) => Array.from({ length: 40 }, (_, seed) => generateCourse(r, seed).course));
 
@@ -35,7 +36,7 @@ function reconstruct(sheet) {
     // U-turn cones of the connector leaving the element, from its anchor.
     for (const t of card.turnCones) cones.push({ pos: [card.anchor.x + t.dx, card.anchor.y + t.dy], height: 'tall', color: t.color });
   }
-  for (const t of sheet.closed ? [sheet.start] : [sheet.start, sheet.finish]) {
+  for (const t of sheet.shape === 'closed' ? [sheet.start] : [sheet.start, sheet.finish]) {
     for (const c of t.cones) cones.push({ pos: [c.x, c.y], height: 'low', color: 'neutral' });
   }
   return cones;
@@ -238,13 +239,31 @@ describe('setup sheet', () => {
     for (const course of courses) {
       const sheet = buildSetupSheet(course);
       expect(sheet.start.cones).toHaveLength(2);
-      if (course.route.closed) expect(sheet.finish).toEqual(sheet.start);
+      if (course.route.shape === 'closed') expect(sheet.finish).toEqual(sheet.start);
       else expect(sheet.finish.cones).not.toEqual(sheet.start.cones);
     }
   });
 
+  test('a finish by the start is measured from the start line, and the offset leads to it', () => {
+    let n = 0;
+    for (const course of courses) {
+      const sheet = buildSetupSheet(course);
+      expect(sheet.shape).toBe(course.route.shape);
+      if (course.route.shape !== 'return') {
+        expect(sheet.finish.fromStart).toBeUndefined();
+        continue;
+      }
+      n++;
+      const { dx, dy } = sheet.finish.fromStart;
+      expect(sheet.start.center.x + dx).toBeCloseTo(sheet.finish.center.x, 9);
+      expect(sheet.start.center.y + dy).toBeCloseTo(sheet.finish.center.y, 9);
+      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(8);
+    }
+    expect(n).toBe(40);
+  });
+
   test('the sheet carries the site size and the simplification counts', () => {
-    const course = generateCourse({ width: 25, length: 30, elements: 5, difficulty: 'easy', closed: true }, 42).course;
+    const course = generateCourse({ width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, 42).course;
     const sheet = buildSetupSheet(course);
     expect(sheet.site).toEqual({ width: 25, length: 30 });
     expect(sheet.requested).toBe(5);
