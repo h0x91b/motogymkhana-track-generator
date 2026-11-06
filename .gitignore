@@ -2,3 +2,5 @@
 node_modules/
 .npmrc
 dist/
+.claude/settings.local.json
+package-lock.json
