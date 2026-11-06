@@ -1,6 +1,6 @@
 {
  "name": "seed1-40x60-medium-open-8",
- "generatorVersion": 13,
+ "generatorVersion": 14,
  "recipe": {
   "width": 40,
   "length": 60,
@@ -9,7 +9,7 @@
   "closed": false
  },
  "seed": 1,
- "hash": "a2ae4b01b84325a8",
+ "hash": "e3e83de51f076154",
  "course": {
   "cones": [
    {
@@ -2314,7 +2314,7 @@
     ]
    }
   ],
-  "generatorVersion": 13,
+  "generatorVersion": 14,
   "passes": [
    {
     "angle": 270,
@@ -2394,11 +2394,11 @@
   "placed": 7,
   "recipe": {
    "bike": "cruiser",
-   "closed": false,
    "difficulty": "medium",
    "elements": 8,
-   "generatorVersion": 13,
+   "generatorVersion": 14,
    "length": 60,
+   "shape": "open",
    "train": false,
    "types": [
     "straight-slalom",
@@ -2425,7 +2425,6 @@
   },
   "requested": 8,
   "route": {
-   "closed": false,
    "finish": {
     "cones": [
      "c47",
@@ -2966,6 +2965,7 @@
      "to": "finish"
     }
    ],
+   "shape": "open",
    "start": {
     "cones": [
      "c1",

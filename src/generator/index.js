@@ -5,7 +5,7 @@ import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
-export { parseRecipe, parseSeed, BIKES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
+export { parseRecipe, parseSeed, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
 export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
@@ -63,7 +63,8 @@ function siteTooSmall(recipe) {
  * Deterministic course for a recipe and seed. When the requested number of
  * elements does not fit, it is simplified: rebuilt with the same seed and one
  * element fewer until it fits, so (N, seed) simplified to K equals (K, seed).
- * A closed course is first sought with a loop-free closing connector at every
+ * A closed course, and one whose finish is by the start, is first sought with
+ * a loop-free closing connector at every
  * size; only when none fits is the search repeated with the looser limit, and
  * only when none fits with either is it repeated trying every allowed type per
  * element. The equality still holds: every earlier build for K or fewer
@@ -84,7 +85,7 @@ export function generateCourse(recipeInput, seedInput) {
     return { ok: false, error: { code: 'invalid-input', fields } };
   }
   const recipe = parsed.recipe;
-  const limits = recipe.closed ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
+  const limits = recipe.shape !== 'open' ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
   const onlyBig = usableTypes(recipe).every((t) => alwaysBig(t, recipe.difficulty, recipe.bike));
   const most = onlyBig ? 1 : recipe.elements;
   const limitedBy = onlyBig && recipe.elements > 1 ? { limitedBy: 'big-elements' } : {};

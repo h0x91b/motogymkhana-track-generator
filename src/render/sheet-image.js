@@ -6,9 +6,11 @@
 // cones carry the letter of their side. No recipe, seed or hidden marks on it
 // (SPEC, «Картинка схемы»).
 
+import { SHAPE_NAMES } from '../generator/recipe.js';
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
+import { terminalPlates } from './terminals.js';
 
 const W = 1080;
 const H = 1920;
@@ -262,9 +264,28 @@ function planBlock(course, sheet, maxHeight) {
       }
     }
 
+    // A finish by the start: the zone both lines stand in, dashed round them.
+    if (course.route.shape === 'return') {
+      const pts = [...course.route.start.cones, ...course.route.finish.cones].map((id) => byId.get(id));
+      const xs = pts.map((c) => c.hx / 2);
+      const ys = pts.map((c) => c.hy / 2);
+      const x0 = X(Math.min(...xs) - 1);
+      const x1 = X(Math.max(...xs) + 1);
+      const y0 = Y(Math.max(...ys) + 1);
+      const y1 = Y(Math.min(...ys) - 1);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = INK;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      ctx.roundRect(x0, y0, x1 - x0, y1 - y0, 10);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // Start / finish lines.
-    const terms = course.route.closed ? [[course.route.start, 'СТАРТ / ФИНИШ']] : [[course.route.start, 'СТАРТ'], [course.route.finish, 'ФИНИШ']];
-    for (const [t, text] of terms) {
+    const PLATE_TEXT = { start: 'СТАРТ', finish: 'ФИНИШ', both: 'СТАРТ / ФИНИШ' };
+    for (const { t, kind, x: lx, y: ly } of terminalPlates(course.route, 2)) {
+      const text = PLATE_TEXT[kind];
       const [a, b] = t.cones.map((id) => byId.get(id));
       ctx.lineWidth = 6;
       ctx.strokeStyle = INK;
@@ -274,11 +295,9 @@ function planBlock(course, sheet, maxHeight) {
       ctx.lineTo(X(b.hx / 2), Y(b.hy / 2));
       ctx.stroke();
       ctx.setLineDash([]);
-      const ux = Math.cos((t.dir * Math.PI) / 4);
-      const uy = Math.sin((t.dir * Math.PI) / 4);
       font(ctx, 20, 700);
-      const tx = X(t.x - ux * 2);
-      const ty = Y(t.y - uy * 2);
+      const tx = X(lx);
+      const ty = Y(ly);
       const w = ctx.measureText(text).width;
       ctx.fillStyle = INK;
       ctx.beginPath();
@@ -581,17 +600,20 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const probe = makeCanvas(1, 1).getContext('2d');
   const width = W - 2 * PAD;
   const fmtCone = (c) => `X ${fmt(c.x)} · Y ${fmt(c.y)}`;
-  const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · ${BIKE_LABELS[sheet.bike]} · все расстояния между центрами конусов, от опорного угла A`;
+  const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · ${SHAPE_NAMES[sheet.shape]} · ${BIKE_LABELS[sheet.bike]} · все расстояния между центрами конусов, от опорного угла A`;
   const intro = textBlock([
     { text: 'Схема расстановки трассы', size: 44, weight: 800, gap: 4 },
     { text: subtitle, size: 22, color: MUTED },
   ]);
   const terminals = textBlock([
-    ...(sheet.closed
+    ...(sheet.shape === 'closed'
       ? [{ text: `Старт и финиш — одна линия: низкие конусы ${sheet.start.cones.map(fmtCone).join(' и ')}, проезд ${sheet.start.travel}`, size: 22, weight: 600 }]
       : [
         { text: `Старт: низкие конусы ${sheet.start.cones.map(fmtCone).join(' и ')}, проезд ${sheet.start.travel}`, size: 22, weight: 600 },
         { text: `Финиш: низкие конусы ${sheet.finish.cones.map(fmtCone).join(' и ')}, проезд ${sheet.finish.travel}`, size: 22, weight: 600 },
+        ...(sheet.finish.fromStart
+          ? [{ text: `Финиш у старта: ${sheet.finish.fromStart.label.replace('От', 'от')} — заканчивают там же, где начали`, size: 22, color: MUTED }]
+          : []),
       ]),
   ]);
   const legend = textBlock([

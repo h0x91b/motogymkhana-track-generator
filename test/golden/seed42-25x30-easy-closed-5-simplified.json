@@ -1,6 +1,6 @@
 {
  "name": "seed42-25x30-easy-closed-5-simplified",
- "generatorVersion": 13,
+ "generatorVersion": 14,
  "recipe": {
   "width": 25,
   "length": 30,
@@ -9,7 +9,7 @@
   "closed": true
  },
  "seed": 42,
- "hash": "9c46d3482fb2ba79",
+ "hash": "0ad32d9fab1c0e23",
  "course": {
   "cones": [
    {
@@ -565,7 +565,7 @@
     ]
    }
   ],
-  "generatorVersion": 13,
+  "generatorVersion": 14,
   "passes": [
    {
     "cone": "c3",
@@ -651,11 +651,11 @@
   "placed": 1,
   "recipe": {
    "bike": "cruiser",
-   "closed": true,
    "difficulty": "easy",
    "elements": 5,
-   "generatorVersion": 13,
+   "generatorVersion": 14,
    "length": 30,
+   "shape": "closed",
    "train": false,
    "types": [
     "straight-slalom",
@@ -682,7 +682,6 @@
   },
   "requested": 5,
   "route": {
-   "closed": true,
    "finish": {
     "cones": [
      "c1",
@@ -865,6 +864,7 @@
      "to": "finish"
     }
    ],
+   "shape": "closed",
    "start": {
     "cones": [
      "c1",

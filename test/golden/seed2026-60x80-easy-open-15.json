@@ -1,6 +1,6 @@
 {
  "name": "seed2026-60x80-easy-open-15",
- "generatorVersion": 13,
+ "generatorVersion": 14,
  "recipe": {
   "width": 60,
   "length": 80,
@@ -9,7 +9,7 @@
   "closed": false
  },
  "seed": 2026,
- "hash": "fd200f162ab372b6",
+ "hash": "1ca66c4e1d139d8c",
  "course": {
   "cones": [
    {
@@ -3420,7 +3420,7 @@
     ]
    }
   ],
-  "generatorVersion": 13,
+  "generatorVersion": 14,
   "passes": [
    {
     "angle": 270,
@@ -3675,11 +3675,11 @@
   "placed": 13,
   "recipe": {
    "bike": "cruiser",
-   "closed": false,
    "difficulty": "easy",
    "elements": 15,
-   "generatorVersion": 13,
+   "generatorVersion": 14,
    "length": 80,
+   "shape": "open",
    "train": false,
    "types": [
     "straight-slalom",
@@ -3706,7 +3706,6 @@
   },
   "requested": 15,
   "route": {
-   "closed": false,
    "finish": {
     "cones": [
      "c75",
@@ -4849,6 +4848,7 @@
      "to": "finish"
     }
    ],
+   "shape": "open",
    "start": {
     "cones": [
      "c1",

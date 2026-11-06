@@ -1,6 +1,6 @@
 {
  "name": "seedmax-30x45-hard-closed-10",
- "generatorVersion": 13,
+ "generatorVersion": 14,
  "recipe": {
   "width": 30,
   "length": 45,
@@ -9,7 +9,7 @@
   "closed": true
  },
  "seed": 4294967295,
- "hash": "77df812062bb3ec8",
+ "hash": "0f25e3dfa666f18a",
  "course": {
   "cones": [
    {
@@ -501,7 +501,7 @@
     ]
    }
   ],
-  "generatorVersion": 13,
+  "generatorVersion": 14,
   "passes": [
    {
     "angle": 360,
@@ -515,11 +515,11 @@
   "placed": 2,
   "recipe": {
    "bike": "cruiser",
-   "closed": true,
    "difficulty": "hard",
    "elements": 10,
-   "generatorVersion": 13,
+   "generatorVersion": 14,
    "length": 45,
+   "shape": "closed",
    "train": false,
    "types": [
     "straight-slalom",
@@ -546,7 +546,6 @@
   },
   "requested": 10,
   "route": {
-   "closed": true,
    "finish": {
     "cones": [
      "c1",
@@ -785,6 +784,7 @@
      "to": "finish"
     }
    ],
+   "shape": "closed",
    "start": {
     "cones": [
      "c1",

@@ -1,4 +1,4 @@
-import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
+import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -22,7 +22,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', closed: true, train: true, seed: '1', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES],
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -88,13 +88,31 @@ function syncTypes() {
   for (const s of form.querySelectorAll('.level-off')) s.hidden = difficulty !== 'easy';
 }
 
+const SHAPE_HINTS = {
+  open: 'Старт и финиш генератор ставит где угодно на площадке.',
+  closed: 'Одна линия — и старт, и финиш: последняя связка ведёт обратно на старт, трассу можно ехать по кругу.',
+  return: 'Две линии рядом: финиш не дальше 8 м от старта, заканчивают там же, где начали, но не заезжают на старт.',
+};
+
+function syncShapeHint() {
+  $('shape-hint').textContent = SHAPE_HINTS[form.querySelector('[name="shape"]:checked')?.value] ?? '';
+}
+
+/** The saved course shape; a form saved before shapes had only the «Замкнутая» tick. */
+function savedShape(saved) {
+  if (typeof saved?.shape === 'string') return saved.shape;
+  if (typeof saved?.closed === 'boolean') return saved.closed ? 'closed' : 'open';
+  return DEFAULT_FORM.shape;
+}
+
 function writeForm(f) {
   form.width.value = f.width;
   form.length.value = f.length;
   form.elements.value = f.elements;
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.checked = r.value === f.difficulty;
   for (const r of form.querySelectorAll('[name="bike"]')) r.checked = r.value === f.bike;
-  form.closed.checked = !!f.closed;
+  for (const r of form.querySelectorAll('[name="shape"]')) r.checked = r.value === f.shape;
+  syncShapeHint();
   form.train.checked = !!f.train;
   form.seed.value = f.seed;
   for (const c of form.querySelectorAll('[name="types"]')) c.checked = f.types.includes(c.value);
@@ -108,7 +126,7 @@ function readForm() {
     elements: form.elements.value,
     difficulty: form.querySelector('[name="difficulty"]:checked')?.value ?? '',
     bike: form.querySelector('[name="bike"]:checked')?.value ?? '',
-    closed: form.closed.checked,
+    shape: form.querySelector('[name="shape"]:checked')?.value ?? '',
     train: form.train.checked,
     seed: form.seed.value,
     types: [...form.querySelectorAll('[name="types"]:checked')].map((c) => c.value),
@@ -266,7 +284,7 @@ function renderSummary() {
   }
   parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
   parts.push(BIKE_NAMES[f.bike] ?? '');
-  parts.push(f.closed ? 'замкнутая' : 'открытая');
+  parts.push(SHAPE_NAMES[f.shape] ?? '');
   if (f.train) parts.push('паровозик');
   parts.push(`seed ${f.seed || '—'}`);
   const shown = parts.filter(Boolean);
@@ -554,13 +572,14 @@ function focusElement(id) {
 
 function setupSteps() {
   const steps = [{ kind: 'start' }, ...state.sheet.cards.map((card) => ({ kind: 'element', card }))];
-  if (!state.sheet.closed) steps.push({ kind: 'finish' });
+  if (state.sheet.shape !== 'closed') steps.push({ kind: 'finish' });
   return steps;
 }
 
 function terminalHtml(t, title) {
   const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${fmt(c.x)} м</td><td>Y ${fmt(c.y)} м</td></tr>`).join('');
-  return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>
+  const near = t.fromStart ? `<p><b>Финиш у старта:</b> ${esc(t.fromStart.label.replace('От', 'от'))}</p>` : '';
+  return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>${near}
     <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
 }
 
@@ -575,7 +594,7 @@ function renderSetup() {
     focusElement(step.card.element);
   } else {
     const t = step.kind === 'start' ? state.sheet.start : state.sheet.finish;
-    body.innerHTML = counter + terminalHtml(t, step.kind === 'start' ? (state.sheet.closed ? 'Старт и финиш' : 'Старт') : 'Финиш');
+    body.innerHTML = counter + terminalHtml(t, step.kind === 'start' ? (state.sheet.shape === 'closed' ? 'Старт и финиш' : 'Старт') : 'Финиш');
     state.selected = null;
     const xs = t.cones.map((c) => c.x);
     const ys = t.cones.map((c) => c.y);
@@ -980,14 +999,16 @@ function start() {
   $('version').textContent = String(GENERATOR_VERSION);
   buildTypeChecks();
   const saved = loadForm();
-  const initial = { ...DEFAULT_FORM, ...(saved ?? {}), types: savedTypes(saved) };
+  const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
   delete initial.knownTypes;
+  delete initial.closed;
   writeForm(initial);
   state.form = readForm();
 
   form.addEventListener('input', () => onFormChange());
   form.train.addEventListener('change', syncTypes);
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.addEventListener('change', syncTypes);
+  for (const r of form.querySelectorAll('[name="shape"]')) r.addEventListener('change', syncShapeHint);
   form.addEventListener('change', () => onFormChange());
   form.addEventListener('submit', (e) => {
     e.preventDefault();

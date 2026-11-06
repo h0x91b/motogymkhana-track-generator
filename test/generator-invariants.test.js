@@ -13,27 +13,31 @@ import {
 } from './helpers/course-geometry.js';
 
 const RECIPES = [
-  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true }, seeds: 150 },
-  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', closed: false }, seeds: 80 },
-  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', closed: true }, seeds: 80 },
-  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', closed: true }, seeds: 60 },
-  { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', closed: false }, seeds: 80 },
+  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: 150 },
+  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: 80 },
+  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: 80 },
+  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: 60 },
+  { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, seeds: 80 },
   {
     name: 'eights and slaloms only',
-    recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true, types: ['figure-eight', 'straight-slalom'] },
+    recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['figure-eight', 'straight-slalom'] },
     seeds: 60,
   },
-  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', closed: true }, seeds: 60 },
-  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true, train: true }, seeds: 80 },
-  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', closed: false, train: true }, seeds: 50 },
+  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, seeds: 60 },
+  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, seeds: 80 },
+  { name: '40×60 medium return', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, seeds: 100 },
+  { name: '30×45 hard return', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'return' }, seeds: 60 },
+  { name: '25×30 easy return (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'return' }, seeds: 40 },
+  { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: 60 },
+  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: 50 },
   {
     name: 'only big types',
-    recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', closed: true, types: ['snail', 'crescent'] },
+    recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'closed', types: ['snail', 'crescent'] },
     seeds: 30,
   },
   {
     name: 'only big types, train',
-    recipe: { width: 40, length: 60, elements: 4, difficulty: 'hard', closed: false, train: true, types: ['snail', 'crescent', 'figure-eight'] },
+    recipe: { width: 40, length: 60, elements: 4, difficulty: 'hard', shape: 'open', train: true, types: ['snail', 'crescent', 'figure-eight'] },
     seeds: 30,
   },
 ];
@@ -189,7 +193,7 @@ describe('placement', () => {
     each((c) => {
       const byId = conesById(c);
       const start = c.route.start.cones.map((id) => coneXY(byId.get(id)));
-      const finish = c.route.closed ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
+      const finish = c.route.shape === 'closed' ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
       c.elements.forEach((e, i) => {
         expect(Boolean(e.runOff), `${label(c)} ${e.id} ${e.type} run-off`).toBe(Boolean(RUN_OFF_TYPES[e.type]));
         if (!e.runOff) return;
@@ -269,17 +273,17 @@ describe('placement', () => {
       for (const leg of c.route.legs) {
         if (leg.kind !== 'connector') continue;
         const t = turns(leg.path);
-        const limit = c.route.closed && leg.to === 'finish' ? 400 : 300;
+        const limit = c.route.shape !== 'open' && leg.to === 'finish' ? 400 : 300;
         expect(t.left + t.right, `${label(c)} ${leg.from}→${leg.to}`).toBeLessThanOrEqual(limit + 1);
       }
     });
   });
 
-  test('the closing connector rides a loop only when no loop-free closed course fits: never on a roomy site', () => {
+  test('the closing connector rides a loop only when no loop-free course back to the start fits: never on a roomy site', () => {
     let closed = 0;
     let loops = 0;
     for (const { name, recipe, courses } of generated) {
-      if (!recipe.closed) continue;
+      if (recipe.shape === 'open') continue;
       // Roomy for a cruiser's 9 m turns; on 30×45 it can take a loop to get back to the start.
       // With only eights and slaloms allowed, a cruiser-sized eight with its run-off zone
       // can leave room for a single slalom, which then needs the loop to come back.
@@ -389,6 +393,14 @@ function circularTurns(path, minRadius) {
         ...t, lo: prev.lo, sweep: prev.sweep + t.sweep, centre: [(prev.first[0] + t.centre[0]) / 2, (prev.first[1] + t.centre[1]) / 2], first: prev.first, last: t.centre, alts,
       };
     } else joined.push({ ...t, first: t.centre, last: t.centre });
+  }
+  // Fits round nearby centres (one wider circle, or two overlapping runs whose
+  // shared points count twice) can overstate a turn: never count more than
+  // the run turns the heading, its neighbouring segments included, plus 15°
+  // for the coarse sampling at its ends.
+  for (const t of joined) {
+    const h = turns(path.slice(Math.max(0, t.lo - 1), Math.min(path.length, t.hi + 2)));
+    t.sweep = Math.sign(t.sweep) * Math.min(Math.abs(t.sweep), h.left + h.right + 15);
   }
   return joined;
 }
@@ -716,10 +728,11 @@ describe('route', () => {
     });
   });
 
-  test('a closed course starts and finishes on the same line; an open one on two lines', () => {
+  test('a closed course starts and finishes on the same line; an open one and one finishing by the start on two lines', () => {
     each((c, recipe) => {
       const { start, finish } = c.route;
-      if (recipe.closed) {
+      expect(c.route.shape).toBe(recipe.shape);
+      if (recipe.shape === 'closed') {
         expect(finish).toEqual(start);
       } else {
         expect(finish.cones).not.toEqual(start.cones);
@@ -729,6 +742,36 @@ describe('route', () => {
         for (const id of t.cones) expect(conesById(c).get(id).height).toBe('low');
       }
     });
+  });
+
+  test('a course finishing by the start: the finish line within 8 m of the start line, zones apart, the way back clear of the start', () => {
+    // Separating axis test of two convex quadrilaterals.
+    const apart = (a, b) => [a, b].some((poly) => poly.some((p, i) => {
+      const q = poly[(i + 1) % poly.length];
+      const n = [q[1] - p[1], p[0] - q[0]];
+      const proj = (pts) => pts.map((r) => r[0] * n[0] + r[1] * n[1]);
+      const pa = proj(a);
+      const pb = proj(b);
+      return Math.max(...pa) <= Math.min(...pb) + 1e-6 || Math.max(...pb) <= Math.min(...pa) + 1e-6;
+    }));
+    let n = 0;
+    each((c, recipe) => {
+      if (recipe.shape !== 'return') return;
+      n++;
+      const { start, finish, legs } = c.route;
+      expect(Math.hypot(finish.x - start.x, finish.y - start.y), label(c)).toBeLessThanOrEqual(8);
+      expect(apart(start.zone, finish.zone), label(c)).toBe(true);
+      expect([start.dir, (start.dir + 4) % 8]).toContain(finish.dir);
+      const back = legs.at(-1);
+      expect(back.to).toBe('finish');
+      expect(polylineEnters(back.path, start.zone), label(c)).toBe(false);
+      // Lined up: the last stretch crosses the finish line square on.
+      const [p, q] = back.path.slice(-2);
+      const a = Math.atan2(q[1] - p[1], q[0] - p[0]);
+      const d = Math.abs(((a - (finish.dir * Math.PI) / 4 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+      expect(d, label(c)).toBeLessThan(1e-6);
+    });
+    expect(n).toBeGreaterThan(0);
   });
 
   test('only allowed types are used, never the same type twice in a row', () => {
@@ -820,7 +863,7 @@ describe('паровозик', () => {
           for (let j = i + 1; j < pts.length; j++) {
             const along = at[j] - at[i];
             // A closed course is ridden round and round: count the way through the finish too.
-            const gap = c.route.closed ? Math.min(along, total - along) : along;
+            const gap = c.route.shape === 'closed' ? Math.min(along, total - along) : along;
             if (gap < TRAIN_NEAR || (owner[i] !== null && owner[i] === owner[j])) continue;
             const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]);
             if (d < TRAIN_CLEARANCE) throw new Error(`${name} seed ${c.seed}: ${d.toFixed(2)} m apart after ${gap.toFixed(1)} m of route at (${pts[i].map((v) => v.toFixed(1))})`);

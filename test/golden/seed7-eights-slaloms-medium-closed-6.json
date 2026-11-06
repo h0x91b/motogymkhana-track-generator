@@ -1,6 +1,6 @@
 {
  "name": "seed7-eights-slaloms-medium-closed-6",
- "generatorVersion": 13,
+ "generatorVersion": 14,
  "recipe": {
   "width": 40,
   "length": 60,
@@ -13,7 +13,7 @@
   ]
  },
  "seed": 7,
- "hash": "58e584ee451f6a80",
+ "hash": "16624391fa9229f2",
  "course": {
   "cones": [
    {
@@ -327,7 +327,7 @@
     ]
    }
   ],
-  "generatorVersion": 13,
+  "generatorVersion": 14,
   "passes": [
    {
     "cone": "c3",
@@ -381,11 +381,11 @@
   "placed": 1,
   "recipe": {
    "bike": "cruiser",
-   "closed": true,
    "difficulty": "medium",
    "elements": 6,
-   "generatorVersion": 13,
+   "generatorVersion": 14,
    "length": 60,
+   "shape": "closed",
    "train": false,
    "types": [
     "straight-slalom",
@@ -395,7 +395,6 @@
   },
   "requested": 6,
   "route": {
-   "closed": true,
    "finish": {
     "cones": [
      "c1",
@@ -615,6 +614,7 @@
      "to": "finish"
     }
    ],
+   "shape": "closed",
    "start": {
     "cones": [
      "c1",

@@ -6,6 +6,7 @@ import { TYPE_NAMES } from '../generator/catalog.js';
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
+import { terminalPlates } from './terminals.js';
 
 const TAU = Math.PI * 2;
 // Below this many pixels per metre only the selected element shows its dimensions.
@@ -232,9 +233,19 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     }
   }
 
+  // A finish by the start: the zone both lines stand in, dashed round them.
+  if (course.route.shape === 'return') {
+    const pts = [...course.route.start.cones, ...course.route.finish.cones].map((id) => byId.get(id));
+    const x0 = Math.min(...pts.map((c) => c.hx / 2)) - 1;
+    const x1 = Math.max(...pts.map((c) => c.hx / 2)) + 1;
+    const y0 = Math.min(...pts.map((c) => c.hy / 2)) - 1;
+    const y1 = Math.max(...pts.map((c) => c.hy / 2)) + 1;
+    path([[x0, y0, 0.01], [x1, y0, 0.01], [x1, y1, 0.01], [x0, y1, 0.01]], '#edf0dfcc', 0.07, null, true, [0.4, 0.3]);
+  }
+
   // Start / finish lines: a chequered band between the two low cones.
-  const terminals = course.route.closed ? [[course.route.start, 'СТАРТ · ФИНИШ']] : [[course.route.start, 'СТАРТ'], [course.route.finish, 'ФИНИШ']];
-  for (const [t, label] of terminals) {
+  const PLATE_TEXT = { start: 'СТАРТ', finish: 'ФИНИШ', both: 'СТАРТ · ФИНИШ' };
+  for (const { t, kind, x: lx, y: ly } of terminalPlates(course.route, 1.6)) {
     const [a, b] = t.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const ux = Math.cos((t.dir * Math.PI) / 4);
     const uy = Math.sin((t.dir * Math.PI) / 4);
@@ -249,7 +260,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
         path([pt(s0, o0), pt(s1, o0), pt(s1, o1), pt(s0, o1)], null, 0, (i + j) % 2 ? '#253239' : '#edf0df', true);
       }
     }
-    plate(label, t.x - ux * 1.6, t.y - uy * 1.6, { size: 11, bg: '#2e3a42' });
+    plate(PLATE_TEXT[kind], lx, ly, { size: 11, bg: '#2e3a42' });
   }
 
   // Route: element trajectories solid, connectors dashed, arrows every 5 m.
