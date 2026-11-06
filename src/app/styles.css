@@ -119,6 +119,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .view-toggle button, .zoom button, .ride, .speed { background: color-mix(in srgb, var(--panel) 88%, transparent); }
 .ride[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 .view-toggle button[aria-pressed="true"] { background: var(--ink); }
+.zoom #zones[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 
 .element-card {
   position: absolute;

@@ -22,6 +22,25 @@ export function saveForm(form) {
   }
 }
 
+// Whether the plan shows the reserved zones, a per-viewer preference.
+const ZONES_KEY = 'motogymkhana-constructor:zones:v1';
+
+export function loadZones() {
+  try {
+    return window.localStorage.getItem(ZONES_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function saveZones(on) {
+  try {
+    window.localStorage.setItem(ZONES_KEY, on ? 'on' : 'off');
+  } catch {
+    // Storage unavailable: the zones are shown again on the next visit.
+  }
+}
+
 // The ride-through speed, a per-viewer preference under its own key.
 const SPEED_KEY = 'motogymkhana-constructor:ride-speed:v1';
 

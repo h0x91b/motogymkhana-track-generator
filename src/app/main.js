@@ -4,7 +4,7 @@ import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } 
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createGenerator } from './generator-client.js';
-import { loadForm, loadRideSpeed, saveForm, saveRideSpeed } from './storage.js';
+import { loadForm, loadRideSpeed, loadZones, saveForm, saveRideSpeed, saveZones } from './storage.js';
 import { runSelfCheck } from './selfcheck.js';
 
 const $ = (id) => document.getElementById(id);
@@ -335,12 +335,26 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = state.stale ? 0.45 : 1;
-  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, riders: state.ride?.poses ?? [] });
+  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, riders: state.ride?.poses ?? [], zones: showZones });
   ctx.globalAlpha = 1;
   state.hits = hits;
 }
 
 new ResizeObserver(() => invalidate()).observe(canvas);
+
+// Reserved zones on the plan and in 3D: on by default, remembered per viewer.
+let showZones = loadZones();
+
+function renderZonesButton() {
+  $('zones').setAttribute('aria-pressed', String(showZones));
+}
+
+function toggleZones() {
+  showZones = !showZones;
+  saveZones(showZones);
+  renderZonesButton();
+  invalidate();
+}
 
 function setView(mode) {
   resetCamera(state.camera, mode);
@@ -1053,6 +1067,8 @@ function start() {
   $('ride').addEventListener('click', toggleRide);
   $('ride-speed').addEventListener('click', cycleRideSpeed);
   renderSpeedButton();
+  $('zones').addEventListener('click', toggleZones);
+  renderZonesButton();
   for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
   $('zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
@@ -1087,6 +1103,7 @@ function onShortcut(e) {
     case '+': case '=': return click('zoom-in');
     case '-': case '−': return click('zoom-out');
     case '0': return click('zoom-fit');
+    case 'z': case 'Z': case 'я': case 'Я': return click('zones');
   }
 }
 

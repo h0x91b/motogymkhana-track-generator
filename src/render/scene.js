@@ -5,6 +5,7 @@
 import { TYPE_NAMES } from '../generator/catalog.js';
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
+import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 
 const TAU = Math.PI * 2;
@@ -23,6 +24,17 @@ export const PALETTE = {
   side: '#687479',
   anchor: '#ffd166',
   select: '#d8f7ee',
+};
+
+// Reserved zones on the dark slab: thin and low-contrast, told apart by dash
+// pattern (metres) and tone. Run-off: amber dots and tint; element zone: pale
+// dashes; start / finish: pale fine dots; U-turn cone keep-out: short dashes in
+// the cone's colour.
+const ZONE_STYLE = {
+  runOff: { stroke: '#f2c76e40', fill: '#f2c76e0d', width: 0.05, dash: [0.15, 0.45] },
+  zone: { stroke: '#e2e8df4d', width: 0.05, dash: [0.5, 0.35] },
+  terminal: { stroke: '#e2e8df59', width: 0.05, dash: [0.12, 0.28] },
+  turnCone: { alpha: '80', width: 0.05, dash: [0.25, 0.2] },
 };
 
 export const VIEWS = {
@@ -94,7 +106,7 @@ export function coneColors(course) {
  * Draws the course. Returns hit targets for taps: element labels and zones in
  * screen coordinates.
  */
-export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, riders = [] } = {}) {
+export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, riders = [], zones = true } = {}) {
   const site = course ? course.site : { width: 40, length: 60 };
   const view = makeProjector(cam, W, H, site);
   const { project, scale } = view;
@@ -209,10 +221,14 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   const elementOf = new Map();
   for (const e of course.elements) for (const id of e.cones) elementOf.set(id, e.id);
 
-  // Run-off zones of turning elements: free asphalt to recover on when a
-  // rider goes wide. A faint tint with a fine dotted edge, under everything.
-  for (const e of course.elements) {
-    if (e.runOff) path(e.runOff.map(([x, y]) => [x, y, 0.003]), '#f2c76e40', 0.05, '#f2c76e0d', true, [0.15, 0.45]);
+  // Reserved zones: what the generator keeps free round each thing, as quiet
+  // outlines on the ground under everything else. Run-off zones of turning
+  // elements keep their faint tint (they are on the plan with the layer off too).
+  for (const z of reservedZones(course)) {
+    if (z.kind !== 'runOff' && !zones) continue;
+    const s = ZONE_STYLE[z.kind];
+    const stroke = z.kind === 'turnCone' ? `${PALETTE[z.color]}${s.alpha}` : s.stroke;
+    path(z.poly.map(([x, y]) => [x, y, 0.003]), stroke, s.width, s.fill ?? null, true, s.dash);
   }
 
   // Selected element, or the one being ridden: soft fill of its zone.
