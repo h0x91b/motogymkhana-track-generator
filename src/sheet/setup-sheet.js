@@ -11,6 +11,13 @@ export const fmt = (v) => {
 };
 export const metres = (v) => `${fmt(v)} м`;
 
+/**
+ * True length of a diagonal run that goes `v` metres along X and as many along
+ * Y, to 0.1 m. Cards and dimension lines say this, not the X/Y offset: the
+ * offset read as a length makes a diagonal element look √2 times too small.
+ */
+export const slant = (v) => Math.round(v * Math.SQRT2 * 10) / 10;
+
 const DIR_LABELS = ['→ вправо', '↗ вправо-вверх', '↑ вверх', '↖ влево-вверх', '← влево', '↙ влево-вниз', '↓ вниз', '↘ вправо-вниз'];
 
 function axisLabel(axis) {
@@ -20,7 +27,7 @@ function axisLabel(axis) {
 
 export const travelLabel = (dir) => DIR_LABELS[dir];
 
-const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box', 'circle', 'mirror', 'gate-turn', 'keyhole']);
+const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole']);
 
 /** Net turning of an element that turns one way (±180° or more, never near zero). */
 function netTurn(path) {
@@ -60,6 +67,7 @@ const DIMENSIONS = {
   box: [['along', 0, 1], ['across', 1, 2]],
   // Rings, curved walls and arcs are laid out from their centres (see arcs).
   circle: [],
+  'fast-circle': [],
   mirror: [['across', 0, 1]],
   'gate-turn': [['across', 0, 1]],
   snail: [],
@@ -76,7 +84,8 @@ const half = (v) => Math.round(v * 2) / 2 + 0;
 
 /**
  * One dimension line in site metres. On a diagonal its value is the offset by
- * X and by Y (equal), which is what is laid out with a tape, not the slant length.
+ * X and by Y (equal), from which the cone table lays it out; its label is the
+ * true slant length, which is what the rider gets.
  */
 function dimension(points, axis, [kind, i, j]) {
   const [sx, sy] = AXIS_STEPS[axis];
@@ -94,7 +103,7 @@ function dimension(points, axis, [kind, i, j]) {
     from: { x: from[0], y: from[1] },
     to: { x: to[0], y: to[1] },
     value,
-    label: diagonal ? `${metres(value)} по X и Y` : metres(value),
+    label: diagonal ? metres(slant(value)) : metres(value),
   };
 }
 
@@ -105,12 +114,13 @@ const TURN = { left: 'налево', right: 'направо' };
 const loopDiameter = (distance, diagonal) => (distance * (diagonal ? 0.5 * Math.SQRT2 : 0.5)) / Math.SQRT2;
 
 /**
- * Human summary of the sizes, multiples of 0.5 m only. On a diagonal a length
- * of k lattice steps is laid out as k × 0.5 m along X and along Y.
+ * Human summary of the sizes, multiples of 0.5 m on a side axis. On a diagonal
+ * a length of k lattice steps is k × 0.5 m along X and along Y and is stated
+ * as its true slant length (`slant`); the cone table keeps the X/Y offsets.
  */
 function describe(element, cones, diagonal, turn, shift, dims) {
   const p = element.params;
-  const size = (m) => (diagonal ? `${metres(m)} по X и ${metres(m)} по Y` : metres(m));
+  const size = (m) => metres(diagonal ? slant(m) : m);
   const len = (steps) => size(steps * 0.5);
   const first = cones[0];
   const last = cones[cones.length - 1];
@@ -152,6 +162,11 @@ function describe(element, cones, diagonal, turn, shift, dims) {
           ? `${cones.length} конусов по овалу: две полуокружности радиусом ${len(p.radius)}, центры в ${len(p.stretch)} друг от друга вдоль оси`
           : `${cones.length} конусов по кругу радиусом ${len(p.radius)}`,
         `Один круг ${CLOCK[turn]} снаружи конусов, выезд поворотом в другую сторону`,
+      ];
+    case 'fast-circle':
+      return [
+        `${cones.length} конусов по кругу радиусом ${len(p.radius)}`,
+        `Один круг ${CLOCK[turn]} на скорости снаружи конусов, выезд поворотом в другую сторону радиусом ${metres(p.out)}`,
       ];
     case 'mirror':
       return [

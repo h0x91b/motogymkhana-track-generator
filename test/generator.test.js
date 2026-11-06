@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { ELEMENT_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
+import { DIFFICULTIES } from '../src/generator/recipe.js';
+import { instantiate, isBig, minimalParams } from '../src/generator/catalog.js';
 
 const baseRecipe = {
   width: 40,
@@ -96,7 +98,7 @@ describe('recipe input', () => {
   test('every type is allowed by default', () => {
     const result = generateCourse(baseRecipe, 1);
     expect(result.course.recipe.types).toEqual(ELEMENT_TYPES);
-    expect(ELEMENT_TYPES).toHaveLength(19);
+    expect(ELEMENT_TYPES).toHaveLength(20);
   });
 
   test('only the types kept for medium and hard, ticked at easy, are a types error', () => {
@@ -170,5 +172,47 @@ describe('simplification', () => {
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('site-too-small');
     expect(result.error.message).toContain('радиусом поворота 4,5 м');
+  });
+});
+
+describe('field-measured element sizes', () => {
+  const metres = (tpl, [lo, hi]) => (hi - lo) * tpl.unit;
+  const build = (type, difficulty, bike) => {
+    const { side } = minimalParams(type, difficulty, bike);
+    return instantiate(type, side, false, false);
+  };
+
+  test('slaloms take 4 m steps at the medium and hard levels', () => {
+    for (const d of ['medium', 'hard']) {
+      expect(build('straight-slalom', d, 'cruiser').params.step * 0.5).toBe(4);
+      expect(build('offset-slalom', d, 'cruiser').params.step * 0.5).toBe(4);
+    }
+  });
+
+  test('the keyhole ring is 4 m on a sport bike and 4.5 m on a cruiser', () => {
+    for (const d of ['medium', 'hard']) {
+      expect(build('keyhole', d, 'sport').params.radius * 0.5).toBe(4);
+      expect(build('keyhole', d, 'cruiser').params.radius * 0.5).toBe(4.5);
+    }
+  });
+
+  test('the box eight rectangle is 13 × 8 m', () => {
+    for (const d of ['medium', 'hard']) {
+      const tpl = build('box-eight', d, 'cruiser');
+      const corners = tpl.cones.slice(4);
+      expect((corners[1].a - corners[0].a) * 0.5).toBe(13);
+      expect((corners[2].b - corners[1].b) * 0.5).toBe(8);
+    }
+  });
+
+  test('the small circle rings at 4 m, the fast circle at 12 m and is always a big element', () => {
+    for (const d of DIFFICULTIES) {
+      const small = build('circle', d, 'cruiser');
+      const fast = build('fast-circle', d, 'sport');
+      expect(small.params.radius * 0.5).toBe(4);
+      expect(fast.params.radius * 0.5).toBe(12);
+      expect(metres(fast, [fast.core[1], fast.core[3]])).toBeGreaterThanOrEqual(26);
+      expect(isBig(fast)).toBe(true);
+    }
   });
 });
