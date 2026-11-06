@@ -7,8 +7,9 @@ import { fullRoute, turns } from './helpers/course-geometry.js';
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true },
   { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: false },
-  // A tight site: a cruiser fits about four elements there, too few to judge spread.
-  { width: 30, length: 45, elements: 10, difficulty: 'hard', bike: 'sport', closed: true },
+  // A tight site: a cruiser fits about four elements there, too few to judge spread;
+  // with U-turns sized by the class a sport bike fits five or six.
+  { width: 35, length: 50, elements: 10, difficulty: 'hard', bike: 'sport', closed: true },
   { width: 60, length: 80, elements: 12, difficulty: 'easy', closed: false },
 ];
 const SEEDS = 60;
@@ -42,7 +43,11 @@ test('elements are spread over the whole site, not bunched in a corner', () => {
 
 test('with every type allowed, a course uses most of them rather than a few compact ones', () => {
   for (const set of courses.slice(0, 2)) {
+    // Measured against how many elements fit: 40×60 medium fits about six once
+    // the U-turns are sized for a cruiser, and nearly all of them differ.
     const distinct = mean(set.map((c) => new Set(c.elements.map((e) => e.type)).size));
-    expect(distinct).toBeGreaterThan(6);
+    const placed = mean(set.map((c) => c.elements.length));
+    expect(distinct).toBeGreaterThan(5);
+    expect(distinct / placed).toBeGreaterThan(0.85);
   }
 });

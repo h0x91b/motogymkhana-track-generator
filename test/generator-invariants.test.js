@@ -1,7 +1,12 @@
 // Hard rules of a course, checked on hundreds of seeds through generateCourse.
 
 import { describe, expect, test } from 'bun:test';
-import { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from '../src/generator/index.js';
+import {
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS, uTurnRadius,
+} from '../src/generator/index.js';
+
+// Types whose U-turns are sized by the bike class (the rest keep difficulty sizes).
+const CLASS_SIZED_TYPES = ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'figure-eight'];
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
@@ -177,6 +182,43 @@ describe('placement', () => {
       const radius = BIKE_TURN_RADIUS[recipe.bike ?? 'cruiser'];
       for (const leg of c.route.legs.filter((l) => l.kind === 'connector')) {
         expect(tightestBend(leg.path), label(c)).toBeGreaterThan(radius * 0.97);
+      }
+    });
+  });
+
+  test('U-turns inside elements turn no tighter than connectors: the bike class sets the minimum, difficulty adds margin', () => {
+    expect(uTurnRadius('hard', 'cruiser')).toBe(4.5);
+    expect(uTurnRadius('hard', 'sport')).toBe(3.75);
+    expect(uTurnRadius('medium', 'cruiser')).toBe(5);
+    expect(uTurnRadius('easy', 'sport')).toBe(4.75);
+    const seen = new Set();
+    each((c, recipe) => {
+      const bike = recipe.bike ?? 'cruiser';
+      for (const e of c.elements) {
+        if (!CLASS_SIZED_TYPES.includes(e.type)) continue;
+        seen.add(e.type);
+        expect(tightestBend(e.path), `${label(c)} ${e.id} ${e.type}`).toBeGreaterThan(BIKE_TURN_RADIUS[bike] * 0.97);
+        expect(tightestBend(e.path), `${label(c)} ${e.id} ${e.type}`).toBeGreaterThan(uTurnRadius(recipe.difficulty, bike) * 0.97);
+      }
+    });
+    expect([...seen].sort()).toEqual([...CLASS_SIZED_TYPES].sort());
+  });
+
+  test('figure-eight loops are circles round their cones', () => {
+    each((c) => {
+      const byId = conesById(c);
+      for (const e of c.elements.filter((x) => x.type === 'figure-eight')) {
+        const [p, q] = e.cones.map((id) => coneXY(byId.get(id)));
+        const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        // Away from the crossing (and without the run-in from the zone edge) the
+        // line ridden keeps one distance from the nearer cone.
+        const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        const radii = e.path.slice(1, -1)
+          .filter((pt) => Math.hypot(pt[0] - mid[0], pt[1] - mid[1]) > d / 2)
+          .map((pt) => Math.min(Math.hypot(pt[0] - p[0], pt[1] - p[1]), Math.hypot(pt[0] - q[0], pt[1] - q[1])));
+        expect(radii.length, `${label(c)} ${e.id}`).toBeGreaterThan(20);
+        const r = d / (2 * Math.SQRT2);
+        for (const x of radii) expect(Math.abs(x - r), `${label(c)} ${e.id}`).toBeLessThan(0.05);
       }
     });
   });
