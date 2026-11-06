@@ -168,10 +168,19 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .summary .warn { padding: 1px 6px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); font-weight: 700; }
 .actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-bottom: 8px; }
 .actions button { width: 100%; }
+.seed-actions { display: flex; gap: 8px; }
+.seed-actions #prev-seed { flex: 0 0 auto; width: 48px; padding: 0; font-size: 20px; }
+.seed-actions #new-seed { flex: 1 1 auto; }
+button:disabled { opacity: 0.45; }
+button:disabled:active { filter: none; scale: none; }
 .credits { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
 .setup-panel { display: flex; flex-direction: column; max-height: 50%; }
 .setup-panel[hidden] { display: none; }
 .setup-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.step-counter { margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+/* «Проезд» would leave the setup; «Вся трасса» peeks from under the element card. */
+.stage.in-setup .ride-controls,
+.stage:has(.element-card:not([hidden])) #zoom-fit { display: none; }
 .setup-panel .actions { flex: 0 0 auto; margin: 0 0 4px; }
 .setup-panel .actions { grid-template-columns: 1fr 1fr; }
 .setup-panel .link { width: 100%; }
@@ -228,10 +237,10 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .wide { width: 100%; margin-top: 16px; }
 .toast {
   position: fixed;
-  inset-inline: 16px;
-  width: fit-content;
-  margin-inline: auto;
-  bottom: calc(env(safe-area-inset-bottom) + 150px);
+  /* Over the top of the plan, clear of the view toggle, the zoom and «Проезд». */
+  top: calc(env(safe-area-inset-top) + 8px);
+  inset-inline: calc(env(safe-area-inset-left) + 88px) calc(env(safe-area-inset-right) + 8px);
+  cursor: pointer;
   padding: 10px 14px;
   border-radius: 10px;
   background: var(--ink);
@@ -250,6 +259,15 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .sheet-head h2 { margin: 0; font-size: 17px; }
 .sheet-head button { padding: 0; font-size: 18px; }
 #picture-status:empty { display: none; }
+/* The recipe's title, status and «Готово» stay in view however far the form scrolls. */
+.sticky-head, .sheet-foot { position: sticky; z-index: 1; background: var(--panel); }
+.sticky-head { top: -16px; margin: -16px 0 0; padding: 16px 0 8px; align-items: flex-start; border-bottom: 1px solid var(--edge); }
+.sheet-foot { bottom: calc(-16px - env(safe-area-inset-bottom)); margin-bottom: calc(-16px - env(safe-area-inset-bottom)); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+.sheet-foot .wide { margin-top: 12px; }
+.form-status { margin: 2px 0 0; font-size: 13px; color: var(--muted); text-wrap: pretty; }
+.form-status:empty { display: none; }
+.form-status.warn { color: var(--warn-ink); background: var(--warn-bg); padding: 4px 8px; border-radius: 6px; font-weight: 600; }
+.form-status.error { color: var(--danger); font-weight: 600; }
 .frames {
   list-style: none;
   display: flex;

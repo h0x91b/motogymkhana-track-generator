@@ -33,7 +33,10 @@
     <button type="button" class="summary" id="summary"></button>
     <div class="actions">
       <button type="button" id="open-form">Рецепт</button>
-      <button type="button" id="new-seed" class="primary">Новый seed</button>
+      <span class="seed-actions">
+        <button type="button" id="prev-seed" aria-label="Вернуть предыдущий seed" title="Вернуть предыдущий seed" disabled>↶</button>
+        <button type="button" id="new-seed" class="primary">Новый seed</button>
+      </span>
     </div>
     <div class="actions">
       <button type="button" id="setup-mode">Расстановка</button>
@@ -52,7 +55,14 @@
   </section>
 
   <div class="backdrop" id="backdrop" hidden></div>
-  <section class="sheet" id="form-sheet" hidden role="dialog" aria-modal="true" aria-label="Рецепт трассы" tabindex="-1">
+  <section class="sheet" id="form-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="form-title" tabindex="-1">
+    <div class="sheet-head sticky-head">
+      <div>
+        <h2 id="form-title">Рецепт трассы</h2>
+        <p class="form-status" id="form-status" role="status"></p>
+      </div>
+      <button type="button" id="form-x" aria-label="Закрыть">✕</button>
+    </div>
     <form id="form" novalidate autocomplete="off">
       <div class="grid2">
         <label>Ширина, м
@@ -86,7 +96,7 @@
       <p class="muted hint bike-hint" id="bike-hint">Связки между элементами поворачивают не круче, чем по кругу Ø 7,5 м на спорте и Ø 9 м на крузере.</p>
       <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
       <label class="check"><input type="checkbox" name="train" aria-describedby="train-hint"> Паровозик: несколько мотоциклов друг за другом</label>
-      <p class="muted hint" id="train-hint">Без элементов с петлями и встречной ездой (вращение, восьмёрки, коробка, круг, разворот за воротами, замочная скважина), и маршрут нигде не пересекает сам себя: мотоциклы колонны не встретятся. Улитку и зеркало можно: у улитки встречные коридоры разделены стенкой, у зеркала ноги петли пересекаются один раз.</p>
+      <p class="muted hint" id="train-hint">Маршрут нигде не пересекает сам себя, и нет встречной езды: мотоциклы колонны не встретятся. Элементы с петлями выпадают — они помечены в «Ещё: типы элементов».</p>
       <label>Seed
         <span class="seed-row">
           <input name="seed" inputmode="numeric" enterkeyhint="done" aria-describedby="err-seed">
@@ -99,7 +109,9 @@
         <div class="types" id="types" role="group" aria-label="Типы элементов" aria-describedby="err-types"></div>
         <p class="err" id="err-types" data-for="types"></p>
       </details>
-      <button type="button" id="close-form" class="primary wide">Готово</button>
+      <div class="sheet-foot">
+        <button type="button" id="close-form" class="primary wide">Готово</button>
+      </div>
     </form>
   </section>
   <section class="sheet picture-sheet" id="picture-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="picture-title" tabindex="-1">
