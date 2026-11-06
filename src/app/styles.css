@@ -289,3 +289,82 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .frame .row > * { padding-inline: 6px; }
 .picture-sheet .actions { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); max-width: 520px; margin: 0 auto; }
 .picture-sheet .actions[hidden] { display: none; }
+
+/* A mouse: hover feedback and cursors (touch screens never see these). */
+@media (hover: hover) and (pointer: fine) {
+  button, .button, summary, .segmented span, .check { cursor: pointer; }
+  button:disabled { cursor: default; }
+  button:hover:not(:disabled), .button:hover { background: color-mix(in srgb, var(--panel) 88%, var(--ink)); }
+  .view-toggle button:hover:not([aria-pressed="true"]), .zoom button:hover, .ride:hover:not([aria-pressed="true"]), .speed:hover { background: var(--panel); border-color: var(--muted); }
+  button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink)); }
+  button[aria-pressed="true"]:hover { background: var(--ink); }
+  button.link:hover, .summary:hover, .close-x:hover { background: none; color: var(--ink); }
+  .segmented label:hover input:not(:checked) + span { border-color: var(--muted); }
+  #scene { cursor: grab; }
+}
+
+/* A laptop, a desktop or a landscape tablet: the stage on the left, a side panel
+   on the right with the dock on top and the recipe docked under it. The setup
+   panel takes the whole side while it is open. Keep in step with `wide` in main.js. */
+@media (min-width: 900px) and (min-height: 560px) {
+  #app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .stage { grid-column: 1; grid-row: 1 / -1; }
+  .dock, .setup-panel, #form-sheet {
+    grid-column: 2;
+    border-top: 0;
+    border-left: 1px solid var(--edge);
+    background: var(--panel);
+  }
+  .dock { grid-row: 1; padding: 14px calc(env(safe-area-inset-right) + 16px) 4px 16px; }
+  .dock .actions { grid-template-columns: 1fr 1fr; }
+  .dock .actions:first-of-type { grid-template-columns: 1fr; }
+  #open-form { display: none; }
+  .dock .credits { margin-bottom: 6px; }
+  .summary { padding-bottom: 10px; }
+  .setup-panel {
+    grid-row: 1 / -1;
+    max-height: none;
+    padding: 16px calc(env(safe-area-inset-right) + 16px) 12px 16px;
+  }
+  #form-sheet {
+    position: static;
+    grid-row: 2;
+    max-height: none;
+    min-height: 0;
+    padding: 4px calc(env(safe-area-inset-right) + 16px) 16px 16px;
+    border-radius: 0;
+    box-shadow: none;
+    border-top: 1px solid var(--edge);
+  }
+  #form-sheet[hidden] { display: none; }
+  /* Docked and always open: nothing to close. */
+  #form-x, #form-sheet .sheet-foot { display: none; }
+  #form-sheet .sticky-head { top: -4px; margin: -4px 0 0; padding: 14px 0 8px; }
+  /* The card sits top-right, clear of «Вся трасса». */
+  .stage:has(.element-card:not([hidden])) #zoom-fit { display: revert; }
+  .element-card {
+    left: auto;
+    right: calc(env(safe-area-inset-right) + 8px);
+    top: 8px;
+    bottom: auto;
+    width: min(380px, 45%);
+    max-height: calc(100% - 180px);
+  }
+  .picture-sheet {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    translate: -50% -50%;
+    width: min(960px, calc(100vw - 48px));
+    max-height: calc(100dvh - 48px);
+    padding: 20px 24px;
+    border-radius: 16px;
+    box-shadow: 0 12px 40px #0006;
+  }
+  .toast { inset-inline-end: calc(380px + 8px); }
+}

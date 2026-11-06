@@ -12,6 +12,10 @@ const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard:
 const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 const DEBOUNCE_MS = 300;
 
+// A laptop, a desktop or a landscape tablet: the recipe stays docked beside the
+// stage instead of opening as a sheet. Keep in step with the media query in styles.css.
+const wide = matchMedia('(min-width: 900px) and (min-height: 560px)');
+
 function randomSeed() {
   // System randomness only for the "new seed" button, never inside generation.
   return crypto.getRandomValues(new Uint32Array(1))[0];
@@ -189,7 +193,6 @@ const generator = createGenerator(({ id, result }) => {
   resetCamera(state.camera);
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
-  // Not over the open form: the summary shows the count after it closes.
   // Not over the open form: the form says it in its own status line.
   if (course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
   renderSummary();
@@ -362,24 +365,39 @@ function zoomBy(k, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
 // Touch: one finger pans the plan (rotates in 3D), two fingers pinch and pan, a tap selects.
 const pointers = new Map();
 let gesture = null;
+// Mouse: the left button drags like one finger; the right or middle button, or
+// Shift with the left, pans in either view; the wheel or a trackpad pinch zooms.
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) gesture = { kind: 'one', x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, moved: false };
+  const panButton = e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || e.shiftKey);
+  if (panButton) e.preventDefault();
+  if (pointers.size === 1) gesture = { kind: panButton ? 'pan' : 'one', x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, moved: false };
   else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     gesture = { kind: 'two', dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   }
 });
 canvas.addEventListener('pointermove', (e) => {
-  if (!pointers.has(e.pointerId) || !gesture) return;
+  if (!pointers.has(e.pointerId) || !gesture) {
+    if (e.pointerType === 'mouse') updateCursor(e);
+    return;
+  }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const cam = state.camera;
-  if (gesture.kind === 'one') {
+  if (gesture.kind === 'pan') {
+    canvas.style.cursor = 'grabbing';
+    cam.panX += e.clientX - gesture.x;
+    cam.panY += e.clientY - gesture.y;
+    gesture.x = e.clientX;
+    gesture.y = e.clientY;
+    invalidate();
+  } else if (gesture.kind === 'one') {
     const dx = e.clientX - gesture.x;
     const dy = e.clientY - gesture.y;
     if (Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > 6) gesture.moved = true;
     if (!gesture.moved) return;
+    if (e.pointerType === 'mouse') canvas.style.cursor = 'grabbing';
     if (cam.mode === 'angle') {
       cam.yaw += dx * 0.006;
       cam.tilt = Math.max(0.15, Math.min((70 * Math.PI) / 180, cam.tilt + dy * 0.006));
@@ -416,14 +434,26 @@ const endPointer = (e) => {
     const [p] = [...pointers.values()];
     gesture = { kind: 'one', x: p.x, y: p.y, ox: p.x, oy: p.y, moved: true };
   } else if (!pointers.size) gesture = null;
+  if (e.pointerType === 'mouse') updateCursor(e);
 };
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  zoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
+  // Firefox reports a mouse wheel in lines; a trackpad pinch arrives as a wheel with ctrlKey.
+  const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1);
+  zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - rect.left, e.clientY - rect.top);
 }, { passive: false });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerleave', () => (canvas.style.cursor = ''));
+
+/** Under a mouse: a pointer over an element that a click would open, else a hand. */
+function updateCursor(e) {
+  const rect = canvas.getBoundingClientRect();
+  const clickable = state.course && state.setupStep === null && !state.ride?.playing && hitTest(state.hits, e.clientX - rect.left, e.clientY - rect.top);
+  canvas.style.cursor = clickable ? 'pointer' : 'grab';
+}
 
 function onTap(x, y) {
   if (!state.course || state.setupStep !== null || state.ride?.playing) return;
@@ -482,9 +512,14 @@ function selectElement(id) {
     invalidate();
   });
   box.hidden = false;
-  // Frame the element in the part of the stage the card leaves free.
-  const free = Math.max(120, canvas.clientHeight - box.offsetHeight - 10);
-  frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: canvas.clientHeight - free + 16 });
+  // Frame the element in the part of the stage the card leaves free: beside it on
+  // a wide screen, above it on a phone.
+  if (wide.matches) {
+    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: 60, left: 80, right: box.offsetWidth + 16 });
+  } else {
+    const free = Math.max(120, canvas.clientHeight - box.offsetHeight - 10);
+    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: canvas.clientHeight - free + 16 });
+  }
   invalidate();
 }
 
@@ -579,6 +614,7 @@ function enterSetup() {
   $('stage').classList.add('in-setup');
   $('dock').hidden = true;
   $('setup-panel').hidden = false;
+  applyLayout();
   requestAnimationFrame(renderSetup);
 }
 
@@ -588,6 +624,7 @@ function exitSetup() {
   $('stage').classList.remove('in-setup');
   $('dock').hidden = false;
   $('setup-panel').hidden = true;
+  applyLayout();
   resetCamera(state.camera);
   invalidate();
 }
@@ -773,7 +810,7 @@ async function openPicture() {
   pauseRide();
   $('toast').hidden = true;
   pictureOpener = document.activeElement;
-  for (const id of BEHIND_FORM) $(id).inert = true;
+  for (const id of BEHIND_PICTURE) $(id).inert = true;
   $('backdrop').hidden = false;
   $('picture-sheet').hidden = false;
   $('picture-sheet').focus({ preventScroll: true });
@@ -845,7 +882,7 @@ function renderFrames(files) {
 
 function closePicture() {
   document.activeElement?.blur?.();
-  for (const id of BEHIND_FORM) $(id).inert = false;
+  for (const id of BEHIND_PICTURE) $(id).inert = false;
   $('backdrop').hidden = true;
   $('picture-sheet').hidden = true;
   renderFrames(null);
@@ -857,11 +894,21 @@ function closePicture() {
 
 // The form is modal: everything behind it is inert while it is open, and focus
 // returns to whatever opened it.
+// On a wide screen the form is not modal: it is docked beside the stage and
+// always open, so «Рецепт» only moves focus into it.
 const BEHIND_FORM = ['stage', 'dock', 'setup-panel'];
+const BEHIND_PICTURE = [...BEHIND_FORM, 'form-sheet'];
 let formOpener = null;
+let formOpen = false; // open as a modal sheet
 function openForm() {
+  if (wide.matches) {
+    if (state.setupStep !== null) exitSetup();
+    form.width.focus();
+    return;
+  }
   pauseRide();
   $('toast').hidden = true; // the form's status line says the same, and the toast would sit on the form
+  formOpen = true;
   formOpener = document.activeElement;
   for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
@@ -869,6 +916,8 @@ function openForm() {
   $('form-sheet').focus({ preventScroll: true });
 }
 function closeForm() {
+  if (!formOpen) return;
+  formOpen = false;
   document.activeElement?.blur?.();
   for (const id of BEHIND_FORM) $(id).inert = false;
   $('backdrop').hidden = true;
@@ -887,6 +936,29 @@ function submitForm() {
   else form.querySelector('summary').focus();
 }
 
+/** Docks the form beside the stage on a wide screen, or makes it the modal sheet again. */
+function applyLayout() {
+  const sheet = $('form-sheet');
+  if (wide.matches) {
+    if (formOpen) {
+      // The open sheet becomes the docked form; what was behind it comes back.
+      formOpen = false;
+      formOpener = null;
+      for (const id of BEHIND_FORM) $(id).inert = false;
+      $('backdrop').hidden = $('picture-sheet').hidden;
+    }
+    sheet.hidden = state.setupStep !== null;
+    sheet.setAttribute('role', 'region');
+    sheet.removeAttribute('aria-modal');
+    sheet.removeAttribute('tabindex');
+  } else {
+    sheet.hidden = !formOpen;
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.tabIndex = -1;
+  }
+}
+
 // Keep the form above the on-screen keyboard (iOS does not resize the layout viewport).
 if (window.visualViewport) {
   const vv = window.visualViewport;
@@ -899,7 +971,7 @@ if (window.visualViewport) {
 }
 form.addEventListener('focusin', (e) => {
   const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-  if (e.target.matches('input')) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior }), 250);
+  if (e.target.matches('input') && !wide.matches) setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior }), 250);
 });
 
 // ---------------------------------------------------------------- wiring
@@ -927,10 +999,12 @@ function start() {
   form.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.target.matches('input')) {
       e.preventDefault();
-      e.target.blur();
+      // A phone hides its keyboard; at a desk the cursor stays in the field.
+      if (!wide.matches) e.target.blur();
       onFormChange(true);
     }
   });
+  document.addEventListener('keydown', onShortcut);
   for (const b of form.querySelectorAll('[data-step]')) {
     b.addEventListener('click', () => {
       const n = Number.parseInt(form.elements.value, 10);
@@ -955,7 +1029,8 @@ function start() {
   // Keyboard: arrows step through «Расстановка», Escape leaves it or closes the element card.
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
-    if (!$('form-sheet').hidden || !$('picture-sheet').hidden || e.target.matches?.('input')) return;
+    // A docked recipe (wide screen) is not in the way; only the modal sheets are.
+    if (formOpen || !$('picture-sheet').hidden || e.target.matches?.('input')) return;
     if (state.setupStep !== null) {
       if (e.key === 'ArrowRight') setupNext();
       else if (e.key === 'ArrowLeft') setupPrev();
@@ -988,8 +1063,31 @@ function start() {
     invalidate();
   });
 
+  wide.addEventListener('change', () => {
+    applyLayout();
+    if (state.selected && state.setupStep === null) selectElement(state.selected);
+  });
+  applyLayout();
+
   renderSummary();
   onFormChange(true);
+}
+
+/** Keyboard zoom on a computer: + − and 0 for the whole course (arrows and Esc are handled in start()). */
+function onShortcut(e) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!$('backdrop').hidden) return; // a modal sheet is open
+  if (e.target.closest?.('input, textarea, select, summary, details')) return;
+  const click = (id) => {
+    if ($(id).disabled || $(id).closest('[hidden]')) return;
+    e.preventDefault();
+    $(id).click();
+  };
+  switch (e.key) {
+    case '+': case '=': return click('zoom-in');
+    case '-': case '−': return click('zoom-out');
+    case '0': return click('zoom-fit');
+  }
 }
 
 if (location.hash === '#selfcheck') runSelfCheck(document.getElementById('app'));
