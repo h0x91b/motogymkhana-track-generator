@@ -156,7 +156,7 @@ describe('simplification', () => {
   });
 
   test('when the element fits but its approaches do not, the error says so', () => {
-    const result = generateCourse({ width: 10, length: 10, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
+    const result = generateCourse({ width: 16, length: 16, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('site-too-small');
     expect(result.error.message).toContain('радиусом поворота 4,5 м');

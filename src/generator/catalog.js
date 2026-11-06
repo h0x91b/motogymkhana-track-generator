@@ -20,27 +20,33 @@ import { arcPoints, ellipsePoints, latticeUnit, smoothPath, turning } from './ge
  * only; on a diagonal it admits the nearest √2-lattice length if it is that
  * close. A type whose range has no lattice length on diagonals is placed on
  * side axes only at that difficulty.
+ *
+ * The sizes of the U-turns inside elements — the U-turn, the box, the pivot
+ * turn, the mirror, the gate turn and the figure eight — are not in the table:
+ * the bike class sets the tightest of them (`BIKE_TURN_RADIUS`, the same as for
+ * connectors) and the difficulty only adds `uTurnMargin` metres to its radius
+ * (`sizeTable`).
  */
 export const DIFFICULTY_TABLE = {
   easy: {
     slalomStep: [4.5, 5], offsetStep: [5, 6], offsetShift: [1, 1.5], gateWidth: [2.5], laneShift: [2, 2.5],
-    uTurnWidth: [8], pivotRadius: 3, pivotAngles: [270], eightDistance: [9, 12], boxSize: [8],
-    circleRadius: [3.5], circleStretch: [0, 2], mirrorLine: [6], mirrorRadius: 3, gateTurnWidth: [4.5], loopRadius: 3.5,
+    pivotAngles: [270], uTurnMargin: 1,
+    circleRadius: [3.5], circleStretch: [0, 2], gateTurnWidth: [4.5],
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
   },
   medium: {
     slalomStep: [3.5, 4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
-    uTurnWidth: [7], pivotRadius: 2.5, pivotAngles: [270, 360], eightDistance: [7, 9], boxSize: [7],
-    circleRadius: [2.5], circleStretch: [0, 2, 3], mirrorLine: [5.5], mirrorRadius: 2.5, gateTurnWidth: [4], loopRadius: 3,
+    pivotAngles: [270, 360], uTurnMargin: 0.5,
+    circleRadius: [2.5], circleStretch: [0, 2, 3], gateTurnWidth: [4],
     tunnelGap: [4.5], tunnelShift: [2], zigzagStep: [3.5], zigzagShift: [2], zigzagWidth: [2],
     snakeWidth: [4.5], snakeStep: [3], crescentRadius: [6], flickRadius: 3, swerveWidth: [2], swerveRun: [7],
     snailCorridor: [2.5], boxEightDistance: [6], boxEightGate: [3], keyholeRadius: [3.5], keyholeOpening: [2.5],
   },
   hard: {
     slalomStep: [3, 3.5], offsetStep: [3.5, 4.5], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
-    uTurnWidth: [6], pivotRadius: 2, pivotAngles: [360, 720], eightDistance: [6, 7], boxSize: [6],
-    circleRadius: [2], circleStretch: [0, 2], mirrorLine: [5], mirrorRadius: 2, gateTurnWidth: [3.5], loopRadius: 2.5,
+    pivotAngles: [360, 720], uTurnMargin: 0,
+    circleRadius: [2], circleStretch: [0, 2], gateTurnWidth: [3.5],
     tunnelGap: [4], tunnelShift: [2.5], zigzagStep: [3], zigzagShift: [2.5], zigzagWidth: [1.5],
     snakeWidth: [4], snakeStep: [3], crescentRadius: [5], flickRadius: 2.5, swerveWidth: [2], swerveRun: [6],
     snailCorridor: [2], boxEightDistance: [6], boxEightGate: [2.5], keyholeRadius: [3], keyholeOpening: [2],
@@ -53,14 +59,26 @@ export const DIFFICULTY_TABLE = {
 // space, for a Vulcan 1700). Connectors turn no tighter.
 export const BIKE_TURN_RADIUS = { sport: 3.75, cruiser: 4.5 };
 
+/**
+ * Radius of the line ridden round the U-turns inside an element of this
+ * difficulty for this bike class: never tighter than a connector turns.
+ */
+export const uTurnRadius = (difficulty, bike) => BIKE_TURN_RADIUS[bike] + DIFFICULTY_TABLE[difficulty].uTurnMargin;
+
+/** The size table the catalog builds a type from: the difficulty's ranges plus the class's U-turn radius. */
+function sizeTable(difficulty, bike) {
+  return { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike) };
+}
+
 /** Clearance around an element's cones and trajectory that no other element or connector may enter. */
 export const ZONE_PAD = 0.75;
 
 // A big element takes a good part of a site: its core (cones and trajectory,
 // without the clearance) covers this many square metres or more at the sizes
-// it was given. A course has at most one. A snail and a crescent are always
-// big; an offset slalom often, an easy figure eight sometimes, an easy circle
-// rarely; every other type stays under 90 m².
+// it was given. A course has at most one. A snail, a crescent and a figure
+// eight (two round loops on the U-turn radius) are always big; a box, a pivot
+// turn, a mirror and a gate turn depending on the U-turn radius (on a cruiser
+// mostly); an offset slalom often, an easy circle rarely.
 export const BIG_ELEMENT_AREA = 120;
 
 /** Area of a template's core in square metres. */
@@ -100,6 +118,7 @@ const TURN_OUT = 2; // circle: radius of the turn off the ring
 const RING_SPACING = 2.5; // about this far between the cones of a ring
 const WALL_SPACING = 1.5; // about this far between the cones of a curved wall
 const MIRROR_OVER = 0.5; // how far past the mirror line the wheel goes at the apex
+const MIRROR_CLEAR = 0.75; // how far the mirror loop passes the end cones of the line
 const GATE_CLEAR = 0.8; // gate turn: rider clearance from the gate cones
 const SNAIL_CORE = 4; // snail: the central S spans this many metres
 const ZIGZAG_SEGMENTS = 3;
@@ -115,6 +134,11 @@ function latticeChoices(range, unit) {
   const out = [];
   for (let k = Math.max(1, Math.ceil(lo / unit - 1e-9)); k * unit <= hi + 1e-9; k++) out.push(k);
   return out;
+}
+
+/** The shortest lattice length of at least `min` metres: a minimum, never undercut on a diagonal. */
+function latticeAtLeast(min, unit) {
+  return [Math.max(1, Math.ceil(min / unit - 1e-9))];
 }
 
 /** n + 1 points evenly along an arc around c, from angle a0 sweeping `sweep`. */
@@ -164,6 +188,31 @@ function sBend(a0, y0, length, y1) {
     return [...arcPoints([a0, y0 + r], r, -PI / 2, sweep, ARC), ...arcPoints([a0 + length, y1 - r], r, PI / 2 + sweep, -sweep, ARC).slice(1)];
   }
   return [...arcPoints([a0, y0 - r], r, PI / 2, -sweep, ARC), ...arcPoints([a0 + length, y1 + r], r, -PI / 2 - sweep, sweep, ARC).slice(1)];
+}
+
+/**
+ * The licence-test eight round two cones `distance` apart: loops are ellipses
+ * centred on the cones, stretched along the centre line (rx > ry). The crossing
+ * lines are their common inner tangents through the midpoint; with rx = 0.4 D
+ * they cross at exactly ±45°. Its sizes are the exam's, not the bike class's.
+ */
+function ellipseEight(distance) {
+  const rx = 0.4 * distance;
+  const ry = 0.3 * distance;
+  const phi = atan2(0.6, 0.8);
+  const a = [0, 0];
+  const b = [distance, 0];
+  return {
+    cones: [{ a: 0, b: 0, height: 'tall' }, { a: distance, b: 0, height: 'tall' }],
+    passes: [{ kind: 'cone', cone: 0, side: 'left' }, { kind: 'cone', cone: 1, side: 'right' }],
+    path: [
+      ...ellipsePoints(a, rx, ry, PI, 2 * PI - phi),
+      ...ellipsePoints(b, rx, ry, PI - phi, phi - PI),
+      ...ellipsePoints(a, rx, ry, phi, PI),
+    ],
+    entryDir: [0, -1],
+    exitDir: [0, -1],
+  };
 }
 
 const TYPES = {
@@ -244,7 +293,8 @@ const TYPES = {
   },
 
   'u-turn': {
-    options: (t, unit) => ({ width: latticeChoices(t.uTurnWidth, unit) }),
+    // Wide enough that the line ridden, WALL inside the side walls, turns on the U-turn radius.
+    options: (t, unit) => ({ width: latticeAtLeast(2 * (t.turn + WALL), unit) }),
     build({ width }, unit) {
       const r = width / 2 - WALL / unit;
       const depth = Math.round(r + (WALL + 1.5) / unit);
@@ -268,7 +318,8 @@ const TYPES = {
 
   'pivot-turn': {
     options: (t) => ({ angle: t.pivotAngles }),
-    extra: (t) => ({ radius: t.pivotRadius }),
+    // The free radius round the cone: the line ridden on the U-turn radius, 0.5 m slack outside it.
+    extra: (t) => ({ radius: t.turn + 0.5 }),
     build({ angle, radius }, unit) {
       const r = (radius - 0.5) / unit;
       const lead = r + 1 / unit;
@@ -289,20 +340,23 @@ const TYPES = {
   },
 
   'figure-eight': {
-    options: (t, unit) => ({ distance: latticeChoices(t.eightDistance, unit) }),
+    // Round loops on at least the U-turn radius; the base follows from them, so
+    // that the crossing lines meet at right angles: D = 2√2 r.
+    options: (t, unit) => {
+      const min = 2 * Math.SQRT2 * t.turn;
+      return { distance: latticeChoices([min, min + 1], unit) };
+    },
     build({ distance }) {
-      // Loops are ellipses centred on the cones, stretched along the centre line
-      // (rx > ry). The crossing lines are their common inner tangents through the
-      // midpoint; with rx = 0.4 D they cross at exactly ±45°.
-      const rx = 0.4 * distance;
-      const ry = 0.3 * distance;
-      const phi = atan2(0.6, 0.8);
+      // Loops are circles centred on the cones. The crossing lines are their
+      // common inner tangents through the midpoint; with r = D / 2√2 they touch
+      // the loops at ±45° and cross each other at right angles.
+      const r = (distance * Math.SQRT1_2) / 2;
       const a = [0, 0];
       const b = [distance, 0];
       const path = [
-        ...ellipsePoints(a, rx, ry, PI, 2 * PI - phi),
-        ...ellipsePoints(b, rx, ry, PI - phi, phi - PI),
-        ...ellipsePoints(a, rx, ry, phi, PI),
+        ...arcPoints(a, r, PI, (3 * PI) / 4, ARC),
+        ...arcPoints(b, r, (3 * PI) / 4, (-3 * PI) / 2, ARC),
+        ...arcPoints(a, r, PI / 4, (3 * PI) / 4, ARC),
       ];
       return {
         cones: [{ a: 0, b: 0, height: 'tall' }, { a: distance, b: 0, height: 'tall' }],
@@ -315,7 +369,7 @@ const TYPES = {
   },
 
   box: {
-    options: (t, unit) => ({ size: latticeChoices(t.boxSize, unit) }),
+    options: (t, unit) => ({ size: latticeAtLeast(2 * (t.turn + WALL), unit) }),
     build({ size }, unit) {
       // Enter through one side, turn 270° inside, leave through the side on the right.
       const r = size / 2 - WALL / unit;
@@ -364,8 +418,13 @@ const TYPES = {
   },
 
   mirror: {
-    options: (t, unit) => ({ line: latticeChoices(t.mirrorLine, unit) }),
-    extra: (t) => ({ radius: t.mirrorRadius }),
+    // The line is long enough that the loop, crossing it MIRROR_OVER deep, keeps
+    // MIRROR_CLEAR from its end cones: (L/2)² = (r + c)² − (r − over)².
+    options: (t, unit) => {
+      const half = Math.sqrt((MIRROR_CLEAR + MIRROR_OVER) * (2 * t.turn + MIRROR_CLEAR - MIRROR_OVER));
+      return { line: latticeAtLeast(2 * half, unit) };
+    },
+    extra: (t) => ({ radius: t.turn }),
     build({ line, radius }, unit) {
       // A chalk line between two low cones, across the approach. The rider turns
       // round so that at the apex the wheel crosses the line, and rides back the
@@ -386,7 +445,7 @@ const TYPES = {
 
   'gate-turn': {
     options: (t, unit) => ({ width: latticeChoices(t.gateTurnWidth, unit) }),
-    extra: (t) => ({ radius: t.loopRadius }),
+    extra: (t) => ({ radius: t.turn }),
     build({ width, radius }, unit) {
       // Through a gate of two low cones, round behind it and back through the
       // same gate: a light-bulb turn — out of line to the right, a wide loop to
@@ -553,7 +612,7 @@ const TYPES = {
       // The licence-test eight: a figure eight inside a rectangle of four low
       // cones, through a gate of two low cones where its loops cross. The way in
       // and out crosses the long sides near one end.
-      const eight = TYPES['figure-eight'].build({ distance }, unit);
+      const eight = ellipseEight(distance);
       const m = BOX_EIGHT_MARGIN / unit;
       const a0 = Math.floor(-0.4 * distance - m);
       const a1 = Math.ceil(1.4 * distance + m);
@@ -661,23 +720,23 @@ const unitFor = (diagonal) => latticeUnit(diagonal);
  * Lattice options for a type at a difficulty on one axis class, or null when
  * some size has no lattice length in range (the type cannot go diagonal then).
  */
-export function typeOptions(type, difficulty, diagonal) {
+export function typeOptions(type, difficulty, bike, diagonal) {
   // Curved rings and walls snap to the 0.5 m grid; on the coarser diagonal
   // lattice their cones would move too far off the line.
   if (diagonal && TYPES[type].sideOnly) return null;
-  const opts = TYPES[type].options(DIFFICULTY_TABLE[difficulty], unitFor(diagonal));
+  const opts = TYPES[type].options(sizeTable(difficulty, bike), unitFor(diagonal));
   return Object.values(opts).every((list) => list.length > 0) ? opts : null;
 }
 
-function paramsFromDraws(type, difficulty, diagonal, draws) {
-  const opts = typeOptions(type, difficulty, diagonal);
+function paramsFromDraws(type, difficulty, bike, diagonal, draws) {
+  const opts = typeOptions(type, difficulty, bike, diagonal);
   if (!opts) return null;
   const params = {};
   Object.keys(opts).forEach((key, i) => {
     const list = opts[key];
     params[key] = list[Math.min(list.length - 1, Math.floor(draws[i] * list.length))];
   });
-  Object.assign(params, TYPES[type].extra?.(DIFFICULTY_TABLE[difficulty]) ?? {});
+  Object.assign(params, TYPES[type].extra?.(sizeTable(difficulty, bike)) ?? {});
   return params;
 }
 
@@ -687,22 +746,22 @@ function paramsFromDraws(type, difficulty, diagonal, draws) {
  * axis and on a diagonal.
  * @returns {{side: object|null, diagonal: object|null}}
  */
-export function chooseParams(type, difficulty, rng) {
-  const keys = Object.keys(TYPES[type].options(DIFFICULTY_TABLE[difficulty], 0.5));
+export function chooseParams(type, difficulty, bike, rng) {
+  const keys = Object.keys(TYPES[type].options(sizeTable(difficulty, bike), 0.5));
   const draws = keys.map(() => rng.float());
   return {
-    side: paramsFromDraws(type, difficulty, false, draws),
-    diagonal: paramsFromDraws(type, difficulty, true, draws),
+    side: paramsFromDraws(type, difficulty, bike, false, draws),
+    diagonal: paramsFromDraws(type, difficulty, bike, true, draws),
   };
 }
 
 /** The most compact size choices (used when the drawn ones do not fit the site). */
-export function minimalParams(type, difficulty) {
-  const keys = Object.keys(TYPES[type].options(DIFFICULTY_TABLE[difficulty], 0.5));
+export function minimalParams(type, difficulty, bike) {
+  const keys = Object.keys(TYPES[type].options(sizeTable(difficulty, bike), 0.5));
   const draws = keys.map(() => 0);
   return {
-    side: paramsFromDraws(type, difficulty, false, draws),
-    diagonal: paramsFromDraws(type, difficulty, true, draws),
+    side: paramsFromDraws(type, difficulty, bike, false, draws),
+    diagonal: paramsFromDraws(type, difficulty, bike, true, draws),
   };
 }
 

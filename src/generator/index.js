@@ -6,7 +6,7 @@ import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
 export { parseRecipe, parseSeed, BIKES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
-export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, TYPE_NAMES, DIFFICULTY_TABLE } from './catalog.js';
+export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -21,7 +21,7 @@ function siteTooSmall(recipe) {
   const usable = { width: recipe.width - 2 * SITE_MARGIN, length: recipe.length - 2 * SITE_MARGIN };
   let smallest = null;
   for (const type of usableTypes(recipe)) {
-    const p = minimalParams(type, recipe.difficulty).side;
+    const p = minimalParams(type, recipe.difficulty, recipe.bike).side;
     const tpl = instantiate(type, p, false, false);
     const a = (tpl.core[2] - tpl.core[0]) * tpl.unit;
     const b = (tpl.core[3] - tpl.core[1]) * tpl.unit;
@@ -74,7 +74,7 @@ export function generateCourse(recipeInput, seedInput) {
   }
   const recipe = parsed.recipe;
   const limits = recipe.closed ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
-  const onlyBig = usableTypes(recipe).every((t) => alwaysBig(t, recipe.difficulty));
+  const onlyBig = usableTypes(recipe).every((t) => alwaysBig(t, recipe.difficulty, recipe.bike));
   const most = onlyBig ? 1 : recipe.elements;
   const limitedBy = onlyBig && recipe.elements > 1 ? { limitedBy: 'big-elements' } : {};
   for (const typeTries of TYPE_TRY_LIMITS) {

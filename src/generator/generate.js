@@ -342,15 +342,15 @@ function straightLeg(a, b) {
 export function feasibleTypes(recipe) {
   const inner = innerRect(recipe);
   return usableTypes(recipe).filter((type) => {
-    const p = minimalParams(type, recipe.difficulty);
+    const p = minimalParams(type, recipe.difficulty, recipe.bike);
     return [p.side && instantiate(type, p.side, false, false), p.diagonal && instantiate(type, p.diagonal, true, false)]
       .some((tpl) => tpl && templateFits(tpl, inner));
   });
 }
 
 /** Is the type a big element even at its most compact sizes, on every axis class? */
-export function alwaysBig(type, difficulty) {
-  const p = minimalParams(type, difficulty);
+export function alwaysBig(type, difficulty, bike) {
+  const p = minimalParams(type, difficulty, bike);
   return [p.side && instantiate(type, p.side, false, false), p.diagonal && instantiate(type, p.diagonal, true, false)]
     .filter(Boolean)
     .every(isBig);
@@ -379,13 +379,13 @@ function typePreferences(seed, feasible, n) {
  * A type that is big even at its most compact sizes gets no axes then.
  */
 function makePlan(recipe, seed, i, type, inner, small) {
-  const plan = { type, params: chooseParams(type, recipe.difficulty, createStream(seed, `params:${i}:${type}`)), templates: {} };
+  const plan = { type, params: chooseParams(type, recipe.difficulty, recipe.bike, createStream(seed, `params:${i}:${type}`)), templates: {} };
   const fitsAxis = (axis) => {
     const tpl = templateFor(plan, axis % 2 === 1, false);
     return tpl && templateFits(tpl, inner) && !(small && isBig(tpl));
   };
   if (![0, 1].some(fitsAxis)) {
-    plan.params = minimalParams(type, recipe.difficulty);
+    plan.params = minimalParams(type, recipe.difficulty, recipe.bike);
     plan.templates = {};
   }
   plan.axes = [0, 1, 2, 3, 4, 5, 6, 7].filter(fitsAxis);
