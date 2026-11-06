@@ -368,3 +368,24 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   }
   .toast { inset-inline-end: calc(380px + 8px); }
 }
+/* Size options: a «Размер» button at the end of a type row, chips folded under it. */
+.type-row { display: flex; align-items: center; gap: 8px; }
+.type-row .check { flex: 1; min-width: 0; }
+.size-toggle { flex: none; min-height: 36px; padding: 0 12px; font-size: 14px; color: var(--muted); }
+.size-toggle.set { color: var(--ink); font-weight: 700; border-color: var(--accent); }
+.size-toggle::after { content: ' ▾'; }
+.size-toggle[aria-expanded="true"]::after { content: ' ▴'; }
+.sizes { margin: 0 0 8px 32px; }
+.sizes[hidden] { display: none; }
+.size-option { border: 0; padding: 0; margin: 4px 0 0; min-width: 0; }
+.size-option legend { font-size: 13px; font-weight: 600; padding: 0; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin; }
+.chips label { margin: 0; flex: none; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips span { display: grid; place-items: center; min-width: 44px; min-height: 40px; padding: 0 10px; border: 1px solid var(--edge); border-radius: 10px; font-weight: 600; white-space: nowrap; }
+.chips input:checked + span { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.chips input:focus-visible + span { outline: 3px solid var(--accent); }
+.size-note { margin: 0; font-size: 13px; }
+.size-note:empty { display: none; }
+.size-note.warn { justify-self: start; width: fit-content; padding: 2px 6px; border-radius: 6px; color: var(--warn-ink); background: var(--warn-bg); font-weight: 600; }
+.chips span.below { color: var(--muted); border-style: dashed; }

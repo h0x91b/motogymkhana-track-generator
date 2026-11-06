@@ -2,6 +2,7 @@
 // Both accept raw form values (strings) as well as already-normalised values,
 // and never substitute a default or random value for an invalid one.
 
+import { SIZE_OPTIONS, sizeValues, TYPE_NAMES } from './catalog.js';
 import { GENERATOR_VERSION } from './version.js';
 
 export const ELEMENT_TYPES = [
@@ -82,6 +83,55 @@ export function parseSeed(value) {
   return { ok: true, seed };
 }
 
+const METRES = /^\d+(?:[.,]\d+)?$/;
+
+/** A size in metres from a number or a form string with a decimal comma or point; null otherwise. */
+function parseMetres(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || !METRES.test(value.trim())) return null;
+  return Number(value.trim().replace(',', '.'));
+}
+
+const fmtMetres = (v) => String(v).replace('.', ',');
+
+/**
+ * Size options the recipe fixes, `{ [type]: { [key]: metres } }` (SIZE_OPTIONS).
+ * Only ticked types keep theirs, in canonical order, so a size left on an
+ * unticked type does not change the recipe.
+ * @returns {{ok: true, sizes: object} | {ok: false, error: string}}
+ */
+function parseSizes(value, types) {
+  if (value === undefined || value === null) return { ok: true, sizes: {} };
+  if (typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: 'Размеры элементов заданы неверно' };
+  for (const type of Object.keys(value)) {
+    if (!SIZE_OPTIONS[type]) return { ok: false, error: `У типа «${TYPE_NAMES[type] ?? type}» нет настраиваемых размеров` };
+    const chosen = value[type];
+    if (!chosen || typeof chosen !== 'object' || Array.isArray(chosen)) return { ok: false, error: `Размеры «${TYPE_NAMES[type]}» заданы неверно` };
+    for (const key of Object.keys(chosen)) {
+      if (!SIZE_OPTIONS[type].some((o) => o.key === key)) return { ok: false, error: `У типа «${TYPE_NAMES[type]}» нет размера «${key}»` };
+    }
+  }
+  const sizes = {};
+  for (const type of types ?? []) {
+    if (!SIZE_OPTIONS[type] || !value[type]) continue;
+    const own = {};
+    for (const option of SIZE_OPTIONS[type]) {
+      const raw = value[type][option.key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const metres = parseMetres(raw);
+      if (metres === null || !sizeValues(option).includes(metres)) {
+        return {
+          ok: false,
+          error: `${TYPE_NAMES[type]}, ${option.name.toLowerCase()}: от ${fmtMetres(option.min)} до ${fmtMetres(option.max)} м с шагом 0,5 м`,
+        };
+      }
+      own[option.key] = metres;
+    }
+    if (Object.keys(own).length) sizes[type] = own;
+  }
+  return { ok: true, sizes };
+}
+
 function parseBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -135,9 +185,12 @@ export function parseRecipe(input) {
     errors.types = 'Ни один отмеченный тип не подходит для паровозика на этой сложности: отметьте другой тип';
   }
 
+  const sizes = parseSizes(src.sizes, types);
+  if (!sizes.ok) errors.sizes = sizes.error;
+
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, bike, closed, train, generatorVersion: GENERATOR_VERSION },
+    recipe: { width, length, elements, types, difficulty, bike, closed, train, sizes: sizes.sizes, generatorVersion: GENERATOR_VERSION },
   };
 }

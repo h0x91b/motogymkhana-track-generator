@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { TYPE_NAMES } from '../generator/catalog.js';
+import { SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
 import { AXIS_STEPS } from '../generator/geometry.js';
 
 export const fmt = (v) => {
@@ -217,6 +217,30 @@ function describe(element, cones, diagonal, turn, shift, dims) {
   }
 }
 
+const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
+
+/**
+ * The sizes the recipe fixed for this element's type, and whether the bike
+ * class raised one: they are part of what the organiser asked for.
+ */
+function fixedSizes(type, recipe) {
+  const chosen = recipe.sizes?.[type];
+  if (!chosen) return [];
+  return SIZE_OPTIONS[type].filter((o) => chosen[o.key] !== undefined).map((o) => {
+    const value = chosen[o.key];
+    const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike);
+    const raised = min !== null && value < min ? min : null;
+    return {
+      key: o.key,
+      name: o.name,
+      value,
+      ...(raised !== null ? { raisedTo: raised } : {}),
+      label: `Задано в рецепте: ${o.name.toLowerCase()} ${metres(value)}`
+        + (raised !== null ? ` — мало для мотоцикла «${BIKE_NAMES[recipe.bike]}», взято не меньше ${metres(raised)}` : ''),
+    };
+  });
+}
+
 function terminal(t, byId) {
   return {
     cones: t.cones.map((id) => ({ x: byId.get(id).hx / 2, y: byId.get(id).hy / 2 })),
@@ -257,6 +281,7 @@ export function buildSetupSheet(course) {
     const pivot = course.passes.find((p) => p.element === e.id && p.angle);
     const points = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, d));
+    const fixed = fixedSizes(e.type, course.recipe);
     const arcs = (e.guides ?? []).map((g) => ({
       center: { x: g.x, y: g.y },
       radii: g.radii,
@@ -274,7 +299,8 @@ export function buildSetupSheet(course) {
       travel: travelLabel(e.entry.dir),
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
-      notes: [...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
+      fixed,
+      notes: [...fixed.map((f) => f.label), ...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
       cones,
       dims,
       arcs,
