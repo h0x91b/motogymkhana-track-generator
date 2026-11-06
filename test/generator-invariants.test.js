@@ -268,13 +268,147 @@ describe('placement', () => {
   });
 });
 
+function circleThrough(a, b, d) {
+  const bx = b[0] - a[0];
+  const by = b[1] - a[1];
+  const dx = d[0] - a[0];
+  const dy = d[1] - a[1];
+  const den = 2 * (bx * dy - by * dx);
+  if (Math.abs(den) < 1e-6) return null;
+  const ux = (dy * (bx * bx + by * by) - by * (dx * dx + dy * dy)) / den;
+  const uy = (bx * (dx * dx + dy * dy) - dx * (bx * bx + by * by)) / den;
+  return { centre: [a[0] + ux, a[1] + uy], radius: Math.hypot(ux, uy) };
+}
+
+/**
+ * Turns of a polyline round one centre, brute force from the published path
+ * (independent of the Dubins words): a circle through a vertex and its
+ * neighbours two samples away, grown to the run of vertices on it and refitted
+ * through the ends and middle of that run, then grown again tighter; then how far the run sweeps round
+ * the centre (degrees, + anticlockwise).
+ */
+function circularTurns(path, minRadius) {
+  const out = [];
+  let i = 2;
+  while (i < path.length - 2) {
+    let circle = circleThrough(path[i - 2], path[i], path[i + 2]);
+    if (!circle || circle.radius < minRadius * 0.97 || circle.radius > 20) {
+      i++;
+      continue;
+    }
+    let lo = i;
+    let hi = i;
+    // Loose while the circle is rough, then tight: the first sample of an
+    // opposite arc lies within some 7 cm of the circle at the tangent point.
+    for (const tol of [0.05, 0.05, 0.04]) {
+      const { centre, radius } = circle;
+      const on = (p) => Math.abs(Math.hypot(p[0] - centre[0], p[1] - centre[1]) - radius) < tol;
+      if (tol < 0.05) {
+        lo = i;
+        hi = i;
+      }
+      while (lo > 0 && on(path[lo - 1])) lo--;
+      while (hi < path.length - 1 && on(path[hi + 1])) hi++;
+      const refit = tol === 0.05 && hi - lo >= 2 && circleThrough(path[lo], path[(lo + hi) >> 1], path[hi]);
+      if (refit) circle = refit;
+    }
+    // A long run of points can still be split by rounding: join runs round the same centre.
+    const prev = out.at(-1);
+    const { centre, radius } = circle;
+    if (prev && prev.hi >= lo - 1 && Math.hypot(prev.centre[0] - centre[0], prev.centre[1] - centre[1]) < 0.2) prev.hi = Math.max(prev.hi, hi);
+    else out.push({ centre, radius, lo, hi });
+    i = hi + 1;
+  }
+  // Two turns the same way with at most a 1 m straight between them are ridden
+  // as one: centre midway between theirs.
+  // A circle fitted across the junction of two arcs makes a short run that
+  // only bridges its neighbours: drop it.
+  const runs = out.filter((r, k) => !(out[k - 1] && out[k + 1] && out[k - 1].hi >= r.lo - 1 && out[k + 1].lo <= r.hi + 1
+    && r.hi - r.lo < Math.max(out[k - 1].hi - out[k - 1].lo, out[k + 1].hi - out[k + 1].lo)));
+  const joined = [];
+  for (const t of runs.map((r) => ({ ...r, sweep: sweepAround(path.slice(r.lo, r.hi + 1), r.centre) }))) {
+    const prev = joined.at(-1);
+    // Joined by a straight (or overlapping by a point or two), the two
+    // centres are offset by the straight's length.
+    const gap = prev && (t.lo > prev.hi ? Math.hypot(path[t.lo][0] - path[prev.hi][0], path[t.lo][1] - path[prev.hi][1]) : 0);
+    const apart = prev && Math.hypot(t.centre[0] - prev.last[0], t.centre[1] - prev.last[1]);
+    if (prev && t.lo - prev.hi <= 1 && gap <= 1.02 && Math.abs(apart - gap) < 0.3 && Math.sign(prev.sweep) === Math.sign(t.sweep)) {
+      joined[joined.length - 1] = {
+        ...t, lo: prev.lo, sweep: prev.sweep + t.sweep, centre: [(prev.first[0] + t.centre[0]) / 2, (prev.first[1] + t.centre[1]) / 2], first: prev.first, last: t.centre,
+      };
+    } else joined.push({ ...t, first: t.centre, last: t.centre });
+  }
+  return joined;
+}
+
+describe('U-turn cones on connectors', () => {
+  test('a connector turn of 160° or more has a tall cone at its centre, on the inside, and a gentler turn has none', () => {
+    let turns160 = 0;
+    each((c, recipe) => {
+      const byId = conesById(c);
+      const radius = BIKE_TURN_RADIUS[recipe.bike ?? 'cruiser'];
+      for (const leg of c.route.legs.filter((l) => l.kind === 'connector')) {
+        const cones = (leg.cones ?? []).map((id) => byId.get(id));
+        const used = new Set();
+        const gentle = [];
+        for (const t of circularTurns(leg.path, radius)) {
+          // The cone sits on the half-metre lattice: within 0.36 m of the true centre.
+          const at = cones.find((k) => Math.hypot(k.hx / 2 - t.centre[0], k.hy / 2 - t.centre[1]) < 0.45);
+          const where = `${label(c)} ${leg.from}→${leg.to} turn ${Math.round(t.sweep)}°`;
+          // Arcs are sampled every 10° at most and rounded to 1 cm, so a run can
+          // gain or lose one sample at its ends: within 12° of 160° it can go either way.
+          if (Math.abs(t.sweep) >= 172 || (at && Math.abs(t.sweep) >= 148)) {
+            turns160++;
+            expect(at, where).toBeDefined();
+            expect(at.height, where).toBe('tall');
+            const pass = c.passes.find((p) => p.cone === at.id);
+            expect(pass.connector, where).toEqual({ from: leg.from, to: leg.to });
+            expect(pass.side, where).toBe(t.sweep > 0 ? 'left' : 'right');
+            used.add(at.id);
+          } else if (at) gentle.push({ at, where });
+        }
+        // A cone near the centre of a gentler turn is there for a U-turn round the same centre.
+        for (const { at, where } of gentle) expect(used.has(at.id), where).toBe(true);
+        // And every cone of the connector is the centre of one of its U-turns.
+        expect(cones.map((k) => k.id).sort(), `${label(c)} ${leg.from}→${leg.to}`).toEqual([...used].sort());
+      }
+    });
+    expect(turns160).toBeGreaterThan(100);
+  });
+
+  test('a U-turn cone keeps 1.5 m from every element zone and every other route leg', () => {
+    each((c) => {
+      const byId = conesById(c);
+      const elements = new Map(c.elements.map((e) => [e.id, e]));
+      for (const leg of c.route.legs.filter((l) => l.cones)) {
+        for (const id of leg.cones) {
+          const p = coneXY(byId.get(id));
+          for (const e of c.elements) {
+            const d = insidePolygon(e.zone, p) ? 0 : distanceToPath([...e.zone, e.zone[0]], p);
+            expect(d, `${label(c)} ${id} near ${e.id}`).toBeGreaterThan(1.45);
+          }
+          for (const other of c.route.legs) {
+            const path = other.kind === 'connector' ? other.path : elements.get(other.element).path;
+            if (other === leg) {
+              expect(distanceToPath(path, p), `${label(c)} ${id} own connector`).toBeGreaterThan(3);
+            } else {
+              expect(distanceToPath(path, p), `${label(c)} ${id} near ${other.from ?? other.element}→${other.to ?? ''}`).toBeGreaterThan(1.45);
+            }
+          }
+        }
+      }
+    });
+  });
+});
+
 describe('cone sides, from the actual geometry of the route', () => {
   test('every tall-cone pass keeps the cone on its required side; blue left, red right', () => {
     each((c) => {
       const byId = conesById(c);
       const elements = new Map(c.elements.map((e) => [e.id, e]));
+      const connectorPath = (k) => c.route.legs.find((l) => l.kind === 'connector' && l.from === k.from && l.to === k.to).path;
       for (const pass of c.passes.filter((p) => p.kind === 'cone')) {
-        const path = elements.get(pass.element).path;
+        const path = pass.connector ? connectorPath(pass.connector) : elements.get(pass.element).path;
         expect(sideOf(path, coneXY(byId.get(pass.cone))), `${label(c)} ${pass.id}`).toBe(pass.side);
       }
     });

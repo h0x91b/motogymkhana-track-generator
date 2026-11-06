@@ -32,6 +32,8 @@ function reconstruct(sheet) {
       }
       cones.push({ pos, height: cone.height, color: cone.color });
     }
+    // U-turn cones of the connector leaving the element, from its anchor.
+    for (const t of card.turnCones) cones.push({ pos: [card.anchor.x + t.dx, card.anchor.y + t.dy], height: 'tall', color: t.color });
   }
   for (const t of sheet.closed ? [sheet.start] : [sheet.start, sheet.finish]) {
     for (const c of t.cones) cones.push({ pos: [c.x, c.y], height: 'low', color: 'neutral' });
@@ -210,6 +212,26 @@ describe('setup sheet', () => {
       expect(coneList.low).toBe(cones.filter((c) => c.height === 'low').length);
       expect(coneList.tallBlue + coneList.tallRed + coneList.low).toBe(course.cones.length);
     }
+  });
+
+  test('a U-turn cone is listed on the card its connector leaves, measured from that anchor', () => {
+    let seen = 0;
+    for (const course of courses) {
+      const sheet = buildSetupSheet(course);
+      const byId = new Map(course.cones.map((c) => [c.id, c]));
+      for (const pass of course.passes.filter((p) => p.connector)) {
+        seen++;
+        const card = sheet.cards.find((c) => c.element === pass.connector.from);
+        const t = card.turnCones.find((x) => x.cone === pass.cone);
+        const cone = byId.get(pass.cone);
+        expect([card.anchor.x + t.dx, card.anchor.y + t.dy]).toEqual([cone.hx / 2, cone.hy / 2]);
+        expect(isHalf(t.dx) && isHalf(t.dy)).toBe(true);
+        expect(t.color).toBe(pass.side === 'left' ? 'blue' : 'red');
+        expect(card.notes).toContain(t.label);
+        expect(t.label).toContain(`от якоря ${card.number}`);
+      }
+    }
+    expect(seen).toBeGreaterThan(20);
   });
 
   test('a closed course lists one start-finish line, an open course two lines', () => {
