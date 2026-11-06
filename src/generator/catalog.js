@@ -31,25 +31,25 @@ export const DIFFICULTY_TABLE = {
   easy: {
     slalomStep: [4.5, 5], offsetStep: [5, 6], offsetShift: [1, 1.5], gateWidth: [2.5], laneShift: [2, 2.5],
     pivotAngles: [270], uTurnMargin: 1,
-    circleRadius: [3.5], circleStretch: [0, 2], gateTurnWidth: [4.5],
+    circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [4.5],
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
   },
   medium: {
-    slalomStep: [3.5, 4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
+    slalomStep: [4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
     pivotAngles: [270, 360], uTurnMargin: 0.5,
-    circleRadius: [2.5], circleStretch: [0, 2, 3], gateTurnWidth: [4],
+    circleRadius: [4], circleStretch: [0, 2, 3], gateTurnWidth: [4],
     tunnelGap: [4.5], tunnelShift: [2], zigzagStep: [3.5], zigzagShift: [2], zigzagWidth: [2],
     snakeWidth: [4.5], snakeStep: [3], crescentRadius: [6], flickRadius: 3, swerveWidth: [2], swerveRun: [7],
-    snailCorridor: [2.5], boxEightDistance: [6], boxEightGate: [3], keyholeRadius: [3.5], keyholeOpening: [2.5],
+    snailCorridor: [2.5], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3], keyholeOpening: [2.5],
   },
   hard: {
-    slalomStep: [3, 3.5], offsetStep: [3.5, 4.5], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
+    slalomStep: [4], offsetStep: [4], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
     pivotAngles: [360, 720], uTurnMargin: 0,
-    circleRadius: [2], circleStretch: [0, 2], gateTurnWidth: [3.5],
+    circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [3.5],
     tunnelGap: [4], tunnelShift: [2.5], zigzagStep: [3], zigzagShift: [2.5], zigzagWidth: [1.5],
     snakeWidth: [4], snakeStep: [3], crescentRadius: [5], flickRadius: 2.5, swerveWidth: [2], swerveRun: [6],
-    snailCorridor: [2], boxEightDistance: [6], boxEightGate: [2.5], keyholeRadius: [3], keyholeOpening: [2],
+    snailCorridor: [2], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [2.5], keyholeOpening: [2],
   },
 };
 
@@ -58,6 +58,14 @@ export const DIFFICULTY_TABLE = {
 // (an organiser's figures; 9 m is the most he has seen laid out in a confined
 // space, for a Vulcan 1700). Connectors turn no tighter.
 export const BIKE_TURN_RADIUS = { sport: 3.75, cruiser: 4.5 };
+
+// Ring radius of a keyhole, by bike class rather than difficulty: the sizes the
+// organiser measured on the asphalt (4 m, 4.5 m under a cruiser).
+export const KEYHOLE_RADIUS = { sport: 4, cruiser: 4.5 };
+
+// Ring radius of a fast circle, the same at every difficulty and for both bike
+// classes (organiser's figure).
+export const FAST_CIRCLE_RADIUS = 12;
 
 /**
  * Radius of the line ridden round the U-turns inside an element of this
@@ -117,16 +125,17 @@ export function sizeDefault(type, key, difficulty, bike) {
   const min = sizeMinimum(type, key, difficulty, bike);
   if (min !== null) return [min, min];
   const option = SIZE_OPTIONS[type].find((o) => o.key === key);
-  const range = DIFFICULTY_TABLE[difficulty][option.table];
+  const range = sizeTable(difficulty, bike)[option.table];
   return [range[0], range[range.length - 1]];
 }
 
 /**
  * The size table the catalog builds a type from: the difficulty's ranges plus
- * the class's U-turn radius, with the sizes the recipe fixed for this type.
+ * the class's U-turn radius and keyhole ring, with the sizes the recipe fixed
+ * for this type.
  */
 function sizeTable(difficulty, bike, type, sizes) {
-  const table = { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike) };
+  const table = { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike), keyholeRadius: [KEYHOLE_RADIUS[bike]] };
   const chosen = sizes?.[type];
   if (chosen) {
     for (const o of SIZE_OPTIONS[type]) if (chosen[o.key] !== undefined) table[o.table] = [chosen[o.key]];
@@ -157,6 +166,7 @@ export const RUN_OFF_TYPES = {
   'figure-eight': 'loop',
   box: 'loop',
   circle: 'loop',
+  'fast-circle': 'loop',
   snail: 'loop',
   'box-eight': 'loop',
 };
@@ -164,9 +174,10 @@ export const RUN_OFF_TYPES = {
 // A big element takes a good part of a site: its core (cones and trajectory,
 // without the clearance) covers this many square metres or more at the sizes
 // it was given. A course has at most one. A snail, a crescent and a figure
-// eight (two round loops on the U-turn radius) are always big; a box, a pivot
-// turn, a mirror and a gate turn depending on the U-turn radius (on a cruiser
-// mostly); an offset slalom often, an easy circle rarely.
+// eight (two round loops on the U-turn radius) and both circles (the small
+// one's core is exactly 120 m²) are always big; a box, a pivot turn, a mirror
+// and a gate turn depending on the U-turn radius (on a cruiser mostly); an
+// offset slalom often.
 export const BIG_ELEMENT_AREA = 120;
 
 /** Area of a template's core in square metres. */
@@ -184,7 +195,8 @@ export const TYPE_NAMES = {
   'pivot-turn': 'Вращение',
   'figure-eight': 'Восьмёрка',
   box: 'Коробка',
-  circle: 'Круг',
+  circle: 'Малый круг',
+  'fast-circle': 'Быстрый круг',
   mirror: 'Зеркало',
   'gate-turn': 'Разворот за воротами',
   snail: 'Улитка',
@@ -302,6 +314,32 @@ function ellipseEight(distance) {
     entryDir: [0, -1],
     exitDir: [0, -1],
   };
+}
+
+/**
+ * One lap anticlockwise round a ring of tall cones, 1 m outside it: a circle,
+ * or an oval of two half circles round P and Q `stretch` apart. It leaves with
+ * a right turn of radius `out` so the way out does not run along the start of
+ * the lap. Lattice steps throughout.
+ */
+function ringLap(radius, stretch, out) {
+  const unit = 0.5; // ring types are side-axis only
+  const r = radius + WALL / unit;
+  const p = [0, r];
+  const q = [stretch, r];
+  const n = Math.max(2, Math.round((PI * radius) / (RING_SPACING / unit)));
+  const ring = [[0, r - radius], ...arcSpots(q, radius, -PI / 2, PI, n), ...arcSpots(p, radius, PI / 2, PI, n)];
+  const cones = conesAt(ring, 'tall');
+  return rebase({
+    cones,
+    passes: cones.map((_, i) => ({ kind: 'cone', cone: i, side: 'left' })),
+    path: chain([0, 0], ...arcPoints(q, r, -PI / 2, PI, ARC), ...arcPoints(p, r, PI / 2, PI, ARC), ...arcPoints([0, -out], out, PI / 2, -PI / 2, ARC)),
+    guides: stretch === 0
+      ? [{ center: p, radii: [radius], from: 0, to: 2 * PI }]
+      : [{ center: p, radii: [radius], from: PI / 2, to: (3 * PI) / 2 }, { center: q, radii: [radius], from: -PI / 2, to: PI / 2 }],
+    entryDir: [1, 0],
+    exitDir: [0, -1],
+  });
 }
 
 const TYPES = {
@@ -486,30 +524,17 @@ const TYPES = {
   circle: {
     sideOnly: true,
     options: (t, unit) => ({ radius: latticeChoices(t.circleRadius, unit), stretch: t.circleStretch.map((m) => m / unit) }),
-    build({ radius, stretch }, unit) {
-      // One lap anticlockwise round a ring of cones, 1 m outside it: a circle,
-      // or an oval of two half circles round P and Q. It leaves with a right turn
-      // so the way out does not run along the start of the lap.
-      const r = radius + WALL / unit;
-      const p = [0, r];
-      const q = [stretch, r];
-      const out = TURN_OUT / unit;
-      const n = Math.max(2, Math.round((PI * radius) / (RING_SPACING / unit)));
-      const ring = [[0, r - radius], ...arcSpots(q, radius, -PI / 2, PI, n), ...arcSpots(p, radius, PI / 2, PI, n)];
-      const cones = conesAt(ring, 'tall');
-      return rebase({
-        cones,
-        passes: cones.map((_, i) => ({ kind: 'cone', cone: i, side: 'left' })),
-        path: chain([0, 0], ...arcPoints(q, r, -PI / 2, PI, ARC), ...arcPoints(p, r, PI / 2, PI, ARC), ...arcPoints([0, -out], out, PI / 2, -PI / 2, ARC)),
-        guides: stretch === 0
-          ? [{ center: p, radii: [radius], from: 0, to: 2 * PI }]
-          : [{ center: p, radii: [radius], from: PI / 2, to: (3 * PI) / 2 }, { center: q, radii: [radius], from: -PI / 2, to: PI / 2 }],
-        entryDir: [1, 0],
-        exitDir: [0, -1],
-      });
-    },
+    build: ({ radius, stretch }, unit) => ringLap(radius, stretch, TURN_OUT / unit),
   },
 
+  'fast-circle': {
+    // A lap at speed round a wide ring; it leaves on the bike class's turn,
+    // not on the small circle's tight hook.
+    sideOnly: true,
+    options: (t, unit) => ({ radius: latticeChoices([FAST_CIRCLE_RADIUS], unit) }),
+    extra: (t) => ({ out: t.turn }),
+    build: ({ radius, out }, unit) => ringLap(radius, 0, out / unit),
+  },
   mirror: {
     // The line is long enough that the loop, crossing it MIRROR_OVER deep, keeps
     // MIRROR_CLEAR from its end cones: (L/2)² = (r + c)² − (r − over)².
@@ -700,8 +725,12 @@ const TYPES = {
   },
 
   'box-eight': {
-    options: (t, unit) => ({ distance: latticeChoices(t.boxEightDistance, unit), gate: latticeChoices(t.boxEightGate, unit) }),
-    build({ distance, gate }, unit) {
+    options: (t, unit) => ({
+      distance: latticeChoices(t.boxEightDistance, unit),
+      gate: latticeChoices(t.boxEightGate, unit),
+      width: latticeChoices(t.boxEightWidth, unit),
+    }),
+    build({ distance, gate, width }, unit) {
       // The licence-test eight: a figure eight inside a rectangle of four low
       // cones, through a gate of two low cones where its loops cross. The way in
       // and out crosses the long sides near one end.
@@ -709,7 +738,7 @@ const TYPES = {
       const m = BOX_EIGHT_MARGIN / unit;
       const a0 = Math.floor(-0.4 * distance - m);
       const a1 = Math.ceil(1.4 * distance + m);
-      const b1 = Math.ceil(0.3 * distance + m);
+      const b1 = width / 2;
       const mid = Math.floor(distance / 2);
       const lo = Math.floor(gate / 2);
       return {
