@@ -7,3 +7,5 @@ A course is always regenerated from its recipe and seed: v1 has no manual editin
 - Links carrying recipe + seed (+ frozen generator versions so they never die) — the original brief's contract; rejected because chats carry images, not links.
 - Saved courses with a geometry snapshot in localStorage — rejected; the archive is the chat and the photo gallery.
 - Manual edits shared as JSON files — deferred to a later editor stage.
+
+ADR 0009 drops the cross-engine part: a course is a pure function of recipe + seed within one build and browser engine.

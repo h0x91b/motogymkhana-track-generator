@@ -330,7 +330,6 @@ export function buildSetupSheet(course) {
     closed: course.route.closed,
     requested: course.requested,
     placed: course.placed,
-    generatorVersion: course.generatorVersion,
     start,
     finish: course.route.closed ? start : terminal(course.route.finish, byId),
     cards,

@@ -10,8 +10,7 @@
 // The generator only talks to `typeOptions`, `chooseParams`, `minimalParams`
 // and `instantiate`; everything else here is private to the catalog.
 
-import { acos, atan, atan2, cos, PI, sin } from './dmath.js';
-import { arcPoints, ellipsePoints, latticeUnit, smoothPath, turning } from './geometry.js';
+import { arcPoints, ellipsePoints, latticeUnit, PI, smoothPath, turning } from './geometry.js';
 
 /**
  * Starting sizes per difficulty (SPEC «Начальные размеры по сложности»).
@@ -167,7 +166,7 @@ function latticeAtLeast(min, unit) {
 
 /** n + 1 points evenly along an arc around c, from angle a0 sweeping `sweep`. */
 function arcSpots(c, r, a0, sweep, n) {
-  return Array.from({ length: n + 1 }, (_, i) => [c[0] + r * cos(a0 + (sweep * i) / n), c[1] + r * sin(a0 + (sweep * i) / n)]);
+  return Array.from({ length: n + 1 }, (_, i) => [c[0] + r * Math.cos(a0 + (sweep * i) / n), c[1] + r * Math.sin(a0 + (sweep * i) / n)]);
 }
 
 /** The points in order, without repeats where one arc or straight joins the next. */
@@ -206,8 +205,8 @@ function rebase(g) {
  */
 function sBend(a0, y0, length, y1) {
   const shift = Math.abs(y1 - y0);
-  const sweep = 2 * atan(shift / length);
-  const r = length / (2 * sin(sweep));
+  const sweep = 2 * Math.atan(shift / length);
+  const r = length / (2 * Math.sin(sweep));
   if (y1 > y0) {
     return [...arcPoints([a0, y0 + r], r, -PI / 2, sweep, ARC), ...arcPoints([a0 + length, y1 - r], r, PI / 2 + sweep, -sweep, ARC).slice(1)];
   }
@@ -223,7 +222,7 @@ function sBend(a0, y0, length, y1) {
 function ellipseEight(distance) {
   const rx = 0.4 * distance;
   const ry = 0.3 * distance;
-  const phi = atan2(0.6, 0.8);
+  const phi = Math.atan2(0.6, 0.8);
   const a = [0, 0];
   const b = [distance, 0];
   return {
@@ -484,7 +483,7 @@ const TYPES = {
       const s1 = [s, bIn - r];
       const s2 = [s, bOut + r];
       const loop = [s + Math.sqrt(4 * r * r - (q + r) * (q + r)), width / 2];
-      const phi = atan2(loop[1] - s1[1], loop[0] - s1[0]);
+      const phi = Math.atan2(loop[1] - s1[1], loop[0] - s1[0]);
       return {
         cones: [{ a: 0, b: 0, height: 'low' }, { a: 0, b: width, height: 'low' }],
         passes: [],
@@ -584,7 +583,7 @@ const TYPES = {
       const n = ZIGZAG_SEGMENTS * 24;
       const weave = Array.from({ length: n + 1 }, (_, i) => {
         const a = (length * i) / n;
-        return [a, width / 2 + (shift / 2) * (1 - cos((PI * a) / step))];
+        return [a, width / 2 + (shift / 2) * (1 - Math.cos((PI * a) / step))];
       });
       const side = (odd) => cones.map((_, i) => i).filter((i) => i % 2 === odd);
       return {
@@ -614,7 +613,7 @@ const TYPES = {
       const n = 96;
       const weave = Array.from({ length: n + 1 }, (_, i) => {
         const a = (length * i) / n;
-        return [a, width / 2 - (width / 4) * cos((PI * a) / step)];
+        return [a, width / 2 - (width / 4) * Math.cos((PI * a) / step)];
       });
       return {
         cones,
@@ -663,15 +662,15 @@ const TYPES = {
       // opening on the other slant: the two passes cross in the opening.
       const k = [radius, 0];
       const rho = radius - KEYHOLE_CLEAR / unit;
-      const beta = atan2(rho, Math.sqrt(radius * radius - rho * rho));
+      const beta = Math.atan2(rho, Math.sqrt(radius * radius - rho * rho));
       const t0 = 1 / unit;
       const ro = KEYHOLE_TURN / unit;
-      const cb = cos(beta);
-      const sb = sin(beta);
+      const cb = Math.cos(beta);
+      const sb = Math.sin(beta);
       const c1 = [-t0 * cb - ro * sb, -t0 * sb + ro * cb];
       const c2 = [c1[0], -c1[1]];
       const half = opening / 2;
-      const gap = atan2(half, Math.sqrt(radius * radius - half * half));
+      const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
       const ring = arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1);
       return rebase({
         cones: conesAt(ring, 'low'),
