@@ -17,7 +17,7 @@ Mobile-first generator of motogymkhana training courses: form + seed → determi
 - Bun only, zero npm dependencies (the public npm registry is blocked on this machine). Source is ES modules, bundled by a Bun script into one self-contained HTML file.
 - The generator is deterministic: no `Math.random`, time or system randomness inside generation. Any change that alters generated courses bumps the generator version.
 - Verify UI changes in a real browser (agent-browser, narrow portrait viewport).
-- Do not create the GitHub repo, push, or enable GitHub Pages without the user's explicit go-ahead.
+- Published at https://github.com/h0x91b/motogymkhana-track-generator, branch `master`. Every push to `master` runs the tests, builds and deploys `dist/` to GitHub Pages (`.github/workflows/pages.yml`). Push only with the user's go-ahead.
 - Generator code (`src/generator/`) uses only engine-independent arithmetic: no `Math.sin/cos/atan2/pow`, no `**` — use `dmath.js` (ADR 0004).
 
 ## Commands
