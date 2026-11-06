@@ -159,17 +159,25 @@ function innerRect(recipe) {
 
 const inside = (r, p) => p[0] >= r[0] - 1e-9 && p[0] <= r[2] + 1e-9 && p[1] >= r[1] - 1e-9 && p[1] <= r[3] + 1e-9;
 
-/** Does the template's core (cones + trajectory) fit the inner site in any orientation? */
-export function templateFits(tpl, inner) {
-  const w = inner[2] - inner[0];
-  const h = inner[3] - inner[1];
-  const la = (tpl.core[2] - tpl.core[0]) * tpl.unit;
-  const lb = (tpl.core[3] - tpl.core[1]) * tpl.unit;
+/** Does a local rectangle of the template fit a w × h area in some orientation? */
+function rectFits(tpl, rect, w, h) {
+  const la = (rect[2] - rect[0]) * tpl.unit;
+  const lb = (rect[3] - rect[1]) * tpl.unit;
   if (tpl.diagonal) {
     const e = (la + lb) * Math.SQRT1_2;
     return e <= w && e <= h;
   }
   return (la <= w && lb <= h) || (lb <= w && la <= h);
+}
+
+/**
+ * Does the template's core (cones + trajectory) fit the inner site, and its
+ * run-off zone the whole site, in some orientation?
+ */
+export function templateFits(tpl, inner) {
+  const fitsCore = rectFits(tpl, tpl.core, inner[2] - inner[0], inner[3] - inner[1]);
+  if (!fitsCore || !tpl.runOff) return fitsCore;
+  return rectFits(tpl, tpl.runOff, inner[2] - inner[0] + 2 * SITE_MARGIN, inner[3] - inner[1] + 2 * SITE_MARGIN);
 }
 
 function templateFor(plan, diagonal, mirrored) {
@@ -207,14 +215,15 @@ function placeTemplate(tpl, axis, ax, ay) {
   const px = -dy;
   const py = dx;
   const toM = (a, b) => [(2 * ax + a * dx + b * px) / 2, (2 * ay + a * dy + b * py) / 2];
-  const z = tpl.zone;
-  const zone = {
+  const obb = (z) => ({
     c: toM((z[0] + z[2]) / 2, (z[1] + z[3]) / 2),
     u: axisVector(axis),
     v: axisVector(axis + 2),
     hu: ((z[2] - z[0]) / 2) * tpl.unit,
     hv: ((z[3] - z[1]) / 2) * tpl.unit,
-  };
+  });
+  const zone = obb(tpl.zone);
+  const runOff = tpl.runOff && obb(tpl.runOff);
   const k = tpl.core;
   const core = [toM(k[0], k[1]), toM(k[2], k[1]), toM(k[2], k[3]), toM(k[0], k[3])];
   const entryDir = (localDirIndex(tpl.entryDir) + axis) % 8;
@@ -223,7 +232,7 @@ function placeTemplate(tpl, axis, ax, ay) {
   const exit = toM(...tpl.path[tpl.path.length - 1]);
   const path = tpl.path.map(([a, b]) => toM(a, b));
   return {
-    tpl, axis, ax, ay, zone, zoneBounds: obbBounds(zone), core, entry, exit, entryDir, exitDir, path,
+    tpl, axis, ax, ay, zone, zoneBounds: obbBounds(zone), runOff, runOffBounds: runOff && obbBounds(runOff), core, entry, exit, entryDir, exitDir, path,
     center: zone.c,
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
@@ -306,7 +315,7 @@ function uTurnCones(arcs) {
   const turns = [];
   for (const arc of arcs) {
     const last = turns[turns.length - 1];
-    if (last && last.left === arc.left && arc.gapBefore <= U_TURN_JOIN) {
+    if (last && last.left === arc.left && arc.gapBefore <= U_TURN_JOIN + 1e-6) {
       last.turn += arc.turn;
       last.center = [(last.first[0] + arc.center[0]) / 2, (last.first[1] + arc.center[1]) / 2];
     } else turns.push({ turn: arc.turn, left: arc.left, center: arc.center, first: arc.center });
@@ -324,13 +333,16 @@ function uTurnCones(arcs) {
 
 /**
  * U-turn cones stand on the site, with their keep-out clear of every zone
- * (elements, terminals, other U-turn cones) and of every route leg in `paths`.
+ * (elements, terminals, other U-turn cones), of every run-off zone and of
+ * every route leg in `paths`.
  */
 function conesClear(cones, inner, zones, paths) {
   for (const cone of cones) {
     if (!inside(inner, cone.zone.c)) return false;
     for (const z of zones) {
       if (boundsOverlap(cone.zoneBounds, z.zoneBounds) && obbOverlap(cone.zone, z.zone)) return false;
+      // A U-turn cone is placed: it stays out of every run-off zone too.
+      if (z.runOff && boundsOverlap(cone.zoneBounds, z.runOffBounds) && obbOverlap(cone.zone, z.runOff)) return false;
     }
     for (const p of paths) {
       if (boundsOverlap(cone.zoneBounds, p.bounds) && polylineHitsObb(p.points, cone.zone, EPS)) return false;
@@ -347,9 +359,17 @@ function pathClear(points, bounds, zones) {
   return true;
 }
 
+/**
+ * Zones disjoint, connectors out of the candidate's zone, and nothing placed in
+ * a run-off zone: no other element's zone or terminal in the candidate's, the
+ * candidate's zone in no other's. Run-off zones may overlap each other and
+ * connectors may cross them: they are only free asphalt.
+ */
 function zoneClear(candidate, zones, paths) {
   for (const z of zones) {
     if (boundsOverlap(candidate.zoneBounds, z.zoneBounds) && obbOverlap(candidate.zone, z.zone)) return false;
+    if (z.runOff && boundsOverlap(candidate.zoneBounds, z.runOffBounds) && obbOverlap(candidate.zone, z.runOff)) return false;
+    if (candidate.runOff && boundsOverlap(candidate.runOffBounds, z.zoneBounds) && obbOverlap(candidate.runOff, z.zone)) return false;
   }
   for (const p of paths) {
     if (boundsOverlap(candidate.zoneBounds, p.bounds) && polylineHitsObb(p.points, candidate.zone, EPS)) return false;
@@ -496,10 +516,18 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       const jy = place.range(-reach, reach);
       const tpl = templateFor(plan, axis % 2 === 1, mirrored);
       const origin = placeTemplate(tpl, axis, 0, 0);
-      // Slide the anchor (whole metres) so the core stays inside the site.
+      // Slide the anchor (whole metres) so the core stays inside the margin
+      // and the run-off zone, if any, on the site.
       const [x0, y0, x1, y1] = pointsBounds(origin.core);
-      const ax = clampInt(Math.round(target[0] + jx - origin.center[0]), inner[0] - x0, inner[2] - x1);
-      const ay = clampInt(Math.round(target[1] + jy - origin.center[1]), inner[1] - y0, inner[3] - y1);
+      let lo = [inner[0] - x0, inner[1] - y0];
+      let hi = [inner[2] - x1, inner[3] - y1];
+      if (origin.runOff) {
+        const [r0, s0, r1, s1] = origin.runOffBounds;
+        lo = [Math.max(lo[0], site[0] - r0), Math.max(lo[1], site[1] - s0)];
+        hi = [Math.min(hi[0], site[2] - r1), Math.min(hi[1], site[3] - s1)];
+      }
+      const ax = clampInt(Math.round(target[0] + jx - origin.center[0]), lo[0], hi[0]);
+      const ay = clampInt(Math.round(target[1] + jy - origin.center[1]), lo[1], hi[1]);
       if (ax === null || ay === null) continue;
       const cand = placeTemplate(tpl, axis, ax, ay);
       const result = evaluate(i, cand);
@@ -522,6 +550,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
 
   function evaluate(i, cand) {
     if (!cand.core.every((p) => inside(inner, p))) return null;
+    if (cand.runOff && !obbCorners(cand.runOff).every((p) => inside(site, p))) return null;
     const track = recipe.train ? trackBefore(i) : null;
     const paths = [...legs];
     if (!zoneClear(cand, zones, paths)) return null;
@@ -709,6 +738,7 @@ function assemble(recipe, seed, placed, legs, start, finish) {
       exit: { x: round2(p.exit[0]), y: round2(p.exit[1]), dir: p.exitDir },
       path: world.path.map(rp),
       zone: zoneCorners(p.zone),
+      ...(p.runOff ? { runOff: zoneCorners(p.runOff) } : {}),
       ...(p.tpl.lines.length ? { lines: p.tpl.lines.map((l) => ({ kind: l.kind, cones: l.cones.map((k) => ids[k]) })) } : {}),
       ...(world.guides.length
         ? {

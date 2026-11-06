@@ -155,8 +155,18 @@ describe('simplification', () => {
     expect(result.error.message).toContain('Прямой слалом');
   });
 
+  test('a turning element that fits but whose run-off zone does not: the error gives the run-off size', () => {
+    const result = generateCourse({ width: 10, length: 10, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('site-too-small');
+    // A box sized for a cruiser's U-turn (13 m) with 5 m of free asphalt on every side.
+    expect(result.error.smallest.runOff).toEqual({ length: 23, width: 23 });
+    expect(result.error.message).toContain('Коробка');
+    expect(result.error.message).toContain('23 × 23 м');
+  });
+
   test('when the element fits but its approaches do not, the error says so', () => {
-    const result = generateCourse({ width: 16, length: 16, elements: 1, difficulty: 'easy', closed: true, types: ['box'] }, 3);
+    const result = generateCourse({ width: 10, length: 10, elements: 1, difficulty: 'easy', closed: true, types: ['gate'] }, 3);
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('site-too-small');
     expect(result.error.message).toContain('радиусом поворота 4,5 м');
