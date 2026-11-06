@@ -495,15 +495,15 @@ export function centreOn(cam, W, H, site, x, y) {
   cam.panY += H / 2 - p.y;
 }
 
-export function frameBounds(cam, W, H, site, bounds, { top = 60, bottom = 60 } = {}) {
+export function frameBounds(cam, W, H, site, bounds, { top = 60, bottom = 60, left = 0, right = 0 } = {}) {
   const base = makeProjector({ ...cam, zoom: 1, panX: 0, panY: 0 }, W, H, site);
   const w = Math.max(6, bounds[2] - bounds[0]);
   const h = Math.max(6, bounds[3] - bounds[1]);
-  const zoom = Math.max(0.8, Math.min(4, Math.min((W - 60) / (w * base.scale), (H - top - bottom) / (h * base.scale * Math.max(0.4, Math.cos(cam.tilt))))));
+  const zoom = Math.max(0.8, Math.min(4, Math.min((W - left - right - 60) / (w * base.scale), (H - top - bottom) / (h * base.scale * Math.max(0.4, Math.cos(cam.tilt))))));
   cam.zoom = zoom;
   cam.panX = 0;
   cam.panY = 0;
   const p = makeProjector(cam, W, H, site).project((bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2);
-  cam.panX = W / 2 - p.x;
+  cam.panX = left + (W - left - right) / 2 - p.x;
   cam.panY = top + (H - top - bottom) / 2 - p.y;
 }
