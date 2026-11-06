@@ -5,7 +5,6 @@
   "scripts": {
     "test": "bun test",
     "build": "bun scripts/build.js",
-    "dev": "bun scripts/dev.js",
-    "golden": "bun scripts/update-golden.js"
+    "dev": "bun scripts/dev.js"
   }
 }

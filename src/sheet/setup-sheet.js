@@ -338,7 +338,6 @@ export function buildSetupSheet(course) {
     shape: course.route.shape,
     requested: course.requested,
     placed: course.placed,
-    generatorVersion: course.generatorVersion,
     start,
     finish,
     cards,

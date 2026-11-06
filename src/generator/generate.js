@@ -9,15 +9,13 @@
 
 import { BIKE_TURN_RADIUS, chooseParams, instantiate, isBig, minimalParams, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
-import { atan2, PI, wrapPi } from './dmath.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap,
-  pointsBounds, polylineHitsObb, polylineLength, round2,
+  PI, pointsBounds, polylineHitsObb, polylineLength, round2, wrapPi,
 } from './geometry.js';
 import { createStream } from './prng.js';
 import { TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
-import { GENERATOR_VERSION } from './version.js';
 
 export const SITE_MARGIN = 1;
 const START_LEAD = 2; // start line → entry of the first element, metres
@@ -202,7 +200,7 @@ function templateFor(plan, diagonal, mirrored) {
  * on open asphalt; the first such axis in the plan's order on a tie.
  */
 function facingAxis(plan, mirrored, from, to) {
-  const bearing = atan2(to[1] - from[1], to[0] - from[0]);
+  const bearing = Math.atan2(to[1] - from[1], to[0] - from[0]);
   let best = null;
   let off = Infinity;
   for (const axis of plan.axes) {
@@ -819,7 +817,6 @@ function assemble(recipe, seed, placed, legs, start, finish) {
     if (i < elements.length) routeLegs.push({ kind: 'element', element: elements[i].id });
   });
   return {
-    generatorVersion: GENERATOR_VERSION,
     recipe,
     seed,
     site: { width: recipe.width, length: recipe.length, margin: SITE_MARGIN },

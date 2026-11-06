@@ -1,8 +1,7 @@
 // Soft criteria — everything that decides which valid course is "nicer" lives
-// here so it can be retuned in one place after field tests. Any change here
-// alters generated courses and must bump GENERATOR_VERSION.
+// here so it can be retuned in one place after field tests.
 
-import { cos, sin, TAU } from './dmath.js';
+import { TAU } from './geometry.js';
 
 export const WEIGHTS = {
   target: 1.0, // stay near this element's layout target (spreads the course)
@@ -27,7 +26,7 @@ export function layoutTargets(inner, n, closed, rng) {
     const out = [];
     for (let i = 0; i < n; i++) {
       const a = start + (dir * TAU * i) / n;
-      out.push([x0 + w / 2 + 0.3 * w * cos(a), y0 + h / 2 + 0.3 * h * sin(a)]);
+      out.push([x0 + w / 2 + 0.3 * w * Math.cos(a), y0 + h / 2 + 0.3 * h * Math.sin(a)]);
     }
     return out;
   }
@@ -52,7 +51,6 @@ export function layoutTargets(inner, n, closed, rng) {
  * turning so the weights stay comparable across site sizes.
  */
 export function scorePlacement({ center, target, others, connectorLength, connectorTurn, turnLeft, turnRight, diagonal }) {
-  // No `**` anywhere in the generator: exponentiation is implementation-approximated too.
   const dist = (p, q) => Math.sqrt((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1]));
   const dt = dist(center, target) / diagonal;
   let nearest = diagonal;

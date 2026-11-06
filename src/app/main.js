@@ -1,11 +1,10 @@
-import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, GENERATOR_VERSION, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
+import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createGenerator } from './generator-client.js';
 import { loadForm, loadRideSpeed, loadZones, saveForm, saveRideSpeed, saveZones } from './storage.js';
-import { runSelfCheck } from './selfcheck.js';
 
 const $ = (id) => document.getElementById(id);
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -1010,7 +1009,6 @@ form.addEventListener('focusin', (e) => {
 // ---------------------------------------------------------------- wiring
 
 function start() {
-  $('version').textContent = String(GENERATOR_VERSION);
   buildTypeChecks();
   const saved = loadForm();
   const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
@@ -1128,6 +1126,5 @@ function onShortcut(e) {
   }
 }
 
-if (location.hash === '#selfcheck') runSelfCheck(document.getElementById('app'));
-else start();
+start();
 

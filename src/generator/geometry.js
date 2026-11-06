@@ -1,7 +1,17 @@
 // Geometry shared by the catalog, the connector router and the search.
 // World units are metres unless a name says "half" (half-metre integers).
 
-import { atan2, cos, sin, PI } from './dmath.js';
+export const PI = Math.PI;
+export const TAU = 2 * PI;
+
+/** angle in [0, 2π) */
+export const mod2pi = (a) => a - TAU * Math.floor(a / TAU);
+
+/** angle in (-π, π] */
+export function wrapPi(a) {
+  const m = mod2pi(a);
+  return m > PI ? m - TAU : m;
+}
 
 /** Axis index 0..7 (× 45°, counter-clockwise from +X) → half-metre lattice step. */
 export const AXIS_STEPS = [
@@ -48,7 +58,7 @@ export function turning(points) {
     const dy = points[i][1] - points[i - 1][1];
     if (dx * dx + dy * dy < 1e-6) continue;
     if (prev) {
-      const turn = atan2(prev[0] * dy - prev[1] * dx, prev[0] * dx + prev[1] * dy);
+      const turn = Math.atan2(prev[0] * dy - prev[1] * dx, prev[0] * dx + prev[1] * dy);
       if (turn > 0) left += turn;
       else right -= turn;
     }
@@ -63,7 +73,7 @@ export function arcPoints(c, r, a0, sweep, maxStep = PI / 18) {
   const out = [];
   for (let i = 0; i <= n; i++) {
     const a = a0 + (sweep * i) / n;
-    out.push([c[0] + r * cos(a), c[1] + r * sin(a)]);
+    out.push([c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)]);
   }
   return out;
 }
@@ -74,7 +84,7 @@ export function ellipsePoints(c, rx, ry, t0, t1, maxStep = PI / 24) {
   const out = [];
   for (let i = 0; i <= n; i++) {
     const t = t0 + ((t1 - t0) * i) / n;
-    out.push([c[0] + rx * cos(t), c[1] + ry * sin(t)]);
+    out.push([c[0] + rx * Math.cos(t), c[1] + ry * Math.sin(t)]);
   }
   return out;
 }
