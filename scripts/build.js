@@ -1,8 +1,8 @@
 // Bundles the ES-module sources into ONE self-contained HTML file:
-// app and worker scripts, CSS and the golden hashes for #selfcheck inlined.
+// app and worker scripts and CSS inlined, the build id stamped in.
 // No runtime dependencies, no CDN.
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const root = new URL('../', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
@@ -16,15 +16,10 @@ async function bundle(entry, format) {
 // Inline scripts must not contain "</script"; "<\/script" is the same text to JS.
 const inlineSafe = (code) => code.replaceAll('</script', '<\\/script').replaceAll('<!--', '<\\!--');
 
-function goldenHashes() {
-  const dir = new URL('test/golden/', root);
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.json') && f !== 'pairs.json')
-    .sort()
-    .map((f) => {
-      const g = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
-      return { name: g.name, generatorVersion: g.generatorVersion, recipe: g.recipe, seed: g.seed, hash: g.hash };
-    });
+/** "4815eb6 · 06.11.2026": the commit the page was built from, shown in the form. */
+function buildId() {
+  const git = Bun.spawnSync(['git', 'log', '-1', '--format=%h · %cd', '--date=format:%d.%m.%Y'], { cwd: root.pathname });
+  return git.success ? git.stdout.toString().trim() : 'dev';
 }
 
 export async function buildHtml() {
@@ -32,7 +27,7 @@ export async function buildHtml() {
   return read('src/app/index.html')
     .replace('/*STYLE*/', () => read('src/app/styles.css'))
     .replace('/*WORKER*/', () => inlineSafe(worker))
-    .replace('/*GOLDEN*/', () => inlineSafe(JSON.stringify(goldenHashes())))
+    .replace('/*BUILD*/', () => buildId())
     .replace('/*APP*/', () => inlineSafe(app));
 }
 
