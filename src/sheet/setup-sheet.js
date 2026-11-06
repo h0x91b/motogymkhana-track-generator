@@ -284,6 +284,27 @@ export function buildSetupSheet(course) {
   // Each anchor also from the previous one in passing order: a short tape run
   // from the element just laid out instead of a long one from corner A.
   const signed = (v) => (v > 0 ? `+${fmt(v)}` : v < 0 ? `−${fmt(-v)}` : '0');
+
+  // U-turn cones of the connector leaving an element, measured from that
+  // element's anchor like the next anchor in the chain.
+  const orderOf = new Map(course.elements.map((e) => [e.id, e.order]));
+  for (const card of cards) card.turnCones = [];
+  for (const pass of course.passes) {
+    if (!pass.connector) continue;
+    const card = cards.find((c) => c.element === pass.connector.from);
+    const c = byId.get(pass.cone);
+    const x = c.hx / 2;
+    const y = c.hy / 2;
+    const dx = x - card.anchor.x + 0;
+    const dy = y - card.anchor.y + 0;
+    const to = pass.connector.to === 'finish' ? (course.route.closed ? 'к старту' : 'к финишу') : `к элементу ${orderOf.get(pass.connector.to)}`;
+    const colour = pass.side === 'left' ? 'синего' : 'красного';
+    card.turnCones.push({
+      cone: pass.cone, x, y, dx, dy, side: pass.side, color: pass.side === 'left' ? 'blue' : 'red',
+      label: `Связка ${to}: разворот ${TURN[pass.side]} вокруг ${colour} высокого конуса, от якоря ${card.number}: X ${signed(dx)} м · Y ${signed(dy)} м`,
+    });
+    card.notes.push(card.turnCones.at(-1).label);
+  }
   cards.forEach((card, i) => {
     const prev = cards[i - 1];
     if (!prev) {

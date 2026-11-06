@@ -43,6 +43,16 @@ const MAX_CONNECTOR_TURN = 300;
 // one is only for sites where no loop-free closed course fits at any size:
 // bringing the rider back round to the start there can need a full turnaround.
 export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
+// A connector arc turning this much or more is a U-turn: a tall cone stands at
+// its centre so the rider reads it as a turn round a cone, not open asphalt.
+export const U_TURN_ANGLE = 160;
+const U_TURN_RAD = (U_TURN_ANGLE * PI) / 180;
+// Free asphalt kept round a U-turn cone: no zone and no other route leg comes
+// closer (a square keep-out, so a little more along the diagonals).
+export const U_TURN_CONE_CLEARANCE = 1.5;
+// Two arcs the same way with a straight no longer than this between them are
+// ridden as one turn: its cone stands midway between their centres.
+const U_TURN_JOIN = 1;
 
 // «Паровозик», a column of riders: the route never crosses itself or comes
 // back within 1.5 m of itself, or two riders of the column could meet. Checked
@@ -274,16 +284,59 @@ function terminalInside(t, inner, site) {
  * radius behind the start line, then straight across it, so the rider is lined
  * up when crossing the line.
  */
-function closingLeg(fromPose, startT, radius, inner, zones, maxTurn, accept = null) {
+function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, accept = null) {
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
   if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
   const whole = accept && ((pts) => accept([...pts, startT.center]));
-  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, maxTurn, whole);
+  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, paths, maxTurn, whole);
   if (!leg) return null;
   const points = [...leg.points, startT.center];
   return { ...leg, points, bounds: pointsBounds(points), length: leg.length + radius };
+}
+
+/**
+ * Cones at the centres of a Dubins path's U-turns (an arc, or two arcs the
+ * same way joined by a short straight), on the half-metre
+ * lattice, each with a square keep-out that the search treats like a zone.
+ * The cone stays on the inside of the turn: blue (left) on a left turn.
+ */
+function uTurnCones(arcs) {
+  const turns = [];
+  for (const arc of arcs) {
+    const last = turns[turns.length - 1];
+    if (last && last.left === arc.left && arc.gapBefore <= U_TURN_JOIN) {
+      last.turn += arc.turn;
+      last.center = [(last.first[0] + arc.center[0]) / 2, (last.first[1] + arc.center[1]) / 2];
+    } else turns.push({ turn: arc.turn, left: arc.left, center: arc.center, first: arc.center });
+  }
+  const cones = [];
+  for (const t of turns) {
+    if (t.turn < U_TURN_RAD - 1e-9) continue;
+    const hx = Math.round(2 * t.center[0]);
+    const hy = Math.round(2 * t.center[1]);
+    const zone = { c: [hx / 2, hy / 2], u: [1, 0], v: [0, 1], hu: U_TURN_CONE_CLEARANCE, hv: U_TURN_CONE_CLEARANCE };
+    cones.push({ hx, hy, side: t.left ? 'left' : 'right', zone, zoneBounds: obbBounds(zone) });
+  }
+  return cones;
+}
+
+/**
+ * U-turn cones stand on the site, with their keep-out clear of every zone
+ * (elements, terminals, other U-turn cones) and of every route leg in `paths`.
+ */
+function conesClear(cones, inner, zones, paths) {
+  for (const cone of cones) {
+    if (!inside(inner, cone.zone.c)) return false;
+    for (const z of zones) {
+      if (boundsOverlap(cone.zoneBounds, z.zoneBounds) && obbOverlap(cone.zone, z.zone)) return false;
+    }
+    for (const p of paths) {
+      if (boundsOverlap(cone.zoneBounds, p.bounds) && polylineHitsObb(p.points, cone.zone, EPS)) return false;
+    }
+  }
+  return true;
 }
 
 function pathClear(points, bounds, zones) {
@@ -309,15 +362,17 @@ function zoneClear(candidate, zones, paths) {
  * when given, passes `accept`. Tried at the minimum turning radius first, then
  * at a wider one, which gives differently shaped detours around nearby zones.
  */
-function connect(fromPose, toPose, radius, inner, zones, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
+function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
       if (path.turnLeft + path.turnRight > maxTurn) continue;
       if (!path.points.every((p) => inside(inner, p))) continue;
       const bounds = pointsBounds(path.points);
       if (!pathClear(path.points, bounds, zones)) continue;
+      const cones = uTurnCones(path.arcs);
+      if (cones.length && !conesClear(cones, inner, zones, [...paths, { points: path.points, bounds }])) continue;
       if (accept && !accept(path.points)) continue;
-      return { points: path.points, bounds, length: path.length, turnLeft: path.turnLeft, turnRight: path.turnRight };
+      return { points: path.points, bounds, length: path.length, turnLeft: path.turnLeft, turnRight: path.turnRight, cones };
     }
   }
   return null;
@@ -335,7 +390,7 @@ function clampInt(v, lo, hi) {
 
 function straightLeg(a, b) {
   const points = [a, b];
-  return { points, bounds: pointsBounds(points), length: polylineLength(points), turnLeft: 0, turnRight: 0 };
+  return { points, bounds: pointsBounds(points), length: polylineLength(points), turnLeft: 0, turnRight: 0, cones: [] };
 }
 
 /** Allowed types that fit the site at their most compact sizes, in canonical order. */
@@ -488,7 +543,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       const prev = placed[i - 1];
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
       const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
-      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], MAX_CONNECTOR_TURN, accept);
+      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept);
       if (!entryLeg) return null;
     }
     let exitLeg = null;
@@ -498,19 +553,21 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (recipe.closed) {
         // The start zone is an obstacle too, so the closing connector cannot cut
         // across the start's own lead-in; it arrives on the zone edge at the line.
-        const obstacles = i === 0 ? [cand, startT] : [...zones, cand];
+        const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
         // In «паровозик» it keeps clear of the whole route, and rides back into its start.
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts], true));
-        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, closingTurn, accept);
+        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, entryLeg], closingTurn, accept);
         if (!exitLeg) return null;
       } else {
         finishTerminalCand = finishTerminal(cand);
         if (!terminalInside(finishTerminalCand, inner, site)) return null;
-        const others = i === 0 ? [startT] : [...zones];
+        const others = i === 0 ? [startT] : [...zones, ...entryLeg.cones];
         if (!zoneClear(finishTerminalCand, others, [...paths, entryLeg])) return null;
         if (obbOverlap(finishTerminalCand.zone, cand.zone)) return null;
         exitLeg = straightLeg(cand.exit, finishTerminalCand.center);
+        // The straight run to the finish keeps clear of every U-turn cone.
+        if (!pathClear(exitLeg.points, exitLeg.bounds, others.filter((z) => z.side))) return null;
         if (track && !trainClear(extendTrack(track, [entryLeg.points, ridden(cand)]), [exitLeg.points])) return null;
       }
     }
@@ -548,9 +605,12 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
           zones.push(terminal);
         }
         placed.push(cand);
-        zones.push(cand);
+        zones.push(cand, ...entryLeg.cones);
         legs.push(entryLeg);
-        if (exitLeg) legs.push(exitLeg);
+        if (exitLeg) {
+          legs.push(exitLeg);
+          zones.push(...exitLeg.cones);
+        }
         if (fin) {
           finish = fin;
           zones.push(fin);
@@ -609,7 +669,20 @@ function assemble(recipe, seed, placed, legs, start, finish) {
   const startOut = terminalOut(start);
   const elements = [];
   const passes = [];
+  // U-turn cones of each connector, in route order with the elements' cones;
+  // turning round one is a pass of the connector.
+  const legCones = legs.map((leg, i) => {
+    const from = i === 0 ? 'start' : `e${i}`;
+    const to = i < placed.length ? `e${i + 1}` : 'finish';
+    return () => leg.cones.map((c) => {
+      const cone = addCone(c.hx, c.hy, 'tall');
+      passes.push({ id: `p${passes.length + 1}`, kind: 'cone', connector: { from, to }, cone, side: c.side });
+      return cone;
+    });
+  });
+  const connectorCones = [];
   placed.forEach((p, i) => {
+    connectorCones.push(legCones[i]());
     const id = `e${i + 1}`;
     const world = p.world();
     const ids = world.cones.map((c) => addCone(c.hx, c.hy, c.height));
@@ -646,12 +719,14 @@ function assemble(recipe, seed, placed, legs, start, finish) {
         : {}),
     });
   });
+  for (let i = placed.length; i < legs.length; i++) connectorCones.push(legCones[i]());
   const finishOut = recipe.closed ? startOut : terminalOut(finish);
   const routeLegs = [];
   legs.forEach((leg, i) => {
     const from = i === 0 ? 'start' : elements[i - 1].id;
     const to = i < elements.length ? elements[i].id : 'finish';
-    routeLegs.push({ kind: 'connector', from, to, path: leg.points.map(rp) });
+    const cones = connectorCones[i];
+    routeLegs.push({ kind: 'connector', from, to, path: leg.points.map(rp), ...(cones.length ? { cones } : {}) });
     if (i < elements.length) routeLegs.push({ kind: 'element', element: elements[i].id });
   });
   return {

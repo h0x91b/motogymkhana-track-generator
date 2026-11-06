@@ -66,11 +66,14 @@ function samplePath(from, word, segs, rho) {
   const points = [[x, y]];
   let left = 0;
   let right = 0;
+  const arcs = [];
+  let gap = Infinity; // straight run before the next arc, metres
   for (let i = 0; i < 3; i++) {
     const kind = word[i];
     const len = segs[i];
     if (len < 1e-9) continue;
     if (kind === 'S') {
+      gap = len * rho;
       x += len * rho * cos(h);
       y += len * rho * sin(h);
       points.push([x, y]);
@@ -84,13 +87,15 @@ function samplePath(from, word, segs, rho) {
       const a = h + (sign * len * k) / n;
       points.push([cx + sign * rho * sin(a), cy - sign * rho * cos(a)]);
     }
+    arcs.push({ center: [cx, cy], turn: len, left: sign > 0, gapBefore: gap });
+    gap = 0;
     h += sign * len;
     x = points[points.length - 1][0];
     y = points[points.length - 1][1];
     if (sign > 0) left += len;
     else right += len;
   }
-  return { points, turnLeft: (left * 180) / PI, turnRight: (right * 180) / PI };
+  return { points, arcs, turnLeft: (left * 180) / PI, turnRight: (right * 180) / PI };
 }
 
 /**
