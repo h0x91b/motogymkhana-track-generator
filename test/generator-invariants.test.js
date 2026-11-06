@@ -2,7 +2,8 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS, uTurnRadius,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS,
+  uTurnRadius,
 } from '../src/generator/index.js';
 
 // Types whose U-turns are sized by the bike class (the rest keep difficulty sizes).
@@ -176,6 +177,46 @@ describe('placement', () => {
     });
   });
 
+  test('turning elements keep a run-off zone of free asphalt inside the site', () => {
+    const overlaps = (a, b) => {
+      const centre = (q) => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2];
+      return [...a, centre(a)].some((p) => insidePolygon(b, p, 0.02))
+        || [...b, centre(b)].some((p) => insidePolygon(a, p, 0.02))
+        || polylineEnters([...a, a[0]], b, 0.02);
+    };
+    const toLine = (p, a, b) => Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let seen = 0;
+    each((c) => {
+      const byId = conesById(c);
+      const start = c.route.start.cones.map((id) => coneXY(byId.get(id)));
+      const finish = c.route.closed ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
+      c.elements.forEach((e, i) => {
+        expect(Boolean(e.runOff), `${label(c)} ${e.id} ${e.type} run-off`).toBe(Boolean(RUN_OFF_TYPES[e.type]));
+        if (!e.runOff) return;
+        seen++;
+        for (const [x, y] of e.runOff) {
+          expect(x >= -0.011 && y >= -0.011 && x <= c.site.width + 0.011 && y <= c.site.length + 0.011, `${label(c)} ${e.id} run-off off the site`).toBe(true);
+        }
+        // Every side lies RUN_OFF from the element's cones, but the entry side of a turnaround.
+        const own = e.cones.map((id) => coneXY(byId.get(id)));
+        const short = [0, 1, 2, 3].filter((k) => Math.min(...own.map((p) => toLine(p, e.runOff[k], e.runOff[(k + 1) % 4]))) < RUN_OFF - 0.02);
+        expect(short.length, `${label(c)} ${e.id} ${e.type} sides short of ${RUN_OFF} m`).toBeLessThanOrEqual(RUN_OFF_TYPES[e.type] === 'loop' ? 0 : 1);
+        for (const other of c.elements) {
+          if (other !== e) expect(overlaps(e.runOff, other.zone), `${label(c)} ${other.id} in the run-off of ${e.id}`).toBe(false);
+        }
+        // Start and finish lines stay out, except the element's own.
+        const lines = [...(i === 0 ? [] : start), ...(i === c.elements.length - 1 ? [] : finish)];
+        for (const p of lines) expect(insidePolygon(e.runOff, p, 0.02), `${label(c)} start/finish cone in the run-off of ${e.id}`).toBe(false);
+        for (const leg of c.route.legs) {
+          for (const id of leg.cones ?? []) {
+            expect(insidePolygon(e.runOff, coneXY(byId.get(id)), 0.02), `${label(c)} U-turn cone ${id} of ${leg.from}→${leg.to} in the run-off of ${e.id}`).toBe(false);
+          }
+        }
+      });
+    });
+    expect(seen).toBeGreaterThan(100);
+  });
+
   test('connectors turn no tighter than the bike allows: Ø 9 m on a cruiser, Ø 7.5 m on a sport bike', () => {
     expect(BIKE_TURN_RADIUS).toEqual({ sport: 3.75, cruiser: 4.5 });
     each((c, recipe) => {
@@ -240,7 +281,9 @@ describe('placement', () => {
     for (const { name, recipe, courses } of generated) {
       if (!recipe.closed) continue;
       // Roomy for a cruiser's 9 m turns; on 30×45 it can take a loop to get back to the start.
-      const roomy = recipe.width >= 40 && recipe.length >= 60;
+      // With only eights and slaloms allowed, a cruiser-sized eight with its run-off zone
+      // can leave room for a single slalom, which then needs the loop to come back.
+      const roomy = recipe.width >= 40 && recipe.length >= 60 && !recipe.types?.includes('figure-eight');
       for (const c of courses) {
         const last = c.route.legs[c.route.legs.length - 1];
         const t = turns(last.path);
@@ -250,7 +293,9 @@ describe('placement', () => {
         if (loop) loops++;
       }
     }
-    expect(loops / closed).toBeLessThan(0.03);
+    // Measured 0.04 at v12: run-off zones leave tight sites (25×30, 30×45) fewer
+    // loop-free closures, so the looser limit is needed about twice as often.
+    expect(loops / closed).toBeLessThan(0.05);
   });
 
   test('no route leg passes over a cone it does not belong to', () => {
@@ -332,9 +377,16 @@ function circularTurns(path, minRadius) {
     // centres are offset by the straight's length.
     const gap = prev && (t.lo > prev.hi ? Math.hypot(path[t.lo][0] - path[prev.hi][0], path[t.lo][1] - path[prev.hi][1]) : 0);
     const apart = prev && Math.hypot(t.centre[0] - prev.last[0], t.centre[1] - prev.last[1]);
-    if (prev && t.lo - prev.hi <= 1 && gap <= 1.02 && Math.abs(apart - gap) < 0.3 && Math.sign(prev.sweep) === Math.sign(t.sweep)) {
+    // When the two fitted runs overlap, the short straight between them was
+    // absorbed into both fits, so its length is unknown: the centres are then
+    // at most the 1 m join limit apart.
+    const offset = t.lo > prev?.hi ? Math.abs(apart - gap) < 0.3 : apart <= 1.02;
+    if (prev && t.lo - prev.hi <= 1 && gap <= 1.02 && offset && Math.sign(prev.sweep) === Math.sign(t.sweep)) {
+      // Overlapping runs can also be one long arc split by rounding, centred
+      // on either fit rather than between them: those centres count too.
+      const alts = t.lo <= prev.hi ? [prev.last, t.centre] : [];
       joined[joined.length - 1] = {
-        ...t, lo: prev.lo, sweep: prev.sweep + t.sweep, centre: [(prev.first[0] + t.centre[0]) / 2, (prev.first[1] + t.centre[1]) / 2], first: prev.first, last: t.centre,
+        ...t, lo: prev.lo, sweep: prev.sweep + t.sweep, centre: [(prev.first[0] + t.centre[0]) / 2, (prev.first[1] + t.centre[1]) / 2], first: prev.first, last: t.centre, alts,
       };
     } else joined.push({ ...t, first: t.centre, last: t.centre });
   }
@@ -352,8 +404,10 @@ describe('U-turn cones on connectors', () => {
         const used = new Set();
         const gentle = [];
         for (const t of circularTurns(leg.path, radius)) {
-          // The cone sits on the half-metre lattice: within 0.36 m of the true centre.
-          const at = cones.find((k) => Math.hypot(k.hx / 2 - t.centre[0], k.hy / 2 - t.centre[1]) < 0.45);
+          // The cone sits on the half-metre lattice: within 0.36 m of the true centre,
+          // and a circle fitted to 1 cm-rounded samples can miss that centre by
+          // up to about 0.15 m more.
+          const at = cones.find((k) => [t.centre, ...(t.alts ?? [])].some((q) => Math.hypot(k.hx / 2 - q[0], k.hy / 2 - q[1]) < 0.55));
           const where = `${label(c)} ${leg.from}→${leg.to} turn ${Math.round(t.sweep)}°`;
           // Arcs are sampled every 10° at most and rounded to 1 cm, so a run can
           // gain or lose one sample at its ends: within 12° of 160° it can go either way.

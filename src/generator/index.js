@@ -1,12 +1,12 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
-import { BIKE_TURN_RADIUS, instantiate, minimalParams, TYPE_NAMES, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, instantiate, minimalParams, RUN_OFF, TYPE_NAMES, ZONE_PAD } from './catalog.js';
 import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
 export { GENERATOR_VERSION } from './version.js';
 export { parseRecipe, parseSeed, BIKES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
-export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius } from './catalog.js';
+export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius } from './catalog.js';
 export { canonicalJSON, courseHash } from './canonical.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -14,8 +14,9 @@ const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
 
 /**
- * Smallest footprint among the allowed types (core + clearance, side axis),
- * reported when not even one element can be laid out.
+ * Smallest footprint among the allowed types (side axis), reported when not
+ * even one element can be laid out: the core inside the margin, and for a
+ * turning type its run-off zone on the site, whichever needs more asphalt.
  */
 function siteTooSmall(recipe) {
   const usable = { width: recipe.width - 2 * SITE_MARGIN, length: recipe.length - 2 * SITE_MARGIN };
@@ -27,7 +28,12 @@ function siteTooSmall(recipe) {
     const b = (tpl.core[3] - tpl.core[1]) * tpl.unit;
     const long = Math.max(a, b);
     const short = Math.min(a, b);
-    if (!smallest || long * short < smallest.long * smallest.short) smallest = { type, name: TYPE_NAMES[type], long, short };
+    const ra = tpl.runOff ? (tpl.runOff[2] - tpl.runOff[0]) * tpl.unit : 0;
+    const rb = tpl.runOff ? (tpl.runOff[3] - tpl.runOff[1]) * tpl.unit : 0;
+    const runOff = tpl.runOff ? { length: Math.max(ra, rb), width: Math.min(ra, rb) } : null;
+    // Asphalt the element takes on the site: core + margins, or its run-off zone.
+    const need = Math.max(long + 2 * SITE_MARGIN, runOff ? runOff.length : 0) * Math.max(short + 2 * SITE_MARGIN, runOff ? runOff.width : 0);
+    if (!smallest || need < smallest.need) smallest = { type, name: TYPE_NAMES[type], long, short, runOff, need };
   }
   const radius = BIKE_TURN_RADIUS[recipe.bike];
   const fits = feasibleTypes(recipe).length > 0;
@@ -36,12 +42,17 @@ function siteTooSmall(recipe) {
   const tail = fits
     ? ` Элемент «${smallest.name}» (${fmt(smallest.long)} × ${fmt(smallest.short)} м) помещается, но не остаётся места `
       + `на старт, финиш и связки с радиусом поворота ${fmt(radius)} м.`
-    : ` Самому компактному из разрешённых типов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м.`;
+    : ` Самому компактному из разрешённых типов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м`
+      + (smallest.runOff
+        ? ` и ещё по ${fmt(RUN_OFF)} м свободного асфальта вокруг на выкат: площадка не меньше ${fmt(smallest.runOff.length)} × ${fmt(smallest.runOff.width)} м.`
+        : '.');
   return {
     code: 'site-too-small',
     site: { width: recipe.width, length: recipe.length },
     usable,
-    smallest: { type: smallest.type, length: smallest.long, width: smallest.short },
+    smallest: {
+      type: smallest.type, length: smallest.long, width: smallest.short, ...(smallest.runOff ? { runOff: smallest.runOff } : {}),
+    },
     clearance: ZONE_PAD,
     turnRadius: radius,
     message: head + tail,

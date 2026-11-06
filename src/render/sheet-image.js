@@ -145,7 +145,27 @@ function planBlock(course, sheet, maxHeight) {
       ctx.textBaseline = 'middle';
       if (y > 0 && y % every === 0) ctx.fillText(String(y), X(0) - 8, Y(y));
     }
+    // Run-off zones of turning elements: free asphalt a rider who goes wide
+    // can recover on. A pale tint under everything else, nothing to set out.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, pw, ph);
+    ctx.clip();
+    for (const e of course.elements) {
+      if (!e.runOff) continue;
+      ctx.beginPath();
+      e.runOff.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+      ctx.closePath();
+      ctx.fillStyle = '#e9b9461a';
+      ctx.fill();
+      ctx.setLineDash([3, 7]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#c99a2e80';
+      ctx.stroke();
+    }
+    ctx.restore();
     ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 1;
     ctx.strokeStyle = '#9aa7ad';
     const m = course.site.margin;
     ctx.strokeRect(X(m), Y(course.site.length - m), (course.site.width - 2 * m) * s, (course.site.length - 2 * m) * s);
@@ -575,7 +595,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
       ]),
   ]);
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить.', size: 20, color: '#2f3d45' },
   ]);
   const { tallBlue, tallRed, low } = sheet.coneList;
   const list = textBlock([

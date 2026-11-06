@@ -209,6 +209,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   const elementOf = new Map();
   for (const e of course.elements) for (const id of e.cones) elementOf.set(id, e.id);
 
+  // Run-off zones of turning elements: free asphalt to recover on when a
+  // rider goes wide. A faint tint with a fine dotted edge, under everything.
+  for (const e of course.elements) {
+    if (e.runOff) path(e.runOff.map(([x, y]) => [x, y, 0.003]), '#f2c76e40', 0.05, '#f2c76e0d', true, [0.15, 0.45]);
+  }
+
   // Selected element, or the one being ridden: soft fill of its zone.
   for (const e of course.elements) {
     const poly = e.zone.map(([x, y]) => project(x, y, 0.005));

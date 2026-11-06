@@ -73,6 +73,30 @@ function sizeTable(difficulty, bike) {
 /** Clearance around an element's cones and trajectory that no other element or connector may enter. */
 export const ZONE_PAD = 0.75;
 
+// Run-off zone of a turning element: free asphalt this far out from its cones
+// and line (the core), so a rider who goes wide in the turn can recover.
+// Organiser's figure: about 5 m round any cone taken by a U-turn.
+export const RUN_OFF = 5;
+
+/**
+ * Turning types and where their run-off zone reaches. A turnaround comes back
+ * towards its approach, so the side it is entered from is the rider's own
+ * lead-in and stays unreserved; a loop can be ridden wide on every side.
+ */
+export const RUN_OFF_TYPES = {
+  'u-turn': 'turnaround',
+  'gate-turn': 'turnaround',
+  mirror: 'turnaround',
+  keyhole: 'turnaround',
+  crescent: 'turnaround',
+  'pivot-turn': 'loop',
+  'figure-eight': 'loop',
+  box: 'loop',
+  circle: 'loop',
+  snail: 'loop',
+  'box-eight': 'loop',
+};
+
 // A big element takes a good part of a site: its core (cones and trajectory,
 // without the clearance) covers this many square metres or more at the sizes
 // it was given. A course has at most one. A snail, a crescent and a figure
@@ -797,8 +821,9 @@ function boundaryPoint(point, dir, box, outward) {
 
 /**
  * Builds the local template of one element: cones, passes, trajectory with
- * entry and exit poses on the zone edge, the zone rectangle and the core
- * rectangle (cones + trajectory, without the clearance pad).
+ * entry and exit poses on the zone edge, the zone rectangle, the core
+ * rectangle (cones + trajectory, without the clearance pad) and, for a turning
+ * type, the run-off rectangle (null otherwise).
  * All coordinates are in lattice steps of this axis class.
  */
 export function instantiate(type, params, diagonal, mirrored) {
@@ -821,6 +846,19 @@ export function instantiate(type, params, diagonal, mirrored) {
   const entry = boundaryPoint(g.path[0], g.entryDir, zone, false);
   const exit = boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true);
   const path = [entry, ...g.path, exit];
+  let runOff = null;
+  if (RUN_OFF_TYPES[type]) {
+    const r = RUN_OFF / unit;
+    runOff = [a0 - r, b0 - r, a1 + r, b1 + r];
+    if (RUN_OFF_TYPES[type] === 'turnaround') {
+      // The entry side keeps only the zone's own clearance.
+      const [da, db] = g.entryDir;
+      if (da > 0) runOff[0] = zone[0];
+      else if (da < 0) runOff[2] = zone[2];
+      else if (db > 0) runOff[1] = zone[1];
+      else runOff[3] = zone[3];
+    }
+  }
   const turn = turning(path);
   return {
     type,
@@ -837,6 +875,7 @@ export function instantiate(type, params, diagonal, mirrored) {
     exitDir: g.exitDir,
     core,
     zone,
+    runOff,
     turnLeft: turn.left,
     turnRight: turn.right,
   };
