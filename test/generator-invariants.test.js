@@ -193,7 +193,7 @@ describe('placement', () => {
     each((c) => {
       const byId = conesById(c);
       const start = c.route.start.cones.map((id) => coneXY(byId.get(id)));
-      const finish = c.route.closed ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
+      const finish = c.route.shape === 'closed' ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
       c.elements.forEach((e, i) => {
         expect(Boolean(e.runOff), `${label(c)} ${e.id} ${e.type} run-off`).toBe(Boolean(RUN_OFF_TYPES[e.type]));
         if (!e.runOff) return;

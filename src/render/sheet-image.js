@@ -10,6 +10,7 @@ import { SHAPE_NAMES } from '../generator/recipe.js';
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
+import { terminalPlates } from './terminals.js';
 
 const W = 1080;
 const H = 1920;
@@ -282,8 +283,9 @@ function planBlock(course, sheet, maxHeight) {
     }
 
     // Start / finish lines.
-    const terms = course.route.shape === 'closed' ? [[course.route.start, 'СТАРТ / ФИНИШ']] : [[course.route.start, 'СТАРТ'], [course.route.finish, 'ФИНИШ']];
-    for (const [t, text] of terms) {
+    const PLATE_TEXT = { start: 'СТАРТ', finish: 'ФИНИШ', both: 'СТАРТ / ФИНИШ' };
+    for (const { t, kind, x: lx, y: ly } of terminalPlates(course.route, 2)) {
+      const text = PLATE_TEXT[kind];
       const [a, b] = t.cones.map((id) => byId.get(id));
       ctx.lineWidth = 6;
       ctx.strokeStyle = INK;
@@ -293,11 +295,9 @@ function planBlock(course, sheet, maxHeight) {
       ctx.lineTo(X(b.hx / 2), Y(b.hy / 2));
       ctx.stroke();
       ctx.setLineDash([]);
-      const ux = Math.cos((t.dir * Math.PI) / 4);
-      const uy = Math.sin((t.dir * Math.PI) / 4);
       font(ctx, 20, 700);
-      const tx = X(t.x - ux * 2);
-      const ty = Y(t.y - uy * 2);
+      const tx = X(lx);
+      const ty = Y(ly);
       const w = ctx.measureText(text).width;
       ctx.fillStyle = INK;
       ctx.beginPath();

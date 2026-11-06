@@ -578,7 +578,8 @@ function setupSteps() {
 
 function terminalHtml(t, title) {
   const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${fmt(c.x)} м</td><td>Y ${fmt(c.y)} м</td></tr>`).join('');
-  return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>
+  const near = t.fromStart ? `<p><b>Финиш у старта:</b> ${esc(t.fromStart.label.replace('От', 'от'))}</p>` : '';
+  return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>${near}
     <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
 }
 
