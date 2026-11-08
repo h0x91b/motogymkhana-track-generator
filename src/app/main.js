@@ -1,4 +1,7 @@
-import { BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, TYPE_LEVELS, TYPE_NAMES } from '../generator/index.js';
+import {
+  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues,
+  TYPE_LEVELS, TYPE_NAMES,
+} from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -21,7 +24,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES],
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {},
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -58,16 +61,89 @@ const SEED_HISTORY = 30;
 
 const form = $('form');
 
+const sizeName = (type, key) => `size:${type}:${key}`;
+const range = ([lo, hi]) => (lo === hi ? `${fmt(lo)} м` : `${fmt(lo)}–${fmt(hi)} м`);
+
+/** Size options of a type, folded under its row: «авто» or a fixed value in 0.5 m steps. */
+function sizePanel(type) {
+  const panel = document.createElement('div');
+  panel.className = 'sizes';
+  panel.id = `sizes-${type}`;
+  panel.hidden = true;
+  panel.innerHTML = SIZE_OPTIONS[type].map((o) => `<fieldset class="size-option">
+      <legend>${o.name}</legend>
+      <div class="chips">
+        <label><input type="radio" name="${sizeName(type, o.key)}" value="" checked><span class="auto">авто</span></label>
+        ${sizeValues(o).map((v) => `<label><input type="radio" name="${sizeName(type, o.key)}" value="${v}"><span>${fmt(v)}</span></label>`).join('')}
+      </div>
+      <p class="muted size-note" data-type="${type}" data-key="${o.key}"></p>
+    </fieldset>`).join('');
+  return panel;
+}
+
 function buildTypeChecks() {
   const box = $('types');
   for (const t of ELEMENT_TYPES) {
+    const row = document.createElement('div');
+    row.className = 'type-row';
     const label = document.createElement('label');
     label.className = 'check';
     // Name and hints in one span: the label is a flex row, so loose text would wrap as a separate column.
     label.innerHTML = `<input type="checkbox" name="types" value="${t}"> <span>${TYPE_NAMES[t]}`
       + `${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}`
       + `${TYPE_LEVELS[t] ? '<span class="level-off"> — со средней сложности</span>' : ''}</span>`;
-    box.append(label);
+    row.append(label);
+    box.append(row);
+    if (!SIZE_OPTIONS[t]) continue;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'size-toggle';
+    toggle.dataset.type = t;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', `sizes-${t}`);
+    toggle.addEventListener('click', () => {
+      const panel = $(`sizes-${t}`);
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    });
+    row.append(toggle);
+    box.append(sizePanel(t));
+  }
+}
+
+/** The value fixed for a size option in the form, or '' for «авто». */
+const sizeChoice = (type, key) => form.querySelector(`[name="${sizeName(type, key)}"]:checked`)?.value ?? '';
+
+/**
+ * Size options follow the difficulty and the class: «авто» says what the
+ * generator takes then, and a value the class raises says so.
+ */
+function syncSizes() {
+  const difficulty = form.querySelector('[name="difficulty"]:checked')?.value;
+  const bike = form.querySelector('[name="bike"]:checked')?.value;
+  if (!difficulty || !bike) return;
+  for (const note of form.querySelectorAll('.size-note')) {
+    const { type, key } = note.dataset;
+    const chosen = sizeChoice(type, key);
+    const min = sizeMinimum(type, key, difficulty, bike);
+    const auto = sizeDefault(type, key, difficulty, bike);
+    note.closest('.size-option').querySelector('.auto').textContent = `авто ${range(auto)}`;
+    const raised = chosen !== '' && min !== null && Number(chosen) < min;
+    note.textContent = raised
+      ? `Для мотоцикла «${BIKE_NAMES[bike]}» мало: будет не меньше ${fmt(min)} м`
+      : chosen === '' ? `По сложности: ${range(auto)}` : '';
+    note.classList.toggle('warn', raised);
+    // Values the class raises stay choosable, but look it.
+    for (const input of note.closest('.size-option').querySelectorAll('input[value]:not([value=""])')) {
+      input.nextElementSibling.classList.toggle('below', min !== null && Number(input.value) < min);
+    }
+  }
+  for (const toggle of form.querySelectorAll('.size-toggle')) {
+    const type = toggle.dataset.type;
+    const values = SIZE_OPTIONS[type].map((o) => sizeChoice(type, o.key)).filter((v) => v !== '');
+    toggle.textContent = values.length ? `${values.map((v) => fmt(Number(v))).join(' · ')} м` : 'Размер';
+    toggle.classList.toggle('set', values.length > 0);
+    toggle.setAttribute('aria-label', `${TYPE_NAMES[type]}: размер ${values.length ? `${values.map((v) => fmt(Number(v))).join(' и ')} м` : 'авто'}`);
   }
 }
 
@@ -85,6 +161,7 @@ function syncTypes() {
   }
   for (const s of form.querySelectorAll('.train-off')) s.hidden = !train;
   for (const s of form.querySelectorAll('.level-off')) s.hidden = difficulty !== 'easy';
+  syncSizes();
 }
 
 const SHAPE_HINTS = {
@@ -115,6 +192,14 @@ function writeForm(f) {
   form.train.checked = !!f.train;
   form.seed.value = f.seed;
   for (const c of form.querySelectorAll('[name="types"]')) c.checked = f.types.includes(c.value);
+  for (const [type, options] of Object.entries(SIZE_OPTIONS)) {
+    for (const o of options) {
+      const value = f.sizes?.[type]?.[o.key];
+      const input = form.querySelector(`[name="${sizeName(type, o.key)}"][value="${value ?? ''}"]`)
+        ?? form.querySelector(`[name="${sizeName(type, o.key)}"][value=""]`);
+      input.checked = true;
+    }
+  }
   syncTypes();
 }
 
@@ -129,7 +214,20 @@ function readForm() {
     train: form.train.checked,
     seed: form.seed.value,
     types: [...form.querySelectorAll('[name="types"]:checked')].map((c) => c.value),
+    sizes: readSizes(),
   };
+}
+
+/** Fixed sizes from the form, numbers in metres; unticked types keep theirs here, the recipe drops them. */
+function readSizes() {
+  const sizes = {};
+  for (const [type, options] of Object.entries(SIZE_OPTIONS)) {
+    for (const o of options) {
+      const v = sizeChoice(type, o.key);
+      if (v !== '') (sizes[type] ??= {})[o.key] = Number(v);
+    }
+  }
+  return sizes;
 }
 
 function showErrors(errors) {
@@ -137,7 +235,7 @@ function showErrors(errors) {
   for (const name of ['width', 'length', 'elements', 'seed']) {
     form[name].setAttribute('aria-invalid', errors[name] ? 'true' : 'false');
   }
-  if (errors.types) form.querySelector('details').open = true;
+  if (errors.types || errors.sizes) form.querySelector('details').open = true;
 }
 
 function validate(raw) {
@@ -272,6 +370,22 @@ function hideBanner() {
   $('banner').hidden = true;
 }
 
+const SUMMARY_SIZES = 2;
+
+/** Fixed sizes of the ticked types, briefly: the first two by name, then how many more. */
+function sizesSummary(f) {
+  const items = [];
+  for (const [type, options] of Object.entries(SIZE_OPTIONS)) {
+    if (!f.types.includes(type)) continue;
+    for (const o of options) {
+      const v = f.sizes?.[type]?.[o.key];
+      if (v !== undefined) items.push(`${o.short} ${fmt(v)} м`);
+    }
+  }
+  if (items.length <= SUMMARY_SIZES) return items.join(' · ');
+  return `${items.slice(0, SUMMARY_SIZES).join(' · ')} · ещё ${items.length - SUMMARY_SIZES} разм.`;
+}
+
 function renderSummary() {
   const f = state.form;
   const c = state.course;
@@ -285,6 +399,7 @@ function renderSummary() {
   parts.push(BIKE_NAMES[f.bike] ?? '');
   parts.push(SHAPE_NAMES[f.shape] ?? '');
   if (f.train) parts.push('паровозик');
+  parts.push(sizesSummary(f));
   parts.push(`seed ${f.seed || '—'}`);
   const shown = parts.filter(Boolean);
   const summary = $('summary');
@@ -1019,6 +1134,7 @@ function start() {
 
   form.addEventListener('input', () => onFormChange());
   form.train.addEventListener('change', syncTypes);
+  form.addEventListener('change', syncSizes);
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.addEventListener('change', syncTypes);
   for (const r of form.querySelectorAll('[name="shape"]')) r.addEventListener('change', syncShapeHint);
   form.addEventListener('change', () => onFormChange());

@@ -8,7 +8,8 @@
 // origin and is placed on whole metres by the generator.
 //
 // The generator only talks to `typeOptions`, `chooseParams`, `minimalParams`
-// and `instantiate`; everything else here is private to the catalog.
+// and `instantiate`; the recipe and the UI also read `SIZE_OPTIONS`; everything
+// else here is private to the catalog.
 
 import { arcPoints, ellipsePoints, latticeUnit, PI, smoothPath, turning } from './geometry.js';
 
@@ -64,9 +65,73 @@ export const BIKE_TURN_RADIUS = { sport: 3.75, cruiser: 4.5 };
  */
 export const uTurnRadius = (difficulty, bike) => BIKE_TURN_RADIUS[bike] + DIFFICULTY_TABLE[difficulty].uTurnMargin;
 
-/** The size table the catalog builds a type from: the difficulty's ranges plus the class's U-turn radius. */
-function sizeTable(difficulty, bike) {
-  return { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike) };
+/**
+ * Size options (SPEC «Размеры элементов в рецепте»): the sizes of a type the
+ * recipe may fix instead of leaving them to the difficulty. Each fixes one entry
+ * of the size table (`table`) to a single value in 0.5 m steps from `min` to
+ * `max`; the generator then takes that value, on a diagonal the nearest lattice
+ * length (ADR 0005). Three of them size a U-turn inside the element, where the
+ * bike class still sets the minimum (`sizeMinimum`) and a smaller value is raised.
+ * `name` labels the option on its type, `short` names it alone in the summary.
+ */
+export const SIZE_OPTIONS = {
+  'straight-slalom': [{ key: 'step', table: 'slalomStep', name: 'Шаг', short: 'шаг слалома', min: 3, max: 6 }],
+  'offset-slalom': [{ key: 'step', table: 'offsetStep', name: 'Шаг', short: 'шаг офсетного слалома', min: 3, max: 7 }],
+  gate: [{ key: 'width', table: 'gateWidth', name: 'Ширина', short: 'ворота', min: 1.5, max: 3.5 }],
+  'lane-change': [{ key: 'shift', table: 'laneShift', name: 'Смещение', short: 'смещение переставки', min: 1.5, max: 4 }],
+  'u-turn': [{ key: 'width', table: 'uTurnWidth', name: 'Ширина', short: 'ширина разворота', min: 8, max: 16 }],
+  'figure-eight': [{ key: 'loop', table: 'eightLoop', name: 'Радиус петли', short: 'петля восьмёрки', min: 3.5, max: 7 }],
+  box: [{ key: 'size', table: 'boxSize', name: 'Сторона', short: 'коробка', min: 8, max: 16 }],
+  circle: [{ key: 'radius', table: 'circleRadius', name: 'Радиус', short: 'радиус круга', min: 1.5, max: 5 }],
+  tunnel: [{ key: 'gap', table: 'tunnelGap', name: 'Между воротами', short: 'тоннель', min: 3.5, max: 6 }],
+  zigzag: [{ key: 'step', table: 'zigzagStep', name: 'Шаг', short: 'шаг зигзага', min: 2.5, max: 5 }],
+  'corridor-slalom': [
+    { key: 'width', table: 'snakeWidth', name: 'Ширина коридора', short: 'ширина змейки', min: 3, max: 6 },
+    { key: 'step', table: 'snakeStep', name: 'Шаг перегородок', short: 'шаг змейки', min: 2.5, max: 5 },
+  ],
+  keyhole: [{ key: 'radius', table: 'keyholeRadius', name: 'Радиус кольца', short: 'замочная скважина', min: 3, max: 4.5 }],
+  crescent: [{ key: 'radius', table: 'crescentRadius', name: 'Радиус', short: 'месяц', min: 4, max: 8 }],
+};
+
+/** Every value a size option offers, in metres: `min` to `max` in 0.5 m steps. */
+export const sizeValues = (option) => Array.from({ length: (option.max - option.min) * 2 + 1 }, (_, i) => option.min + i / 2);
+
+/**
+ * The smallest value the bike class allows for a size option at a difficulty,
+ * or null when the class sets no minimum: the U-turns inside an element are
+ * ridden on at least `uTurnRadius` (ADR 0006).
+ */
+export function sizeMinimum(type, key, difficulty, bike) {
+  const turn = uTurnRadius(difficulty, bike);
+  if ((type === 'u-turn' && key === 'width') || (type === 'box' && key === 'size')) return 2 * (turn + WALL);
+  if (type === 'figure-eight' && key === 'loop') return turn;
+  return null;
+}
+
+/**
+ * What a size option takes when the recipe leaves it free, in metres: the
+ * difficulty's range [lo, hi] (lo = hi for a single value), or for a U-turn
+ * the class minimum.
+ */
+export function sizeDefault(type, key, difficulty, bike) {
+  const min = sizeMinimum(type, key, difficulty, bike);
+  if (min !== null) return [min, min];
+  const option = SIZE_OPTIONS[type].find((o) => o.key === key);
+  const range = DIFFICULTY_TABLE[difficulty][option.table];
+  return [range[0], range[range.length - 1]];
+}
+
+/**
+ * The size table the catalog builds a type from: the difficulty's ranges plus
+ * the class's U-turn radius, with the sizes the recipe fixed for this type.
+ */
+function sizeTable(difficulty, bike, type, sizes) {
+  const table = { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike) };
+  const chosen = sizes?.[type];
+  if (chosen) {
+    for (const o of SIZE_OPTIONS[type]) if (chosen[o.key] !== undefined) table[o.table] = [chosen[o.key]];
+  }
+  return table;
 }
 
 /** Clearance around an element's cones and trajectory that no other element or connector may enter. */
@@ -149,6 +214,7 @@ const BOX_EIGHT_MARGIN = 1; // licence-test eight: rectangle this far outside th
 const KEYHOLE_CLEAR = 1.2; // keyhole: the loop inside runs this far inside the ring
 const KEYHOLE_TURN = 2; // keyhole: radius of the turns onto and off the slants
 const KEYHOLE_CONES = 12;
+const KEYHOLE_OPENING_MARGIN = 1; // keyhole: the opening is at most the ring radius less this
 const SWERVE_PAIR = 3; // moose test: corridor pairs this far apart
 const SWERVE_CLEAR = 1.5; // moose test: the swerve passes the dead end this far out
 
@@ -317,7 +383,8 @@ const TYPES = {
 
   'u-turn': {
     // Wide enough that the line ridden, WALL inside the side walls, turns on the U-turn radius.
-    options: (t, unit) => ({ width: latticeAtLeast(2 * (t.turn + WALL), unit) }),
+    // A width fixed in the recipe is raised to that when it is smaller.
+    options: (t, unit) => ({ width: latticeAtLeast(Math.max(t.uTurnWidth?.[0] ?? 0, 2 * (t.turn + WALL)), unit) }),
     build({ width }, unit) {
       const r = width / 2 - WALL / unit;
       const depth = Math.round(r + (WALL + 1.5) / unit);
@@ -364,8 +431,11 @@ const TYPES = {
 
   'figure-eight': {
     // Round loops on at least the U-turn radius; the base follows from them, so
-    // that the crossing lines meet at right angles: D = 2√2 r.
+    // that the crossing lines meet at right angles: D = 2√2 r. A loop radius
+    // fixed in the recipe gives the shortest base not below it, raised to the
+    // U-turn radius when it is smaller.
     options: (t, unit) => {
+      if (t.eightLoop) return { distance: latticeAtLeast(2 * Math.SQRT2 * Math.max(t.eightLoop[0], t.turn), unit) };
       const min = 2 * Math.SQRT2 * t.turn;
       return { distance: latticeChoices([min, min + 1], unit) };
     },
@@ -392,7 +462,7 @@ const TYPES = {
   },
 
   box: {
-    options: (t, unit) => ({ size: latticeAtLeast(2 * (t.turn + WALL), unit) }),
+    options: (t, unit) => ({ size: latticeAtLeast(Math.max(t.boxSize?.[0] ?? 0, 2 * (t.turn + WALL)), unit) }),
     build({ size }, unit) {
       // Enter through one side, turn 270° inside, leave through the side on the right.
       const r = size / 2 - WALL / unit;
@@ -655,7 +725,13 @@ const TYPES = {
 
   keyhole: {
     sideOnly: true,
-    options: (t, unit) => ({ radius: latticeChoices(t.keyholeRadius, unit), opening: latticeChoices(t.keyholeOpening, unit) }),
+    // The opening is at most the ring radius less 1 m: a ring radius fixed in
+    // the recipe below the difficulty's narrows the opening with it, or the way
+    // in and out has no room between the ring's end cones.
+    options: (t, unit) => ({
+      radius: latticeChoices(t.keyholeRadius, unit),
+      opening: latticeChoices([Math.min(t.keyholeOpening[0], t.keyholeRadius[0] - KEYHOLE_OPENING_MARGIN)], unit),
+    }),
     build({ radius, opening }, unit) {
       // A ring of low cones with one opening towards the approach. In through
       // the opening on a slant, a loop round inside, out through the same
@@ -743,48 +819,50 @@ const unitFor = (diagonal) => latticeUnit(diagonal);
  * Lattice options for a type at a difficulty on one axis class, or null when
  * some size has no lattice length in range (the type cannot go diagonal then).
  */
-export function typeOptions(type, difficulty, bike, diagonal) {
+export function typeOptions(type, difficulty, bike, diagonal, sizes) {
   // Curved rings and walls snap to the 0.5 m grid; on the coarser diagonal
   // lattice their cones would move too far off the line.
   if (diagonal && TYPES[type].sideOnly) return null;
-  const opts = TYPES[type].options(sizeTable(difficulty, bike), unitFor(diagonal));
+  const opts = TYPES[type].options(sizeTable(difficulty, bike, type, sizes), unitFor(diagonal));
   return Object.values(opts).every((list) => list.length > 0) ? opts : null;
 }
 
-function paramsFromDraws(type, difficulty, bike, diagonal, draws) {
-  const opts = typeOptions(type, difficulty, bike, diagonal);
+function paramsFromDraws(type, difficulty, bike, diagonal, draws, sizes) {
+  const opts = typeOptions(type, difficulty, bike, diagonal, sizes);
   if (!opts) return null;
   const params = {};
   Object.keys(opts).forEach((key, i) => {
     const list = opts[key];
     params[key] = list[Math.min(list.length - 1, Math.floor(draws[i] * list.length))];
   });
-  Object.assign(params, TYPES[type].extra?.(sizeTable(difficulty, bike)) ?? {});
+  Object.assign(params, TYPES[type].extra?.(sizeTable(difficulty, bike, type, sizes)) ?? {});
   return params;
 }
 
 /**
  * Draws one set of size choices and maps it onto both axis classes, so the
  * same draw means "the same size, as close as the lattice allows" on a side
- * axis and on a diagonal.
+ * axis and on a diagonal. A size the recipe fixed (`sizes`, see
+ * SIZE_OPTIONS) leaves one choice, but its draw is still taken, so fixing one
+ * size does not change the others.
  * @returns {{side: object|null, diagonal: object|null}}
  */
-export function chooseParams(type, difficulty, bike, rng) {
+export function chooseParams(type, difficulty, bike, rng, sizes) {
   const keys = Object.keys(TYPES[type].options(sizeTable(difficulty, bike), 0.5));
   const draws = keys.map(() => rng.float());
   return {
-    side: paramsFromDraws(type, difficulty, bike, false, draws),
-    diagonal: paramsFromDraws(type, difficulty, bike, true, draws),
+    side: paramsFromDraws(type, difficulty, bike, false, draws, sizes),
+    diagonal: paramsFromDraws(type, difficulty, bike, true, draws, sizes),
   };
 }
 
-/** The most compact size choices (used when the drawn ones do not fit the site). */
-export function minimalParams(type, difficulty, bike) {
+/** The most compact size choices (used when the drawn ones do not fit the site); fixed sizes stay. */
+export function minimalParams(type, difficulty, bike, sizes) {
   const keys = Object.keys(TYPES[type].options(sizeTable(difficulty, bike), 0.5));
   const draws = keys.map(() => 0);
   return {
-    side: paramsFromDraws(type, difficulty, bike, false, draws),
-    diagonal: paramsFromDraws(type, difficulty, bike, true, draws),
+    side: paramsFromDraws(type, difficulty, bike, false, draws, sizes),
+    diagonal: paramsFromDraws(type, difficulty, bike, true, draws, sizes),
   };
 }
 

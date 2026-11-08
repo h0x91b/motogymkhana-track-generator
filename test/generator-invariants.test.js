@@ -31,6 +31,18 @@ const RECIPES = [
   { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: 60 },
   { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: 50 },
   {
+    name: '50×70 medium closed, fixed sizes',
+    recipe: {
+      width: 50, length: 70, elements: 8, difficulty: 'medium', shape: 'closed',
+      sizes: {
+        'straight-slalom': { step: 3 }, 'offset-slalom': { step: 7 }, gate: { width: 3.5 }, 'lane-change': { shift: 4 },
+        'u-turn': { width: 8 }, 'figure-eight': { loop: 7 }, box: { size: 16 }, circle: { radius: 5 }, tunnel: { gap: 6 },
+        zigzag: { step: 2.5 }, 'corridor-slalom': { width: 3, step: 5 }, keyhole: { radius: 4.5 }, crescent: { radius: 8 },
+      },
+    },
+    seeds: 60,
+  },
+  {
     name: 'only big types',
     recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'closed', types: ['snail', 'crescent'] },
     seeds: 30,
@@ -674,7 +686,7 @@ describe('element shapes', () => {
     });
   });
 
-  test('slalom steps and gate widths stay in the difficulty ranges', () => {
+  test('slalom steps and gate widths stay in the difficulty ranges, or on the size the recipe fixed', () => {
     const ranges = {
       easy: { slalom: [4.5, 5], gate: [2.25, 2.75] },
       medium: { slalom: [3.5, 4], gate: [1.75, 2.25] },
@@ -682,7 +694,14 @@ describe('element shapes', () => {
     };
     each((c, recipe) => {
       const byId = conesById(c);
-      const r = ranges[recipe.difficulty];
+      const fixed = (type, key) => recipe.sizes?.[type]?.[key];
+      const step = fixed('straight-slalom', 'step');
+      const gate = fixed('gate', 'width');
+      // A fixed size is exact on a side axis and the nearest lattice length, within 0.25 m, on a diagonal (ADR 0005).
+      const r = {
+        slalom: step ? [step - 0.25, step + 0.25] : ranges[recipe.difficulty].slalom,
+        gate: gate ? [gate - 0.25, gate + 0.25] : ranges[recipe.difficulty].gate,
+      };
       for (const e of c.elements) {
         const pts = e.cones.map((id) => coneXY(byId.get(id)));
         if (e.type === 'straight-slalom') {
