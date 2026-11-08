@@ -5,5 +5,6 @@
   { "name": "seed42-25x30-easy-closed-5-simplified", "recipe": { "width": 25, "length": 30, "elements": 5, "difficulty": "easy", "closed": true }, "seed": 42 },
   { "name": "seed2026-60x80-easy-open-15", "recipe": { "width": 60, "length": 80, "elements": 15, "difficulty": "easy", "closed": false }, "seed": 2026 },
   { "name": "seed7-eights-slaloms-medium-closed-6", "recipe": { "width": 40, "length": 60, "elements": 6, "difficulty": "medium", "closed": true, "types": ["figure-eight", "straight-slalom"] }, "seed": 7 },
-  { "name": "seed3-40x60-medium-closed-8-train", "recipe": { "width": 40, "length": 60, "elements": 8, "difficulty": "medium", "closed": true, "train": true }, "seed": 3 }
+  { "name": "seed3-40x60-medium-closed-8-train", "recipe": { "width": 40, "length": 60, "elements": 8, "difficulty": "medium", "closed": true, "train": true }, "seed": 3 },
+  { "name": "seed1-40x60-hard-return-8-train", "recipe": { "width": 40, "length": 60, "elements": 8, "difficulty": "hard", "shape": "return", "train": true }, "seed": 1 }
 ]

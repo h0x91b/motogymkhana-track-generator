@@ -10,12 +10,12 @@ import { generateCourse } from '../src/generator/index.js';
 import { fullRoute, turns } from './helpers/course-geometry.js';
 
 const RECIPES = [
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: true },
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', closed: false },
+  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
+  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'open' },
   // A tight site: a cruiser fits about four elements there, too few to judge spread;
   // with U-turns sized by the class a sport bike fits five or six.
-  { width: 35, length: 50, elements: 10, difficulty: 'hard', bike: 'sport', closed: true },
-  { width: 60, length: 80, elements: 12, difficulty: 'easy', closed: false },
+  { width: 35, length: 50, elements: 10, difficulty: 'hard', bike: 'sport', shape: 'closed' },
+  { width: 60, length: 80, elements: 12, difficulty: 'easy', shape: 'open' },
 ];
 const SEEDS = 60;
 

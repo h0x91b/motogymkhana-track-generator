@@ -223,7 +223,7 @@ button:disabled:active { filter: none; scale: none; }
 .segmented legend { font-weight: 600; margin-bottom: 4px; padding: 0; }
 .segmented label { margin: 0; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
-.segmented span { display: grid; place-items: center; min-height: 44px; border: 1px solid var(--edge); border-radius: 10px; font-weight: 600; }
+.segmented span { display: grid; place-items: center; min-height: 44px; padding: 4px 6px; text-align: center; line-height: 1.2; border: 1px solid var(--edge); border-radius: 10px; font-weight: 600; }
 .segmented input:checked + span { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 .segmented input:focus-visible + span { outline: 3px solid var(--accent); }
 .check { display: flex !important; gap: 10px; align-items: center; min-height: 44px; font-weight: 500 !important; }

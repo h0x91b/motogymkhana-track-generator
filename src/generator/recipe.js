@@ -53,6 +53,13 @@ export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
 export const BIKES = ['sport', 'cruiser'];
 
+// Course shapes: open (start and finish wherever the generator puts them),
+// closed (one line is both start and finish, the course is a loop) and return
+// (two lines, but the finish is placed back by the start: the rider ends where
+// they started without riding round into the start again).
+export const SHAPES = ['open', 'closed', 'return'];
+export const SHAPE_NAMES = { open: 'открытая', closed: 'замкнутая', return: 'финиш у старта' };
+
 export const SITE_MIN = 10;
 export const SITE_MAX = 100;
 export const ELEMENTS_MIN = 1;
@@ -112,8 +119,15 @@ export function parseRecipe(input) {
   const bike = BIKES.includes(src.bike ?? 'cruiser') ? (src.bike ?? 'cruiser') : null;
   if (bike === null) errors.bike = 'Выберите мотоцикл: спорт или крузер';
 
-  const closed = parseBoolean(src.closed ?? false);
-  if (closed === null) errors.closed = 'Замкнутость — да или нет';
+  // A recipe saved before shapes had only `closed`: true is a closed course,
+  // false or missing an open one. `shape` wins when both are given.
+  let shape = null;
+  if (src.shape !== undefined) shape = SHAPES.includes(src.shape) ? src.shape : null;
+  else {
+    const closed = parseBoolean(src.closed ?? false);
+    if (closed !== null) shape = closed ? 'closed' : 'open';
+  }
+  if (shape === null) errors.shape = 'Выберите форму трассы: открытая, замкнутая или финиш у старта';
 
   const train = parseBoolean(src.train ?? false);
   if (train === null) errors.train = 'Паровозик — да или нет';
@@ -138,6 +152,6 @@ export function parseRecipe(input) {
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, bike, closed, train, generatorVersion: GENERATOR_VERSION },
+    recipe: { width, length, elements, types, difficulty, bike, shape, train, generatorVersion: GENERATOR_VERSION },
   };
 }

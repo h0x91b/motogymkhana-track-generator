@@ -95,7 +95,14 @@
         <label><input type="radio" name="bike" value="cruiser"><span>Крузер</span></label>
       </fieldset>
       <p class="muted hint bike-hint" id="bike-hint">Связки и развороты внутри элементов поворачивают не круче, чем по кругу Ø 7,5 м на спорте и Ø 9 м на крузере.</p>
-      <label class="check"><input type="checkbox" name="closed"> Замкнутая: старт и финиш в одном месте</label>
+      <fieldset class="segmented" aria-describedby="shape-hint err-shape">
+        <legend>Форма трассы</legend>
+        <label><input type="radio" name="shape" value="open"><span>Открытая</span></label>
+        <label><input type="radio" name="shape" value="closed"><span>Замкнутая</span></label>
+        <label><input type="radio" name="shape" value="return"><span>Финиш у старта</span></label>
+      </fieldset>
+      <p class="muted hint bike-hint" id="shape-hint"></p>
+      <p class="err" id="err-shape" data-for="shape"></p>
       <label class="check"><input type="checkbox" name="train" aria-describedby="train-hint"> Паровозик: несколько мотоциклов друг за другом</label>
       <p class="muted hint" id="train-hint">Маршрут нигде не пересекает сам себя, и нет встречной езды: мотоциклы колонны не встретятся. Элементы с петлями выпадают — они помечены в «Ещё: типы элементов».</p>
       <label>Seed
