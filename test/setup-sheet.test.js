@@ -15,7 +15,7 @@ const courses = RECIPES.flatMap((r) => Array.from({ length: 40 }, (_, seed) => g
 
 const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
-const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'snail', 'keyhole', 'crescent'];
+const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'crescent'];
 const isHalf = (v) => Number.isInteger(v * 2);
 
 /** Rebuilds cone positions (metres) using nothing but the sheet. */
@@ -145,14 +145,15 @@ describe('setup sheet', () => {
           if (card.axis.diagonal) {
             expect(Math.abs(dx)).toBe(Math.abs(dy));
             expect(d.value).toBe(Math.abs(dx));
-            expect(d.label).toBe(`${String(d.value).replace('.', ',')} м по X и Y`);
+            // Labelled with the true slant length, not the X/Y offset.
+            expect(d.label).toBe(`${String(Math.round(d.value * Math.SQRT2 * 10) / 10).replace('.', ',')} м`);
           } else {
             expect(d.value).toBe(Math.hypot(dx, dy));
             expect(d.label).toBe(`${String(d.value).replace('.', ',')} м`);
           }
           expect(d.value > 0 && isHalf(d.value), `seed ${course.seed} ${card.type}`).toBe(true);
           // The sheet's notes give the same number.
-          expect(card.notes.join(' '), `seed ${course.seed} ${card.type}`).toContain(`${String(d.value).replace('.', ',')} м`);
+          expect(card.notes.join(' '), `seed ${course.seed} ${card.type}`).toContain(d.label);
         }
       }
     }
@@ -196,7 +197,7 @@ describe('setup sheet', () => {
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {
-        if (['u-turn', 'pivot-turn', 'box', 'circle', 'mirror', 'gate-turn', 'keyhole'].includes(card.type)) {
+        if (['u-turn', 'pivot-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole'].includes(card.type)) {
           expect(['left', 'right']).toContain(card.turn);
         }
         else expect(card.turn).toBeNull();
