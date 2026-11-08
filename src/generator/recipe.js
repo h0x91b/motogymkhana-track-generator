@@ -2,7 +2,6 @@
 // Both accept raw form values (strings) as well as already-normalised values,
 // and never substitute a default or random value for an invalid one.
 
-import { GENERATOR_VERSION } from './version.js';
 
 export const ELEMENT_TYPES = [
   'straight-slalom',
@@ -152,6 +151,6 @@ export function parseRecipe(input) {
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, bike, shape, train, generatorVersion: GENERATOR_VERSION },
+    recipe: { width, length, elements, types, difficulty, bike, shape, train },
   };
 }

@@ -4,10 +4,9 @@ import { BIKE_TURN_RADIUS, instantiate, minimalParams, RUN_OFF, TYPE_NAMES, ZONE
 import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
 
-export { GENERATOR_VERSION } from './version.js';
 export { parseRecipe, parseSeed, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
 export { BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius } from './catalog.js';
-export { canonicalJSON, courseHash } from './canonical.js';
+export { canonicalJSON } from './canonical.js';
 export { U_TURN_CONE_CLEARANCE } from './generate.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };

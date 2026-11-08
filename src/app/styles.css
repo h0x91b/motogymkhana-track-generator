@@ -249,9 +249,6 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   font-weight: 600;
   box-shadow: 0 4px 14px #0005;
 }
-.selfcheck { padding: 16px; overflow: auto; }
-.selfcheck table { border-collapse: collapse; font: 13px ui-monospace, monospace; }
-.selfcheck td, .selfcheck th { padding: 4px 8px; border-bottom: 1px solid var(--edge); text-align: left; }
 .ok { color: #1b7f3b; font-weight: 700; }
 .bad { color: var(--danger); font-weight: 700; }
 
