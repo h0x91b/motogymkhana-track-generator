@@ -59,3 +59,27 @@ export function saveRideSpeed(speed) {
     // Storage unavailable: the speed resets on the next visit.
   }
 }
+
+// The course as edited by hand («Правка»): its layout, under its own key and
+// format version. It is shown again only for the recipe and seed it was made from.
+const EDIT_KEY = 'motogymkhana-constructor:edit:v1';
+
+export function loadEdit() {
+  try {
+    const raw = window.localStorage.getItem(EDIT_KEY);
+    const value = raw ? JSON.parse(raw) : null;
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers the edited layout, or forgets it (null). */
+export function saveEdit(layout) {
+  try {
+    if (layout) window.localStorage.setItem(EDIT_KEY, JSON.stringify(layout));
+    else window.localStorage.removeItem(EDIT_KEY);
+  } catch {
+    // Storage unavailable: the edits live until the tab is closed.
+  }
+}

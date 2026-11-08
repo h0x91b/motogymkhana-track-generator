@@ -35,11 +35,12 @@
     <div class="actions">
       <button type="button" id="open-form">Рецепт</button>
       <span class="seed-actions">
-        <button type="button" id="prev-seed" aria-label="Вернуть предыдущий seed" title="Вернуть предыдущий seed" disabled>↶</button>
+        <button type="button" id="prev-seed" aria-label="Вернуть предыдущую трассу" title="Вернуть предыдущую трассу" disabled>↶</button>
         <button type="button" id="new-seed" class="primary">Новый seed</button>
       </span>
     </div>
-    <div class="actions">
+    <div class="actions trio">
+      <button type="button" id="edit-mode">Правка</button>
       <button type="button" id="setup-mode">Расстановка</button>
       <button type="button" id="share">Картинка</button>
     </div>
@@ -53,6 +54,21 @@
       <button type="button" id="setup-next" class="primary">Дальше</button>
     </div>
     <button type="button" id="setup-close" class="link">Закрыть расстановку</button>
+  </section>
+
+  <section class="edit-panel" id="edit-panel" hidden aria-label="Правка трассы">
+    <div class="edit-head">
+      <span class="edit-history" role="group" aria-label="История правок">
+        <button type="button" id="edit-undo" aria-label="Отменить правку" disabled></button>
+        <button type="button" id="edit-redo" aria-label="Вернуть правку" disabled></button>
+      </span>
+      <h2 id="edit-title">Правка трассы</h2>
+      <button type="button" id="edit-done" class="primary">Готово</button>
+    </div>
+    <div class="edit-body" id="edit-body"></div>
+    <div class="edit-problems" id="edit-problems" role="group" aria-label="Проблемы трассы" hidden></div>
+    <p class="edit-keys muted" id="edit-keys"></p>
+    <p class="sr-only" id="edit-live" role="status"></p>
   </section>
 
   <div class="backdrop" id="backdrop" hidden></div>
@@ -134,6 +150,16 @@
       <button type="button" id="share-all" class="primary">Поделиться всеми</button>
       <button type="button" id="download-all">Скачать все</button>
     </div>
+  </section>
+  <section class="sheet type-sheet" id="type-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="type-title" aria-describedby="type-note" tabindex="-1">
+    <div class="sheet-head sticky-head">
+      <div>
+        <h2 id="type-title">Заменить элемент</h2>
+        <p class="form-status" id="type-note"></p>
+      </div>
+      <button type="button" id="close-type" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="type-grid" id="type-grid"></div>
   </section>
   <div class="toast" id="toast" role="status" hidden></div>
 </main>

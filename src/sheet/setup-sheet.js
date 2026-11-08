@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
+import { keepsFixedSize, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
 import { AXIS_STEPS } from '../generator/geometry.js';
 
 export const fmt = (v) => {
@@ -236,12 +236,13 @@ const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 
 /**
  * The sizes the recipe fixed for this element's type, and whether the bike
- * class raised one: they are part of what the organiser asked for.
+ * class raised one: they are part of what the organiser asked for. A size the
+ * element no longer has — it was changed by hand in the editor — is left out.
  */
-function fixedSizes(type, recipe) {
+function fixedSizes({ type, params }, diagonal, recipe) {
   const chosen = recipe.sizes?.[type];
   if (!chosen) return [];
-  return SIZE_OPTIONS[type].filter((o) => chosen[o.key] !== undefined).map((o) => {
+  return SIZE_OPTIONS[type].filter((o) => chosen[o.key] !== undefined && keepsFixedSize(type, o.key, params, diagonal, recipe)).map((o) => {
     const value = chosen[o.key];
     const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike);
     const raised = min !== null && value < min ? min : null;
@@ -296,7 +297,7 @@ export function buildSetupSheet(course) {
     const pivot = course.passes.find((p) => p.element === e.id && p.angle);
     const points = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, d));
-    const fixed = fixedSizes(e.type, course.recipe);
+    const fixed = fixedSizes(e, diagonal, course.recipe);
     const arcs = (e.guides ?? []).map((g) => ({
       center: { x: g.x, y: g.y },
       radii: g.radii,
