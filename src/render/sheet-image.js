@@ -9,6 +9,7 @@
 import { SHAPE_NAMES } from '../generator/recipe.js';
 import { fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
+import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 import { terminalPlates } from './terminals.js';
 
@@ -23,6 +24,14 @@ const BLUE = '#2b72c4';
 const RED = '#cc4330';
 const ANCHOR = '#b07d00';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+// Reserved zones on white paper, in canvas px of the 1080 × 1920 frame.
+const ZONE_STYLE = {
+  runOff: { stroke: '#c99a2e80', fill: '#e9b9461a', width: 2, dash: [3, 7] },
+  zone: { stroke: '#5b687066', width: 1.5, dash: [9, 6] },
+  terminal: { stroke: '#5b687080', width: 1.5, dash: [2, 4] },
+  turnCone: { alpha: '80', width: 1.5, dash: [5, 4] },
+};
+const CONE_FILL = { blue: BLUE, red: RED };
 const BIKE_LABELS = { sport: 'под спортбайк', cruiser: 'под крузер' };
 
 const font = (ctx, size, weight = 400) => {
@@ -147,22 +156,26 @@ function planBlock(course, sheet, maxHeight) {
       ctx.textBaseline = 'middle';
       if (y > 0 && y % every === 0) ctx.fillText(String(y), X(0) - 8, Y(y));
     }
-    // Run-off zones of turning elements: free asphalt a rider who goes wide
-    // can recover on. A pale tint under everything else, nothing to set out.
+    // Reserved zones: what the generator keeps free round each thing, under
+    // everything else and nothing to set out. Run-off zones of turning
+    // elements get a pale tint too; the rest are thin outlines told apart by
+    // dash pattern and tone (see ZONE_STYLE).
     ctx.save();
     ctx.beginPath();
     ctx.rect(ox, oy, pw, ph);
     ctx.clip();
-    for (const e of course.elements) {
-      if (!e.runOff) continue;
+    for (const z of reservedZones(course)) {
+      const st = ZONE_STYLE[z.kind];
       ctx.beginPath();
-      e.runOff.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+      z.poly.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
       ctx.closePath();
-      ctx.fillStyle = '#e9b9461a';
-      ctx.fill();
-      ctx.setLineDash([3, 7]);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#c99a2e80';
+      if (st.fill) {
+        ctx.fillStyle = st.fill;
+        ctx.fill();
+      }
+      ctx.setLineDash(st.dash);
+      ctx.lineWidth = st.width;
+      ctx.strokeStyle = z.kind === 'turnCone' ? `${CONE_FILL[z.color]}${st.alpha}` : st.stroke;
       ctx.stroke();
     }
     ctx.restore();
@@ -617,7 +630,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
       ]),
   ]);
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды с запасом 0,75 м), мелкие серые точки — старт и финиш с местом до и после линии, цветной пунктир — квадрат 3 × 3 м вокруг конуса разворота; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
   ]);
   const { tallBlue, tallRed, low } = sheet.coneList;
   const list = textBlock([
