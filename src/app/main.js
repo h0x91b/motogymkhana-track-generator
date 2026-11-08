@@ -1,13 +1,14 @@
 import {
-  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseRecipe, parseSeed, SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues,
-  TYPE_LEVELS, TYPE_NAMES,
+  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, SHAPE_NAMES, SIZE_OPTIONS, sizeDefault,
+  sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
 } from '../generator/index.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
-import { centreOn, createCamera, drawScene, frameBounds, hitTest, resetCamera } from '../render/scene.js';
+import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
+import { createEditor } from './editor.js';
 import { createGenerator } from './generator-client.js';
-import { loadForm, loadRideSpeed, loadZones, saveForm, saveRideSpeed, saveZones } from './storage.js';
+import { loadEdit, loadForm, loadRideSpeed, loadZones, saveEdit, saveForm, saveRideSpeed, saveZones } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -41,18 +42,28 @@ const state = {
   form: null,
   course: null,
   courseKey: null, // recipe and seed of the shown course
+  courseForm: null, // the form that course was generated from
+  courseRev: 0, // counts every change of the shown course, edits included
+  generated: null, // the shown course as the generator made it, before any edits
+  problems: [], // what an edited course has wrong (generator/layout.js)
+  marks: null, // the same, as the sets the renderer marks in red
+  adopt: null, // an edited layout to put back once the course it was made from is generated
   sheet: null,
   stale: false,
   selected: null,
   setupStep: null,
   setupWanted: false, // «Расстановка» tapped while a course was still being generated
+  editWanted: false, // the same for «Правка»
   ride: null, // { track, riders, s, poses, playing, last } while schematic riders are on the course
   camera: createCamera(),
   hits: [],
+  view: null, // the projection of the last frame drawn: where a finger on the plan points
   requestId: 0,
   shownId: 0,
   image: null, // { id, files } — the setup-sheet frames, prepared ahead of a share tap
-  seedHistory: [], // seeds «Новый seed» replaced, newest last: «↶» brings them back
+  // What «↶» brings back, newest last: seeds «Новый seed» replaced, and edited
+  // courses a new one replaced, as { layout, form }.
+  seedHistory: [],
 };
 
 const SEED_HISTORY = 30;
@@ -273,14 +284,18 @@ const generator = createGenerator(({ id, result }) => {
   if (id !== state.requestId) return; // a newer request is on its way
   state.shownId = id;
   const wanted = state.setupWanted;
+  const editWanted = state.editWanted;
   state.setupWanted = false;
+  state.editWanted = false;
   if (!result.ok) {
     if (result.error.code === 'invalid-input') {
       showErrors(result.error.fields);
       showBanner('Исправьте ошибки в форме', 'error');
     } else {
+      if (editor.active) exitEdit();
       state.course = null;
       state.sheet = null;
+      setProblems([]);
       showBanner(result.error.message, 'error');
     }
     state.image = null;
@@ -289,17 +304,37 @@ const generator = createGenerator(({ id, result }) => {
     return;
   }
   const course = result.course;
-  // Same recipe and seed is the same course: keep the view, selection and setup step.
   const key = canonicalJSON({ recipe: course.recipe, seed: course.seed });
-  if (state.course && !state.stale && key === state.courseKey) {
+  const same = !!state.course && key === state.courseKey;
+  // Edits made to this very recipe and seed go back on top of the course: kept
+  // from the last visit, brought back by «↶», or on screen behind a form error.
+  const adopt = state.adopt && layoutKey(state.adopt) === key ? state.adopt : same && editor.edited ? editor.layout : null;
+  state.adopt = null;
+  // Same recipe and seed is the same course: keep the view, selection and setup step.
+  if (same && !state.stale && (!adopt || adopt === editor.layout)) {
     renderSummary();
     if (wanted) enterSetup();
+    if (editWanted) enterEdit();
     return;
   }
+  // An edited course gives way to the new one; «↶» brings it back.
+  const replaced = !same && !!state.course && editor.edited;
+  if (replaced) {
+    state.seedHistory.push({ layout: editor.layout, form: state.courseForm });
+    if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
+    renderSeedBack();
+  }
+  if (editor.active) exitEdit();
   state.courseKey = key;
+  state.courseForm = { ...state.form };
   stopRide();
-  state.course = course;
-  state.sheet = buildSetupSheet(course);
+  state.generated = course;
+  const shown = editor.load(course, adopt);
+  state.course = shown.course;
+  setProblems(shown.problems);
+  state.sheet = buildSetupSheet(shown.course);
+  state.courseRev++;
+  saveEdit(editor.edited ? editor.layout : null);
   state.stale = false;
   state.selected = null;
   state.image = null;
@@ -309,12 +344,23 @@ const generator = createGenerator(({ id, result }) => {
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
   // Not over the open form: the form says it in its own status line.
-  if (course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
+  if (replaced) toast('Трасса с правками заменена новой. «↶» вернёт её', 6000);
+  else if (!editor.edited && course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
   renderSummary();
   invalidate();
   prepareImageSoon();
   if (wanted) enterSetup();
+  if (editWanted) enterEdit();
 });
+
+const layoutKey = (layout) => canonicalJSON({ recipe: layout.recipe, seed: layout.seed });
+
+function setProblems(problems) {
+  state.problems = problems;
+  state.marks = problems.length
+    ? { elements: new Set(problems.flatMap((p) => p.elements)), connectors: new Set(problems.map((p) => p.connector).filter((c) => c !== null)) }
+    : null;
+}
 
 /** Why the course has fewer elements than asked for, and what to change. */
 function shortfallText(course) {
@@ -336,7 +382,8 @@ function generate(recipe, seed) {
 
 function newSeed() {
   const previous = form.seed.value;
-  if (parseSeed(previous).ok && state.seedHistory.at(-1) !== previous) {
+  // An edited course goes into the history whole, when the new one replaces it.
+  if (!editor.edited && parseSeed(previous).ok && state.seedHistory.at(-1) !== previous) {
     state.seedHistory.push(previous);
     if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
   }
@@ -345,11 +392,15 @@ function newSeed() {
   onFormChange(true);
 }
 
-/** «↶»: the course before the last «Новый seed», so a good one is never lost to a curious tap. */
+/** «↶»: the course before the last «Новый seed», or the edited one a new course replaced, so a good one is never lost to a curious tap. */
 function previousSeed() {
-  const seed = state.seedHistory.pop();
-  if (seed === undefined) return;
-  form.seed.value = seed;
+  const entry = state.seedHistory.pop();
+  if (entry === undefined) return;
+  if (typeof entry === 'string') form.seed.value = entry;
+  else {
+    writeForm(entry.form);
+    state.adopt = entry.layout;
+  }
   renderSeedBack();
   onFormChange(true);
 }
@@ -390,24 +441,28 @@ function renderSummary() {
   const f = state.form;
   const c = state.course;
   const short = c && !state.stale && c.placed < c.requested;
-  const parts = [`${f.width || '?'} × ${f.length || '?'} м`];
-  if (c && !state.stale) {
+  const parts = [{ text: `${f.width || '?'} × ${f.length || '?'} м` }];
+  if (c && !state.stale && editor.edited) {
+    // Edited by hand: the count is what stands on the site, and the seed alone no longer gives this course.
+    parts.push({ text: `${c.elements.length} эл. с правками` });
+    if (state.problems.length) parts.push({ text: problemsWord(state.problems.length), warn: true });
+  } else if (c && !state.stale) {
     const count = c.limitedBy === 'big-elements' ? `${c.placed} из ${c.requested} эл.: большой один` : `влезло ${c.placed} из ${c.requested} эл.`;
-    parts.push(short ? count : `${c.placed} из ${c.requested} эл.`);
+    parts.push({ text: short ? count : `${c.placed} из ${c.requested} эл.`, warn: short });
   }
-  parts.push(DIFFICULTY_NAMES[f.difficulty] ?? '');
-  parts.push(BIKE_NAMES[f.bike] ?? '');
-  parts.push(SHAPE_NAMES[f.shape] ?? '');
-  if (f.train) parts.push('паровозик');
-  parts.push(sizesSummary(f));
-  parts.push(`seed ${f.seed || '—'}`);
-  const shown = parts.filter(Boolean);
+  parts.push({ text: DIFFICULTY_NAMES[f.difficulty] ?? '' });
+  parts.push({ text: BIKE_NAMES[f.bike] ?? '' });
+  parts.push({ text: SHAPE_NAMES[f.shape] ?? '' });
+  if (f.train) parts.push({ text: 'паровозик' });
+  parts.push({ text: sizesSummary(f) });
+  parts.push({ text: `seed ${f.seed || '—'}` });
+  const shown = parts.filter((part) => part.text);
   const summary = $('summary');
-  summary.replaceChildren(...shown.flatMap((text, i) => {
-    const node = short && i === 1 ? Object.assign(document.createElement('span'), { className: 'warn', textContent: text }) : document.createTextNode(text);
+  summary.replaceChildren(...shown.flatMap(({ text, warn }, i) => {
+    const node = warn ? Object.assign(document.createElement('span'), { className: 'warn', textContent: text }) : document.createTextNode(text);
     return i ? [document.createTextNode(' · '), node] : [node];
   }));
-  summary.setAttribute('aria-label', `${shown.join(' · ')}. Открыть рецепт`);
+  summary.setAttribute('aria-label', `${shown.map((part) => part.text).join(' · ')}. Открыть рецепт`);
   renderFormStatus();
 }
 
@@ -429,6 +484,9 @@ function renderFormStatus() {
   } else if (c.placed < c.requested) {
     text = shortfallText(c);
     kind = 'warn';
+  } else if (editor.edited) {
+    text = `Трасса с правками: ${c.elements.length} ${elementsWord(c.elements.length)}${state.problems.length ? `, ${problemsWord(state.problems.length)}` : ''}`;
+    kind = state.problems.length ? 'warn' : '';
   } else text = `Трасса готова: ${c.placed} ${elementsWord(c.placed)}`;
   p.textContent = text;
   p.className = `form-status ${kind}`;
@@ -467,9 +525,13 @@ function draw() {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = state.stale ? 0.45 : 1;
-  const { hits } = drawScene(ctx, state.course, state.camera, W, H, { selected: state.selected, sheet: state.sheet, riders: state.ride?.poses ?? [], zones: showZones });
+  // While editing the zones are always on: they are what an element must keep clear of.
+  const { hits, view } = drawScene(ctx, state.course, state.camera, W, H, {
+    selected: state.selected, sheet: state.sheet, riders: state.ride?.poses ?? [], zones: showZones || editor.active, problems: state.marks, editing: editor.active,
+  });
   ctx.globalAlpha = 1;
   state.hits = hits;
+  state.view = view;
 }
 
 new ResizeObserver(() => invalidate()).observe(canvas);
@@ -491,7 +553,7 @@ function toggleZones() {
 function setView(mode) {
   resetCamera(state.camera, mode);
   for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === mode));
-  if (state.selected) focusElement(state.selected);
+  if (state.selected && !editor.active) focusElement(state.selected);
   invalidate();
 }
 
@@ -509,8 +571,16 @@ function zoomBy(k, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
 }
 
 // Touch: one finger pans the plan (rotates in 3D), two fingers pinch and pan, a tap selects.
+// In «Правка» a finger on the selected element drags it instead; a mouse drags
+// any element it presses, since it has other ways to pan.
 const pointers = new Map();
 let gesture = null;
+const DRAG_FROM = 6; // px a pointer travels before a press becomes a drag
+
+const canvasPoint = (e) => {
+  const rect = canvas.getBoundingClientRect();
+  return [e.clientX - rect.left, e.clientY - rect.top];
+};
 // Mouse: the left button drags like one finger; the right or middle button, or
 // Shift with the left, pans in either view; the wheel or a trackpad pinch zooms.
 canvas.addEventListener('pointerdown', (e) => {
@@ -518,8 +588,13 @@ canvas.addEventListener('pointerdown', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const panButton = e.pointerType === 'mouse' && (e.button === 1 || e.button === 2 || e.shiftKey);
   if (panButton) e.preventDefault();
-  if (pointers.size === 1) gesture = { kind: panButton ? 'pan' : 'one', x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, moved: false };
-  else if (pointers.size === 2) {
+  if (pointers.size === 1) {
+    gesture = { kind: panButton ? 'pan' : 'one', x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, moved: false };
+    const id = !panButton && editor.active && state.view ? hitTest(state.hits, ...canvasPoint(e)) : null;
+    if (id && (e.pointerType === 'mouse' || id === state.selected)) Object.assign(gesture, { kind: 'drag', id, from: state.view.unproject(...canvasPoint(e)) });
+  } else if (pointers.size === 2) {
+    // A second finger turns a drag into a pinch: the element stays where it got to.
+    if (gesture?.kind === 'drag' && gesture.moved) editor.dragEnd();
     const [a, b] = [...pointers.values()];
     gesture = { kind: 'two', dist: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   }
@@ -531,7 +606,14 @@ canvas.addEventListener('pointermove', (e) => {
   }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const cam = state.camera;
-  if (gesture.kind === 'pan') {
+  if (gesture.kind === 'drag') {
+    if (!gesture.moved && Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > DRAG_FROM) gesture.moved = editor.dragStart(gesture.id);
+    if (!gesture.moved) return;
+    canvas.style.cursor = 'grabbing';
+    // Whole metres from where the finger went down: the anchor stays on the metre grid.
+    const [x, y] = state.view.unproject(...canvasPoint(e));
+    editor.dragBy(Math.round(x - gesture.from[0]), Math.round(y - gesture.from[1]));
+  } else if (gesture.kind === 'pan') {
     canvas.style.cursor = 'grabbing';
     cam.panX += e.clientX - gesture.x;
     cam.panY += e.clientY - gesture.y;
@@ -541,7 +623,7 @@ canvas.addEventListener('pointermove', (e) => {
   } else if (gesture.kind === 'one') {
     const dx = e.clientX - gesture.x;
     const dy = e.clientY - gesture.y;
-    if (Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > 6) gesture.moved = true;
+    if (Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > DRAG_FROM) gesture.moved = true;
     if (!gesture.moved) return;
     if (e.pointerType === 'mouse') canvas.style.cursor = 'grabbing';
     if (cam.mode === 'angle') {
@@ -572,10 +654,8 @@ canvas.addEventListener('pointermove', (e) => {
 const endPointer = (e) => {
   if (!pointers.has(e.pointerId)) return;
   pointers.delete(e.pointerId);
-  if (gesture?.kind === 'one' && !gesture.moved && e.type === 'pointerup') {
-    const rect = canvas.getBoundingClientRect();
-    onTap(e.clientX - rect.left, e.clientY - rect.top);
-  }
+  if (gesture?.kind === 'drag' && gesture.moved) editor.dragEnd();
+  else if ((gesture?.kind === 'one' || gesture?.kind === 'drag') && !gesture.moved && e.type === 'pointerup') onTap(...canvasPoint(e));
   if (pointers.size === 1) {
     const [p] = [...pointers.values()];
     gesture = { kind: 'one', x: p.x, y: p.y, ox: p.x, oy: p.y, moved: true };
@@ -596,13 +676,13 @@ canvas.addEventListener('pointerleave', () => (canvas.style.cursor = ''));
 
 /** Under a mouse: a pointer over an element that a click would open, else a hand. */
 function updateCursor(e) {
-  const rect = canvas.getBoundingClientRect();
-  const clickable = state.course && state.setupStep === null && !state.ride?.playing && hitTest(state.hits, e.clientX - rect.left, e.clientY - rect.top);
-  canvas.style.cursor = clickable ? 'pointer' : 'grab';
+  const clickable = state.course && state.setupStep === null && !state.ride?.playing && hitTest(state.hits, ...canvasPoint(e));
+  canvas.style.cursor = clickable ? (editor.active ? 'move' : 'pointer') : 'grab';
 }
 
 function onTap(x, y) {
   if (!state.course || state.setupStep !== null || state.ride?.playing) return;
+  if (editor.active) return editor.select(hitTest(state.hits, x, y));
   const id = hitTest(state.hits, x, y);
   if (id && id !== state.selected) selectElement(id);
   else {
@@ -657,6 +737,13 @@ function selectElement(id) {
     hideElementCard();
     invalidate();
   });
+  // The card's title shares its row with the way into «Правка» for this element.
+  const head = Object.assign(document.createElement('div'), { className: 'card-head' });
+  const edit = Object.assign(document.createElement('button'), { type: 'button', className: 'card-edit', textContent: 'Править' });
+  edit.setAttribute('aria-label', `Править элемент ${card.number}`);
+  edit.addEventListener('click', () => enterEdit(id));
+  box.querySelector('h3').replaceWith(head);
+  head.append(Object.assign(document.createElement('h3'), { textContent: `${card.number}. ${card.name}` }), edit);
   box.hidden = false;
   // Frame the element in the part of the stage the card leaves free: beside it on
   // a wide screen, above it on a phone.
@@ -774,6 +861,79 @@ function exitSetup() {
   applyLayout();
   resetCamera(state.camera);
   invalidate();
+}
+
+// ---------------------------------------------------------------- edit mode
+
+const editor = createEditor({
+  /** The course as edited so far; while an element is dragged, only what the plan needs. */
+  show(course, problems, { dragging = false } = {}) {
+    const edited = editor.edited;
+    // Edits undone all the way give the generated course back, with what it says about itself.
+    state.course = edited ? course : state.generated;
+    setProblems(edited ? problems : []);
+    state.sheet = buildSetupSheet(state.course);
+    state.selected = editor.selectedId;
+    state.courseRev++;
+    state.image = null;
+    invalidate();
+    if (dragging) return;
+    saveEdit(edited ? editor.layout : null);
+    renderSummary();
+  },
+  /** An element picked in the panel that is off the screen (zoomed in elsewhere) is panned into view; the zoom stays. */
+  reveal(id) {
+    const e = state.course.elements.find((x) => x.id === id);
+    if (!e) return;
+    const [x, y] = [(e.zone[0][0] + e.zone[2][0]) / 2, (e.zone[0][1] + e.zone[2][1]) / 2];
+    const [W, H] = [canvas.clientWidth, canvas.clientHeight];
+    const p = makeProjector(state.camera, W, H, state.course.site).project(x, y, 0);
+    const edge = 48;
+    if (p.x < edge || p.x > W - edge || p.y < edge || p.y > H - edge) centreOn(state.camera, W, H, state.course.site, x, y);
+    invalidate();
+  },
+  leave: () => exitEdit(),
+  /** The type picker is modal: what is behind it goes inert. */
+  modal(open) {
+    for (const id of BEHIND_PICKER) $(id).inert = open;
+    $('backdrop').hidden = !open;
+  },
+});
+
+/** «Правка»: the dock gives way to the edit panel; `id` is the element to start with. */
+function enterEdit(id = null) {
+  if (state.requestId !== state.shownId) {
+    state.editWanted = true; // enter once the course being generated is shown
+    return;
+  }
+  if (!state.course || state.stale) {
+    toast('Сначала нужна трасса');
+    return;
+  }
+  stopRide();
+  hideElementCard();
+  $('toast').hidden = true;
+  $('stage').classList.add('in-edit');
+  $('dock').hidden = true;
+  $('edit-panel').hidden = false;
+  editor.enter(id);
+  applyLayout();
+  ($('edit-body').querySelector('.chip[aria-pressed="true"]') ?? $('edit-body').querySelector('.chip')).focus({ preventScroll: true });
+}
+
+function exitEdit() {
+  if (!editor.active) return;
+  editor.leave();
+  state.selected = null;
+  $('stage').classList.remove('in-edit');
+  $('dock').hidden = false;
+  $('edit-panel').hidden = true;
+  applyLayout();
+  renderSummary();
+  invalidate();
+  prepareImageSoon();
+  if (state.problems.length) toast(`На трассе ${problemsWord(state.problems.length)}: они отмечены красным. Исправьте их в «Правке»`, 6000);
+  $('edit-mode').focus({ preventScroll: true });
 }
 
 // ---------------------------------------------------------------- ride
@@ -902,11 +1062,11 @@ let imageTimer = 0;
 function prepareImageSoon() {
   // Prepared ahead so «Картинка» shows its frames straight away.
   clearTimeout(imageTimer);
-  const id = state.shownId;
+  const id = state.courseRev;
   imageTimer = setTimeout(async () => {
     try {
       const files = await buildImageFiles();
-      if (state.shownId === id && state.course) state.image = { id, files };
+      if (state.courseRev === id && state.course) state.image = { id, files };
     } catch {
       // Built on demand at tap time instead.
     }
@@ -961,7 +1121,7 @@ async function openPicture() {
   $('backdrop').hidden = false;
   $('picture-sheet').hidden = false;
   $('picture-sheet').focus({ preventScroll: true });
-  const id = state.shownId;
+  const id = state.courseRev;
   let files = state.image?.id === id ? state.image.files : null;
   if (!files) {
     renderFrames(null);
@@ -971,7 +1131,7 @@ async function openPicture() {
       $('picture-status').textContent = 'Не удалось нарисовать картинку. Закройте и попробуйте ещё раз';
       return;
     }
-    if (state.shownId !== id || $('picture-sheet').hidden) return;
+    if (state.courseRev !== id || $('picture-sheet').hidden) return;
     state.image = { id, files };
   }
   renderFrames(files);
@@ -1043,13 +1203,17 @@ function closePicture() {
 // returns to whatever opened it.
 // On a wide screen the form is not modal: it is docked beside the stage and
 // always open, so «Рецепт» only moves focus into it.
-const BEHIND_FORM = ['stage', 'dock', 'setup-panel'];
+const BEHIND_FORM = ['stage', 'dock', 'setup-panel', 'edit-panel'];
 const BEHIND_PICTURE = [...BEHIND_FORM, 'form-sheet'];
+const BEHIND_PICKER = BEHIND_PICTURE;
+/** A modal sheet is open: the keys of the plan and of the modes behind it are off. */
+const modalOpen = () => formOpen || !$('picture-sheet').hidden || editor.pickerOpen;
 let formOpener = null;
 let formOpen = false; // open as a modal sheet
 function openForm() {
   if (wide.matches) {
     if (state.setupStep !== null) exitSetup();
+    exitEdit();
     form.width.focus();
     return;
   }
@@ -1094,7 +1258,7 @@ function applyLayout() {
       for (const id of BEHIND_FORM) $(id).inert = false;
       $('backdrop').hidden = $('picture-sheet').hidden;
     }
-    sheet.hidden = state.setupStep !== null;
+    sheet.hidden = state.setupStep !== null || editor.active;
     sheet.setAttribute('role', 'region');
     sheet.removeAttribute('aria-modal');
     sheet.removeAttribute('tabindex');
@@ -1125,6 +1289,7 @@ form.addEventListener('focusin', (e) => {
 
 function start() {
   buildTypeChecks();
+  state.adopt = parseLayout(loadEdit());
   const saved = loadForm();
   const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
   delete initial.knownTypes;
@@ -1164,22 +1329,32 @@ function start() {
   }
   $('form-new-seed').addEventListener('click', newSeed);
   $('close-form').addEventListener('click', submitForm);
-  $('backdrop').addEventListener('click', () => ($('picture-sheet').hidden ? closeForm() : closePicture()));
+  $('backdrop').addEventListener('click', () => {
+    if (editor.pickerOpen) editor.closePicker();
+    else if ($('picture-sheet').hidden) closeForm();
+    else closePicture();
+  });
   $('open-form').addEventListener('click', openForm);
   $('summary').addEventListener('click', openForm);
   $('new-seed').addEventListener('click', newSeed);
   $('prev-seed').addEventListener('click', previousSeed);
   $('form-x').addEventListener('click', closeForm);
   $('toast').addEventListener('click', () => ($('toast').hidden = true));
+  $('edit-mode').addEventListener('click', () => enterEdit(state.selected));
   $('setup-mode').addEventListener('click', enterSetup);
   $('setup-close').addEventListener('click', exitSetup);
   $('setup-prev').addEventListener('click', setupPrev);
   $('setup-next').addEventListener('click', setupNext);
+  // Keyboard in «Правка»: arrows move the selected element, R turns it, Delete removes it, Ctrl+Z undoes.
+  document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || !editor.active || modalOpen() || e.target.matches?.('input')) return;
+    if (editor.key(e)) e.preventDefault();
+  });
   // Keyboard: arrows step through «Расстановка», Escape leaves it or closes the element card.
   document.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
     // A docked recipe (wide screen) is not in the way; only the modal sheets are.
-    if (formOpen || !$('picture-sheet').hidden || e.target.matches?.('input')) return;
+    if (modalOpen() || e.target.matches?.('input')) return;
     if (state.setupStep !== null) {
       if (e.key === 'ArrowRight') setupNext();
       else if (e.key === 'ArrowLeft') setupPrev();
@@ -1208,15 +1383,18 @@ function start() {
   $('zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   $('zoom-fit').addEventListener('click', () => {
-    state.selected = null;
-    hideElementCard();
+    // In «Правка» the selected element stays selected: only the camera moves.
+    if (!editor.active) {
+      state.selected = null;
+      hideElementCard();
+    }
     resetCamera(state.camera);
     invalidate();
   });
 
   wide.addEventListener('change', () => {
     applyLayout();
-    if (state.selected && state.setupStep === null) selectElement(state.selected);
+    if (state.selected && state.setupStep === null && !editor.active) selectElement(state.selected);
   });
   applyLayout();
 
@@ -1238,7 +1416,8 @@ function onShortcut(e) {
     case '+': case '=': return click('zoom-in');
     case '-': case '−': return click('zoom-out');
     case '0': return click('zoom-fit');
-    case 'z': case 'Z': case 'я': case 'Я': return click('zones');
+    // Not in «Правка», where the zones are always drawn and their button is away.
+    case 'z': case 'Z': case 'я': case 'Я': return editor.active ? undefined : click('zones');
   }
 }
 

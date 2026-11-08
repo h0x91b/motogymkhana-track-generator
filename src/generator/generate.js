@@ -36,14 +36,14 @@ const BRANCH = 3; // best placements explored per element and type before backtr
 // type is tried only on sites where no course fits with the first few: with
 // many large types allowed, all three can be too big for a small site.
 export const TYPE_TRY_LIMITS = [3, Infinity];
-const CONNECTOR_RADII = [1, 1.5]; // × the minimum turning radius
+export const CONNECTOR_RADII = [1, 1.5]; // × the minimum turning radius
 const BUDGET_BASE = 720; // evaluated placements per attempt…
 const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
 const ROUNDS = 3; // the budget is split into restarts so early choices get revisited
 const EPS = 0.01; // touching a zone edge is fine, entering it by more is not
 // Connectors may not turn more than this in total: beyond it the rider would
 // ride an unmarked loop.
-const MAX_CONNECTOR_TURN = 300;
+export const MAX_CONNECTOR_TURN = 300;
 // Limits tried in turn for the closing connector of a closed course. The looser
 // one is only for sites where no loop-free closed course fits at any size:
 // bringing the rider back round to the start there can need a full turnaround.
@@ -72,14 +72,14 @@ const TRAIN_STEP = 0.5;
  * The route ridden so far, as samples every TRAIN_STEP m with their distance
  * along, hashed into a grid of TRAIN_CLEARANCE cells.
  */
-const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
+export const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
 const trainCell = (x, y) => `${Math.floor(x / TRAIN_CLEARANCE)},${Math.floor(y / TRAIN_CLEARANCE)}`;
 
 /**
  * The trajectory of a placed element as the train check rides it: an exempt
  * one comes wrapped, and its samples are never checked against each other.
  */
-const ridden = (el) => (TRAIN_EXEMPT_TYPES.includes(el.tpl.type) ? { points: el.path } : el.path);
+export const ridden = (el) => (TRAIN_EXEMPT_TYPES.includes(el.tpl.type) ? { points: el.path } : el.path);
 
 /**
  * Samples of polylines ridden straight after `track`, continuing its distance
@@ -113,7 +113,7 @@ function addToGrid(grid, p) {
   grid.get(key).push(p);
 }
 
-function extendTrack(track, polylines) {
+export function extendTrack(track, polylines) {
   const { samples, length, last } = continueTrack(track, polylines);
   const grid = new Map([...track.grid].map(([key, cell]) => [key, [...cell]]));
   for (const p of samples) addToGrid(grid, p);
@@ -125,7 +125,7 @@ function extendTrack(track, polylines) {
  * far and of itself. When it `closes` the route back onto its start, distance
  * along also counts the way through the finish.
  */
-function trainClear(track, next, closes = false) {
+export function trainClear(track, next, closes = false) {
   const { samples, length } = continueTrack(track, next);
   const fresh = new Map();
   const meets = (p, cell) => {
@@ -158,11 +158,11 @@ function trainClear(track, next, closes = false) {
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
 
-function innerRect(recipe) {
+export function innerRect(recipe) {
   return [SITE_MARGIN, SITE_MARGIN, recipe.width - SITE_MARGIN, recipe.length - SITE_MARGIN];
 }
 
-const inside = (r, p) => p[0] >= r[0] - 1e-9 && p[0] <= r[2] + 1e-9 && p[1] >= r[1] - 1e-9 && p[1] <= r[3] + 1e-9;
+export const inside = (r, p) => p[0] >= r[0] - 1e-9 && p[0] <= r[2] + 1e-9 && p[1] >= r[1] - 1e-9 && p[1] <= r[3] + 1e-9;
 
 /** Does a local rectangle of the template fit a w × h area in some orientation? */
 function rectFits(tpl, rect, w, h) {
@@ -215,7 +215,7 @@ function facingAxis(plan, mirrored, from, to) {
 }
 
 /** Places a local template: axis 0..7, anchor on whole metres. */
-function placeTemplate(tpl, axis, ax, ay) {
+export function placeTemplate(tpl, axis, ax, ay) {
   const [dx, dy] = AXIS_STEPS[axis];
   const px = -dy;
   const py = dx;
@@ -272,7 +272,7 @@ function lineTerminal(ideal, dir, from, to) {
   return { cones: [c1, c2], center, dir, zone, zoneBounds: obbBounds(zone) };
 }
 
-function startTerminal(first, closed) {
+export function startTerminal(first, closed) {
   const u = axisVector(first.entryDir);
   const ideal = [first.entry[0] - u[0] * START_LEAD, first.entry[1] - u[1] * START_LEAD];
   const probe = lineTerminal(ideal, first.entryDir, 0, 0);
@@ -280,7 +280,7 @@ function startTerminal(first, closed) {
   return lineTerminal(ideal, first.entryDir, closed ? 0 : -BEHIND_START, lead);
 }
 
-function finishTerminal(last) {
+export function finishTerminal(last) {
   const u = axisVector(last.exitDir);
   const ideal = [last.exit[0] + u[0] * FINISH_LEAD, last.exit[1] + u[1] * FINISH_LEAD];
   const probe = lineTerminal(ideal, last.exitDir, 0, 0);
@@ -289,7 +289,7 @@ function finishTerminal(last) {
 }
 
 /** Cones inside the margin, and the waiting / run-out area on the asphalt. */
-function terminalInside(t, inner, site) {
+export function terminalInside(t, inner, site) {
   return t.cones.every((c) => inside(inner, c)) && obbCorners(t.zone).every((p) => inside(site, p));
 }
 
@@ -298,7 +298,7 @@ function terminalInside(t, inner, site) {
  * radius behind the start line, then straight across it, so the rider is lined
  * up when crossing the line.
  */
-function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, accept = null) {
+export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, accept = null) {
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
@@ -316,7 +316,7 @@ function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, acce
  * lattice, each with a square keep-out that the search treats like a zone.
  * The cone stays on the inside of the turn: blue (left) on a left turn.
  */
-function uTurnCones(arcs) {
+export function uTurnCones(arcs) {
   const turns = [];
   for (const arc of arcs) {
     const last = turns[turns.length - 1];
@@ -341,7 +341,7 @@ function uTurnCones(arcs) {
  * (elements, terminals, other U-turn cones), of every run-off zone and of
  * every route leg in `paths`.
  */
-function conesClear(cones, inner, zones, paths) {
+export function conesClear(cones, inner, zones, paths) {
   for (const cone of cones) {
     if (!inside(inner, cone.zone.c)) return false;
     for (const z of zones) {
@@ -364,7 +364,7 @@ function conesClear(cones, inner, zones, paths) {
  * connector reaches it lined up, like the closing connector of a closed course,
  * with its U-turn cones clear of the finish zone too.
  */
-function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept) {
+export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept) {
   const u = axisVector(startT.dir);
   const v = axisVector(startT.dir + 2);
   const spots = [];
@@ -397,7 +397,7 @@ function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn
   return null;
 }
 
-function pathClear(points, bounds, zones) {
+export function pathClear(points, bounds, zones) {
   for (const z of zones) {
     if (!boundsOverlap(bounds, z.zoneBounds)) continue;
     if (polylineHitsObb(points, z.zone, EPS)) return false;
@@ -428,7 +428,7 @@ function zoneClear(candidate, zones, paths) {
  * when given, passes `accept`. Tried at the minimum turning radius first, then
  * at a wider one, which gives differently shaped detours around nearby zones.
  */
-function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
+export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
       if (path.turnLeft + path.turnRight > maxTurn) continue;
@@ -444,7 +444,7 @@ function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CO
   return null;
 }
 
-const pose = (p, dir) => [p[0], p[1], dirAngle(dir)];
+export const pose = (p, dir) => [p[0], p[1], dirAngle(dir)];
 
 /** v clamped to the integers in [lo, hi], or null when there are none. */
 function clampInt(v, lo, hi) {
@@ -454,7 +454,7 @@ function clampInt(v, lo, hi) {
   return v < a ? a : v > b ? b : v;
 }
 
-function straightLeg(a, b) {
+export function straightLeg(a, b) {
   const points = [a, b];
   return { points, bounds: pointsBounds(points), length: polylineLength(points), turnLeft: 0, turnRight: 0, cones: [] };
 }
@@ -738,7 +738,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
 const rp = ([x, y]) => [round2(x), round2(y)];
 const zoneCorners = (zone) => obbCorners(zone).map(rp);
 
-function assemble(recipe, seed, placed, legs, start, finish) {
+export function assemble(recipe, seed, placed, legs, start, finish) {
   const cones = [];
   const addCone = (hx, hy, height) => {
     const id = `c${cones.length + 1}`;

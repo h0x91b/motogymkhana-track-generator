@@ -147,6 +147,10 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .dot.red { background: #cc4330; }
 .dot.neutral { background: #fff; width: 14px; height: 14px; }
 .close-x { position: absolute; top: 4px; right: 4px; border: 0; background: none; font-size: 22px; }
+/* The title shares its row with «Править», clear of the close button. */
+.card-head { display: flex; align-items: center; gap: 10px; margin: 0 38px 4px 0; }
+.card-head h3 { flex: 1 1 auto; min-width: 0; margin: 0; }
+.card-edit { flex: 0 0 auto; }
 
 .dock, .setup-panel {
   flex: 0 0 auto;
@@ -169,6 +173,9 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .summary .warn { padding: 1px 6px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); font-weight: 700; }
 .actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-bottom: 8px; }
 .actions button { width: 100%; }
+/* Three modes in a row, each as wide as its word: they fit a 320 px screen. */
+.actions.trio { display: flex; }
+.actions.trio button { flex: 1 1 auto; width: auto; padding-inline: 10px; white-space: nowrap; }
 .seed-actions { display: flex; gap: 8px; }
 .seed-actions #prev-seed { flex: 0 0 auto; width: 48px; padding: 0; font-size: 20px; }
 .seed-actions #new-seed { flex: 1 1 auto; }
@@ -182,9 +189,131 @@ button:disabled:active { filter: none; scale: none; }
 /* «Проезд» would leave the setup; «Вся трасса» peeks from under the element card. */
 .stage.in-setup .ride-controls,
 .stage:has(.element-card:not([hidden])) #zoom-fit { display: none; }
+/* In «Правка» nothing rides, and the zones are always drawn. */
+.stage.in-edit .ride-controls,
+.stage.in-edit #zones { display: none; }
 .setup-panel .actions { flex: 0 0 auto; margin: 0 0 4px; }
 .setup-panel .actions { grid-template-columns: 1fr 1fr; }
 .setup-panel .link { width: 100%; }
+
+/* «Правка»: the edit panel takes the dock's place. Its height is fixed, so the
+   plan does not jump under a finger when a problem appears or the selection
+   changes; its head stays put and the body scrolls when an element has more
+   controls than there is room for. */
+.edit-panel {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* Never shorter than the chips, the moves and the route actions need over a
+     three-line problem, on a short screen too; the plan keeps the rest. */
+  height: max(45%, min(320px, 60%));
+  padding: 8px calc(env(safe-area-inset-right) + 10px) calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 10px);
+  background: var(--panel);
+  border-top: 1px solid var(--edge);
+}
+.edit-panel[hidden] { display: none; }
+.edit-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding-bottom: 10px; }
+.edit-head h2 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 17px; line-height: 1.2; text-wrap: balance; overflow-wrap: break-word; }
+.edit-history { display: flex; gap: 6px; }
+.edit-history button, .tool-group button, .chip.add { display: inline-grid; place-items: center; width: 44px; padding: 0; }
+.icon { display: block; width: 22px; height: 22px; }
+/* Padded by the width of a focus ring, so the ring of a button at the edge is not cut off by the scroll box. */
+.edit-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: -5px;
+  padding: 5px;
+}
+.edit-body > * { flex: 0 0 auto; }
+/* More controls under the fold: the last visible ones fade out instead of ending at a clean edge. */
+.edit-body.more-below { -webkit-mask-image: linear-gradient(#000 calc(100% - 14px), #0000); mask-image: linear-gradient(#000 calc(100% - 14px), #0000); }
+/* The route in order, one chip an element; on a phone the row scrolls sideways. */
+.edit-chips {
+  display: flex;
+  gap: 6px;
+  margin: -5px;
+  padding: 5px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.edit-chips.more-after { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), #0000); mask-image: linear-gradient(to right, #000 calc(100% - 28px), #0000); }
+.chip { position: relative; flex: 0 0 auto; padding: 0 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chip-name { display: none; margin-inline-start: 6px; }
+.chip.bad { border-color: var(--danger); }
+.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--panel);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+.chip .mark { position: absolute; top: -4px; inset-inline-end: -4px; }
+.edit-hint { margin: 0; text-wrap: pretty; }
+/* Problems sit under the controls, never among them: one appearing must not
+   push a button from under a finger. A phone shows one at a time, as short as
+   it can be: the mark and «1 из 4» lead the text instead of a heading line. */
+.edit-problems {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 8px 8px 12px;
+  /* The pager button's corner plus the padding round it. */
+  border-radius: 18px;
+  background: var(--err-bg);
+}
+.edit-problems[hidden] { display: none; }
+.problems-text { min-width: 0; }
+.problems-title { float: inline-start; display: flex; align-items: center; gap: 6px; margin: 0; margin-inline-end: 6px; font-weight: 700; color: var(--danger); }
+.problems-word { display: none; }
+.problems-count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.problems-count::after { content: " ·"; }
+#problem-next { display: inline-grid; place-items: center; width: 44px; padding: 0; }
+/* A plain block, so the text runs on after the floated mark and count. */
+.edit-problems ul { margin: 0; padding: 0; list-style: none; }
+.edit-problems li { text-wrap: pretty; }
+.edit-problems li:not(.current) { display: none; }
+.edit-sizes { display: grid; gap: 6px; }
+.edit-sizes:empty { display: none; }
+.size-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(64px, auto) 44px; align-items: center; gap: 6px; }
+.size-name { font-weight: 600; }
+.size-row button { display: inline-grid; place-items: center; padding: 0; }
+.size-value { text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Move and turn in one row of seven: two groups, a wider gap between them. */
+.edit-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 44px)) 2px repeat(3, minmax(0, 44px)); gap: 6px; }
+.tool-group { display: contents; }
+.tool-group button { width: auto; min-width: 0; }
+.tool-group + .tool-group > :first-child { grid-column: 6; }
+@media (max-width: 359px) {
+  .edit-tools { grid-template-columns: repeat(4, 44px); }
+  .tool-group + .tool-group > :first-child { grid-column: 1; }
+}
+.edit-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; }
+.edit-actions button { padding-inline: 6px; white-space: nowrap; }
+button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--edge)); }
+.edit-body > .link { align-self: center; }
+
+/* Keys of the edit mode: only where there is a keyboard and room for the line. */
+.edit-keys { display: none; margin: auto 0 0; padding-top: 16px; font-size: 13px; text-wrap: pretty; }
+
+/* The type picker of «Заменить» and «＋». */
+.type-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding-top: 12px; }
+.type-grid button { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 6px 12px; text-align: start; line-height: 1.25; }
+.type-note { font-size: 12px; color: var(--muted); }
+.type-grid button[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 
 .backdrop { position: fixed; inset: 0; background: #0006; }
 .sheet {
@@ -311,7 +440,7 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
     grid-template-rows: auto minmax(0, 1fr);
   }
   .stage { grid-column: 1; grid-row: 1 / -1; }
-  .dock, .setup-panel, #form-sheet {
+  .dock, .setup-panel, .edit-panel, #form-sheet {
     grid-column: 2;
     border-top: 0;
     border-left: 1px solid var(--edge);
@@ -323,10 +452,26 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   #open-form { display: none; }
   .dock .credits { margin-bottom: 6px; }
   .summary { padding-bottom: 10px; }
-  .setup-panel {
+  .setup-panel, .edit-panel {
     grid-row: 1 / -1;
+    height: auto;
     max-height: none;
     padding: 16px calc(env(safe-area-inset-right) + 16px) 12px 16px;
+  }
+  /* Room for the whole route by name, and for every problem at once, right under the controls. */
+  .edit-chips { flex-wrap: wrap; overflow: visible; }
+  .chip-name { display: inline; }
+  .edit-body { flex: 0 1 auto; gap: 16px; }
+  .edit-problems { margin-top: 16px; padding: 10px 12px; border-radius: 12px; }
+  .problems-title { float: none; margin: 0 0 6px; }
+  .problems-word { display: inline; }
+  .problems-count::before { content: "· "; }
+  .problems-count::after { content: none; }
+  .edit-problems li:not(.current) { display: revert; }
+  .edit-problems li + li { margin-top: 8px; }
+  #problem-next, .problems-at { display: none; }
+  @media (hover: hover) and (pointer: fine) {
+    .edit-keys { display: block; }
   }
   #form-sheet {
     position: static;
@@ -352,13 +497,14 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
     width: min(380px, 45%);
     max-height: calc(100% - 180px);
   }
-  .picture-sheet {
+  .type-sheet { width: min(640px, calc(100vw - 48px)); }
+  .picture-sheet { width: min(960px, calc(100vw - 48px)); }
+  .picture-sheet, .type-sheet {
     left: 50%;
     right: auto;
     top: 50%;
     bottom: auto;
     translate: -50% -50%;
-    width: min(960px, calc(100vw - 48px));
     max-height: calc(100dvh - 48px);
     padding: 20px 24px;
     border-radius: 16px;

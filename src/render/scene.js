@@ -25,6 +25,7 @@ export const PALETTE = {
   side: '#687479',
   anchor: '#ffd166',
   select: '#d8f7ee',
+  problem: '#ff8272',
 };
 
 // Reserved zones on the dark slab: thin and low-contrast, told apart by dash
@@ -84,7 +85,13 @@ export function makeProjector(cam, W, H, site, focus = null) {
     const w = X * sinY + Y * cosY;
     return { x: W / 2 + cam.panX + u * scale, y: midY + cam.panY - (w * cosT + z * sinT) * scale, d: -w * sinT + z * cosT };
   };
-  return { project, scale, base, W, H, focus };
+  /** The ground point (z = 0) under a canvas point: what a finger on the plan points at. */
+  const unproject = (sx, sy) => {
+    const u = (sx - W / 2 - cam.panX) / scale;
+    const w = (midY + cam.panY - sy) / (scale * cosT);
+    return [cx + u * cosY + w * sinY, cy - u * sinY + w * cosY];
+  };
+  return { project, unproject, scale, base, W, H, focus };
 }
 
 function shade(hex, k) {
@@ -106,8 +113,13 @@ export function coneColors(course) {
 /**
  * Draws the course. Returns hit targets for taps: element labels and zones in
  * screen coordinates.
+ *
+ * `problems` marks what an edited course has wrong — `{elements: Set of ids,
+ * connectors: Set of connector numbers}` — in red, with a «!» on the label.
+ * `editing` keeps every element at full strength round the selected one: it is
+ * being moved among them, not read on its own.
  */
-export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, riders = [], zones = true } = {}) {
+export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = null, riders = [], zones = true, problems = null, editing = false } = {}) {
   const site = course ? course.site : { width: 40, length: 60 };
   const view = makeProjector(cam, W, H, site);
   const { project, scale } = view;
@@ -236,7 +248,11 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (const e of course.elements) {
     const poly = e.zone.map(([x, y]) => project(x, y, 0.005));
     hits.push({ kind: 'zone', element: e.id, poly });
-    if (e.id === selected || riders.some((r) => r.element === e.id)) path(e.zone.map(([x, y]) => [x, y, 0.005]), '#d8f7ee99', 0.06, '#8bd5bd26', true);
+    const wrong = problems?.elements.has(e.id);
+    if (wrong) path(e.zone.map(([x, y]) => [x, y, 0.005]), PALETTE.problem, 0.1, `${PALETTE.problem}2e`, true);
+    if (e.id === selected || riders.some((r) => r.element === e.id)) path(e.zone.map(([x, y]) => [x, y, 0.006]), wrong ? null : '#d8f7ee99', 0.06, '#8bd5bd26', true);
+    // The element being edited: a firm outline, so it reads as the thing a finger moves.
+    if (editing && e.id === selected) path(e.zone.map(([x, y]) => [x, y, 0.007]), wrong ? PALETTE.problem : PALETTE.select, 0.12, null, true);
   }
 
   // Walls between low cones (closed sides of boxes and U-turns, corridors) are
@@ -280,22 +296,25 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   }
 
   // Route: element trajectories solid, connectors dashed, arrows every 5 m.
-  const arrow = (x, y, a, alpha) => {
+  const arrow = (x, y, a, alpha, color = PALETTE.route) => {
     ctx.globalAlpha = alpha;
     const c = Math.cos(a);
     const s = Math.sin(a);
     const k = Math.max(1, 5 / (0.4 * scale));
-    path([[x + c * 0.38 * k, y + s * 0.38 * k, 0.04], [x - c * 0.27 * k + s * 0.23 * k, y - s * 0.27 * k - c * 0.23 * k, 0.04], [x - c * 0.27 * k - s * 0.23 * k, y - s * 0.27 * k + c * 0.23 * k, 0.04]], null, 0, PALETTE.route, true);
+    path([[x + c * 0.38 * k, y + s * 0.38 * k, 0.04], [x - c * 0.27 * k + s * 0.23 * k, y - s * 0.27 * k - c * 0.23 * k, 0.04], [x - c * 0.27 * k - s * 0.23 * k, y - s * 0.27 * k + c * 0.23 * k, 0.04]], null, 0, color, true);
     ctx.globalAlpha = 1;
   };
   const elements = new Map(course.elements.map((e) => [e.id, e]));
+  let connectors = 0;
   course.route.legs.forEach((leg) => {
     const connector = leg.kind === 'connector';
     const pts = connector ? leg.path : elements.get(leg.element).path;
     const owner = connector ? null : leg.element;
-    const alpha = selected && owner !== selected ? 0.28 : 1;
+    // Connectors are numbered from 0, the one from the start.
+    const wrong = connector && problems?.connectors.has(connectors++);
+    const alpha = selected && !editing && owner !== selected ? 0.28 : 1;
     ctx.globalAlpha = alpha;
-    path(pts.map(([x, y]) => [x, y, 0.03]), PALETTE.route, connector ? 0.1 : 0.14, null, false, connector ? [0.35, 0.35] : null);
+    path(pts.map(([x, y]) => [x, y, 0.03]), wrong ? PALETTE.problem : PALETTE.route, connector ? (wrong ? 0.16 : 0.1) : 0.14, null, false, connector ? [0.35, 0.35] : null);
     ctx.globalAlpha = 1;
     let total = 0;
     let next = 2.5;
@@ -305,7 +324,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
       while (total + len >= next) {
         const f = (next - total) / len;
-        arrow(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, Math.atan2(b[1] - a[1], b[0] - a[0]), alpha);
+        arrow(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, Math.atan2(b[1] - a[1], b[0] - a[0]), alpha, wrong ? PALETTE.problem : PALETTE.route);
         next += 5;
       }
       total += len;
@@ -334,9 +353,10 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   }
 
   // From the previous anchor to this one, for the selected or ridden element:
-  // an L along X, then along Y, each leg labelled with its signed length.
+  // an L along X, then along Y, each leg labelled with its signed length. Not
+  // while editing: the element is being put somewhere, not found with a tape.
   const chains = (sheet?.cards ?? [])
-    .filter((card) => card.fromPrevious && (card.element === selected || riders.some((r) => r.element === card.element)))
+    .filter((card) => !editing && card.fromPrevious && (card.element === selected || riders.some((r) => r.element === card.element)))
     .flatMap((card) => {
       const { from, dx, dy } = card.fromPrevious;
       const p = sheet.cards.find((c) => c.number === from).anchor;
@@ -365,7 +385,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const d = project(cone.hx / 2, cone.hy / 2).d;
     while (queue.length && queue[0].d < d) drawRider(queue.shift().r, exaggerate);
     const color = cone.height === 'tall' ? PALETTE[colors.get(cone.id)] : PALETTE.low;
-    const dim = selected && elementOf.get(cone.id) !== selected;
+    const dim = selected && !editing && elementOf.get(cone.id) !== selected;
     ctx.globalAlpha = dim ? 0.5 : 1;
     drawCone(cone, color, tilted, exaggerate);
     ctx.globalAlpha = 1;
@@ -469,14 +489,17 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (const e of course.elements) {
     const [cx, cy] = zoneCentre(e.zone);
     const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
-    const text = wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order);
+    // A problem is marked on the label too, not by the red alone.
+    const wrong = problems?.elements.has(e.id);
+    const text = `${wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order)}${wrong ? ' !' : ''}`;
     const sel = e.id === selected;
-    labels.push([text, cx, cy, { size: 13, z: 0.05, bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee', hit: e.id }]);
+    const tone = wrong ? { bg: sel ? '#ffe2dd' : '#7c241ce6', fill: sel ? '#6b1710' : '#ffe9e5' } : { bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee' };
+    labels.push([text, cx, cy, { size: 13, z: 0.05, ...tone, hit: e.id, top: sel }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = byId.get(e.anchor);
       const below = project(a.hx / 2, a.hy / 2, 0).y >= project(cx, cy, 0.05).y;
-      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3' }]);
+      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
     }
   }
   const coneRadius = Math.max(6, 0.35 * scale);
@@ -498,14 +521,18 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     taken.push(box);
     plate(label, spot[0], spot[1], { size: 12, z: 0.03, bg: '#4a3d12', fill: '#ffe7a3' });
   }
-  for (const [text, x, y, o] of labels) plate(text, x, y, o);
+  // The selected element's plates go on top: its name and anchor are what is being read.
+  const onTop = (l) => l[3].top === true;
+  for (const [text, x, y, o] of [...labels.filter((l) => !onTop(l)), ...labels.filter(onTop)]) plate(text, x, y, o);
   scaleBar();
   return { hits, view };
 }
 
 /** Element under a tap at (x, y) CSS px, or null. */
 export function hitTest(hits, x, y) {
-  for (const h of hits) {
+  // Plates drawn later lie on top, so they are asked first.
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
     if (h.kind === 'label' && Math.abs(h.x - x) <= h.w / 2 && Math.abs(h.y - y) <= h.h / 2) return h.element;
   }
   for (const h of hits) {

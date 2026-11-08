@@ -8,8 +8,9 @@
 // origin and is placed on whole metres by the generator.
 //
 // The generator only talks to `typeOptions`, `chooseParams`, `minimalParams`
-// and `instantiate`; the recipe and the UI also read `SIZE_OPTIONS`; everything
-// else here is private to the catalog.
+// and `instantiate`; the recipe and the UI also read `SIZE_OPTIONS`, the editor
+// the hand-set sizes at the end of the file; everything else here is private
+// to the catalog.
 
 import { arcPoints, ellipsePoints, latticeUnit, PI, smoothPath, turning } from './geometry.js';
 
@@ -241,6 +242,9 @@ function latticeChoices(range, unit) {
 function latticeAtLeast(min, unit) {
   return [Math.max(1, Math.ceil(min / unit - 1e-9))];
 }
+
+/** The shortest mirror line whose end cones the loop of radius r, crossing it MIRROR_OVER deep, passes MIRROR_CLEAR away. */
+const mirrorLine = (r) => 2 * Math.sqrt((MIRROR_CLEAR + MIRROR_OVER) * (2 * r + MIRROR_CLEAR - MIRROR_OVER));
 
 /** n + 1 points evenly along an arc around c, from angle a0 sweeping `sweep`. */
 function arcSpots(c, r, a0, sweep, n) {
@@ -538,10 +542,7 @@ const TYPES = {
   mirror: {
     // The line is long enough that the loop, crossing it MIRROR_OVER deep, keeps
     // MIRROR_CLEAR from its end cones: (L/2)² = (r + c)² − (r − over)².
-    options: (t, unit) => {
-      const half = Math.sqrt((MIRROR_CLEAR + MIRROR_OVER) * (2 * t.turn + MIRROR_CLEAR - MIRROR_OVER));
-      return { line: latticeAtLeast(2 * half, unit) };
-    },
+    options: (t, unit) => ({ line: latticeAtLeast(mirrorLine(t.turn), unit) }),
     extra: (t) => ({ radius: t.turn }),
     build({ line, radius }, unit) {
       // A chalk line between two low cones, across the approach. The rider turns
@@ -985,4 +986,211 @@ export function instantiate(type, params, diagonal, mirrored) {
     turnLeft: turn.left,
     turnRight: turn.right,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Sizes set by hand (SPEC «Правка трассы»).
+
+const classRadius = (bike) => BIKE_TURN_RADIUS[bike];
+/** A U-turn zone or a box just wide enough for the class's tightest turn, WALL inside its walls. */
+const classWidth = (bike) => 2 * (classRadius(bike) + WALL);
+
+/**
+ * The sizes of one placed element that the editor lets the user set, in the
+ * order it shows them. They are kept as nominal values — metres in 0.5 m
+ * steps, a count or an angle — so that turning an element onto a diagonal and
+ * back does not drift; `elementParams` maps them onto the lattice of an axis
+ * class. `kind`:
+ *   length — a distance between cones; on a diagonal the nearest lattice length (ADR 0005);
+ *   radius — a radius of the line ridden, in plain metres: no cone stands on it;
+ *   count  — a number of cones;
+ *   choice — one of `values`.
+ * `shown` scales the value the editor prints, where the setup sheet measures
+ * a multiple of the size. `every` keeps a length on every n-th lattice step,
+ * where the cones stand half of it either side of the axis.
+ * The ranges are wider than the difficulty table, which they include. `min`
+ * may follow the bike class — a U-turn inside an element is never tighter than
+ * the class rides (ADR 0006) — or another size of the same element.
+ */
+export const SIZE_SPECS = {
+  'straight-slalom': [
+    { key: 'count', name: 'Конусов', kind: 'count', min: 3, max: 8 },
+    { key: 'step', name: 'Шаг', kind: 'length', min: 3, max: 6 },
+  ],
+  'offset-slalom': [
+    { key: 'count', name: 'Конусов', kind: 'count', min: 3, max: 8 },
+    { key: 'step', name: 'Шаг', kind: 'length', min: 3, max: 7 },
+    // Shown as the setup sheet measures it: between the two rows, twice the shift of a row.
+    { key: 'shift', name: 'Между рядами', kind: 'length', min: 1, max: 2.5, shown: 2 },
+  ],
+  gate: [{ key: 'width', name: 'Ширина', kind: 'length', min: 1.5, max: 3.5 }],
+  'lane-change': [
+    { key: 'width', name: 'Ширина ворот', kind: 'length', min: 1.5, max: 3.5 },
+    { key: 'shift', name: 'Смещение', kind: 'length', min: 1.5, max: 4 },
+  ],
+  'u-turn': [{ key: 'width', name: 'Ширина', kind: 'length', min: classWidth, max: 16 }],
+  'pivot-turn': [
+    { key: 'angle', name: 'Угол', kind: 'choice', values: [270, 360, 720] },
+    { key: 'radius', name: 'Свободный радиус', kind: 'radius', min: (bike) => classRadius(bike) + 0.5, max: 8 },
+  ],
+  'figure-eight': [{ key: 'distance', name: 'Между центрами', kind: 'length', min: (bike) => 2 * Math.SQRT2 * classRadius(bike), max: 20 }],
+  box: [{ key: 'size', name: 'Сторона', kind: 'length', min: classWidth, max: 16 }],
+  circle: [
+    { key: 'radius', name: 'Радиус', kind: 'length', min: 1.5, max: 5 },
+    { key: 'stretch', name: 'Растяжение в овал', kind: 'length', min: 0, max: 4 },
+  ],
+  'fast-circle': [
+    { key: 'radius', name: 'Радиус', kind: 'length', min: 8, max: 15 },
+    { key: 'out', name: 'Радиус выезда', kind: 'radius', min: classRadius, max: 8 },
+  ],
+  mirror: [
+    { key: 'radius', name: 'Радиус разворота', kind: 'radius', min: classRadius, max: 8 },
+    { key: 'line', name: 'Длина линии', kind: 'length', min: (bike, sizes) => mirrorLine(sizes.radius), max: 12 },
+  ],
+  'gate-turn': [
+    { key: 'width', name: 'Ширина ворот', kind: 'length', min: 3, max: 6 },
+    { key: 'radius', name: 'Радиус петли', kind: 'radius', min: classRadius, max: 8 },
+  ],
+  snail: [{ key: 'corridor', name: 'Ширина коридора', kind: 'length', min: 2, max: 3.5 }],
+  tunnel: [
+    { key: 'width', name: 'Ширина ворот', kind: 'length', min: 1.5, max: 3.5 },
+    { key: 'gap', name: 'Между воротами', kind: 'length', min: 3.5, max: 6 },
+    { key: 'shift', name: 'Смещение средних', kind: 'length', min: 1, max: 3 },
+  ],
+  zigzag: [
+    { key: 'step', name: 'Шаг', kind: 'length', min: 2.5, max: 5 },
+    { key: 'shift', name: 'Смещение вбок', kind: 'length', min: 1, max: 3 },
+    { key: 'width', name: 'Ширина коридора', kind: 'length', min: 1.5, max: 3.5 },
+  ],
+  'corridor-slalom': [
+    { key: 'width', name: 'Ширина коридора', kind: 'length', min: 3, max: 6 },
+    { key: 'step', name: 'Шаг перегородок', kind: 'length', min: 2.5, max: 5 },
+  ],
+  'box-eight': [
+    { key: 'distance', name: 'Между центрами', kind: 'length', min: 5, max: 9 },
+    { key: 'gate', name: 'Ширина ворот', kind: 'length', min: 2.5, max: 4 },
+    { key: 'width', name: 'Ширина габарита', kind: 'length', min: 7, max: 10, every: 2 },
+  ],
+  keyhole: [
+    { key: 'radius', name: 'Радиус кольца', kind: 'length', min: 3, max: 4.5 },
+    { key: 'opening', name: 'Проём', kind: 'length', min: 2, max: 3 },
+  ],
+  crescent: [
+    { key: 'radius', name: 'Радиус полукруга', kind: 'length', min: 4, max: 8 },
+    { key: 'flick', name: 'Радиус рывка', kind: 'radius', min: 2, max: 4 },
+  ],
+  swerve: [
+    { key: 'width', name: 'Ширина коридора', kind: 'length', min: 2, max: 3 },
+    { key: 'run', name: 'До тупика', kind: 'length', min: 5, max: 10 },
+  ],
+};
+
+/** Axes 0..7 a type may stand on: curved rings and walls only along the site sides. */
+export const typeAxes = (type) => (TYPES[type].sideOnly ? [0, 2, 4, 6] : [0, 1, 2, 3, 4, 5, 6, 7]);
+
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const half = (v) => Math.round(v * 2) / 2;
+const specMin = (spec, bike, sizes) => (typeof spec.min === 'function' ? spec.min(bike, sizes) : spec.min);
+
+/**
+ * Lattice lengths [lo, hi] a length may take on an axis class. The ends of a
+ * fixed range are read like the difficulty table's single values, V ± 0.25 m,
+ * so a diagonal takes the lattice length nearest to them (ADR 0005). A minimum
+ * that follows from the bike class or another size is never undercut: such a
+ * length takes the shortest lattice length not below what is asked, up to the
+ * one that covers the end of its range.
+ */
+function latticeRange(spec, unit, bike, sizes) {
+  const atLeast = typeof spec.min === 'function';
+  const every = spec.every ?? 1;
+  const lo = Math.ceil((specMin(spec, bike, sizes) - (atLeast ? 0 : 0.25)) / unit / every - 1e-9) * every;
+  const hi = atLeast ? Math.ceil(spec.max / unit - 1e-9) : Math.floor((spec.max + 0.25) / unit / every + 1e-9) * every;
+  return [lo, Math.max(lo, hi)];
+}
+
+/** The lattice length of a nominal one inside [lo, hi], on the steps the spec allows. */
+const latticeLength = (spec, value, unit, lo, hi) => clamp(Math.round(value / unit / (spec.every ?? 1)) * (spec.every ?? 1), lo, hi);
+
+/**
+ * Nominal sizes with every radius, count and choice inside its range. Lengths
+ * stay as they are: their range depends on the axis class (`elementParams`).
+ */
+function boundedSizes(type, sizes, bike) {
+  const out = { ...sizes };
+  for (const spec of SIZE_SPECS[type]) {
+    if (spec.kind === 'choice') out[spec.key] = spec.values.includes(out[spec.key]) ? out[spec.key] : spec.values[0];
+    else if (spec.kind !== 'length') out[spec.key] = clamp(out[spec.key], specMin(spec, bike, out), spec.max);
+  }
+  return out;
+}
+
+/** Build parameters of an element with these nominal sizes on an axis class, each inside its range. */
+export function elementParams(type, sizes, diagonal, bike) {
+  const unit = unitFor(diagonal);
+  const bounded = boundedSizes(type, sizes, bike);
+  const params = {};
+  for (const spec of SIZE_SPECS[type]) {
+    params[spec.key] = spec.kind === 'length'
+      ? latticeLength(spec, bounded[spec.key], unit, ...latticeRange(spec, unit, bike, bounded))
+      : bounded[spec.key];
+  }
+  return params;
+}
+
+/** Nominal sizes of an element built with these parameters on an axis class. */
+export function elementSizes(type, params, diagonal) {
+  const unit = unitFor(diagonal);
+  return Object.fromEntries(SIZE_SPECS[type].map((spec) => [spec.key, spec.kind === 'length' ? half(params[spec.key] * unit) : params[spec.key]]));
+}
+
+/**
+ * Whether an element built with these parameters still has the size the recipe
+ * fixed under an option of its type: an edit by hand may have taken it elsewhere.
+ */
+export function keepsFixedSize(type, key, params, diagonal, recipe) {
+  const only = { [type]: { [key]: recipe.sizes[type][key] } };
+  const fixed = TYPES[type].options(sizeTable(recipe.difficulty, recipe.bike, type, only), unitFor(diagonal));
+  // The figure-eight's loop radius is fixed through the base it follows from.
+  const param = key === 'loop' ? 'distance' : key;
+  return fixed[param].includes(params[param]);
+}
+
+/**
+ * Sizes of a type at a difficulty that the editor starts a new element from:
+ * the middle of each range, and what the recipe fixed for the type.
+ */
+export function typicalSizes(type, difficulty, bike, sizes) {
+  const keys = Object.keys(TYPES[type].options(sizeTable(difficulty, bike), 0.5));
+  return elementSizes(type, paramsFromDraws(type, difficulty, bike, false, keys.map(() => 0.5), sizes), false);
+}
+
+/**
+ * The sizes of an element as the editor shows them, each with the nominal
+ * sizes one step smaller and one step larger (null at the end of its range).
+ * A length steps by 0.5 m on a side axis and by one lattice step — 0.5 m
+ * along X and along Y, about 0.7 m — on a diagonal (by `every` such steps
+ * where the spec says so); `value` is the length a tape shows between the
+ * cones either way.
+ */
+export function sizeControls(type, sizes, diagonal, bike) {
+  const unit = unitFor(diagonal);
+  const bounded = boundedSizes(type, sizes, bike);
+  return SIZE_SPECS[type].map((spec) => {
+    const { key, name, kind } = spec;
+    const to = (v) => ({ ...bounded, [key]: v });
+    if (kind === 'length') {
+      const [lo, hi] = latticeRange(spec, unit, bike, bounded);
+      const k = latticeLength(spec, bounded[key], unit, lo, hi);
+      const step = spec.every ?? 1;
+      return { key, name, kind, value: k * unit * (spec.shown ?? 1), diagonal, less: k > lo ? to(half((k - step) * unit)) : null, more: k < hi ? to(half((k + step) * unit)) : null };
+    }
+    const v = bounded[key];
+    if (kind === 'choice') {
+      const i = spec.values.indexOf(v);
+      return { key, name, kind, value: v, less: i > 0 ? to(spec.values[i - 1]) : null, more: i < spec.values.length - 1 ? to(spec.values[i + 1]) : null };
+    }
+    const step = kind === 'count' ? 1 : 0.5;
+    const lo = specMin(spec, bike, bounded);
+    return { key, name, kind, value: v, less: v - step >= lo - 1e-9 ? to(v - step) : null, more: v + step <= spec.max + 1e-9 ? to(v + step) : null };
+  });
 }
