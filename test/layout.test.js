@@ -293,7 +293,7 @@ describe('editing a layout', () => {
     }
   });
 
-  test('a type used from medium can be put on an easy course', () => {
+  test('a snail, licence-test eight and keyhole can be put on an easy course', () => {
     const easy = layoutOf(generated.find((c) => c.recipe.difficulty === 'easy' && c.route.shape === 'open')); // the easy open recipe
     for (const type of ['snail', 'box-eight', 'keyhole']) expect(routed(replaceElement(easy, 0, type)).elements[0].type).toBe(type);
   });

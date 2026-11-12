@@ -1,6 +1,6 @@
 import {
   BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
-  SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
+  SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
 import { buildSetupSheet, dist, fmt } from '../sheet/setup-sheet.js';
@@ -146,8 +146,7 @@ function buildTypeChecks() {
     label.className = 'check';
     // Name and hints in one span: the label is a flex row, so loose text would wrap as a separate column.
     label.innerHTML = `<input type="checkbox" name="types" value="${t}"> <span>${TYPE_NAMES[t]}`
-      + `${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}`
-      + `${TYPE_LEVELS[t] ? '<span class="level-off"> — со средней сложности</span>' : ''}</span>`;
+      + `${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}</span>`;
     row.append(label);
     box.append(row);
     if (!SIZE_OPTIONS[t]) continue;
@@ -205,18 +204,15 @@ function syncSizes() {
 
 /**
  * Types the generator leaves out whatever is ticked — looped ones in
- * «паровозик», the medium-and-up ones at easy: say so on the boxes.
+ * «паровозик»: say so on the boxes. The difficulty leaves every type in.
  */
 function syncTypes() {
   const train = form.train.checked;
-  const difficulty = form.querySelector('[name="difficulty"]:checked')?.value;
   $('train-hint').hidden = !train;
   for (const t of ELEMENT_TYPES) {
-    const level = TYPE_LEVELS[t] && !TYPE_LEVELS[t].includes(difficulty);
-    form.querySelector(`[name="types"][value="${t}"]`).disabled = (train && LOOPED_TYPES.includes(t)) || !!level;
+    form.querySelector(`[name="types"][value="${t}"]`).disabled = train && LOOPED_TYPES.includes(t);
   }
   for (const s of form.querySelectorAll('.train-off')) s.hidden = !train;
-  for (const s of form.querySelectorAll('.level-off')) s.hidden = difficulty !== 'easy';
   syncSizes();
   syncSafety();
 }

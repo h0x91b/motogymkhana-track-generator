@@ -37,18 +37,12 @@ export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'fas
 // mirror's legs cross once, short of its line.
 export const TRAIN_EXEMPT_TYPES = ['mirror', 'snail'];
 
-// Types too tight or too long for a beginner: the generator uses them from
-// these difficulties only. The other types are used at every difficulty.
-export const TYPE_LEVELS = { snail: ['medium', 'hard'], 'box-eight': ['medium', 'hard'], keyhole: ['medium', 'hard'] };
-
-const atLevel = (type, difficulty) => !TYPE_LEVELS[type] || TYPE_LEVELS[type].includes(difficulty);
-
 /**
- * The types the generator may use: the allowed ones at this difficulty,
- * without loops in «паровозик».
+ * The types the generator may use: the ticked ones, without loops in
+ * «паровозик». Every type is used at every difficulty, which changes only the
+ * sizes inside the elements (ADR 0017).
  */
-export const usableTypes = (recipe) =>
-  recipe.types.filter((t) => atLevel(t, recipe.difficulty) && !(recipe.train && LOOPED_TYPES.includes(t)));
+export const usableTypes = (recipe) => recipe.types.filter((t) => !(recipe.train && LOOPED_TYPES.includes(t)));
 
 export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
@@ -243,10 +237,6 @@ export function parseRecipe(input) {
   if (!types || types.length === 0) errors.types = 'Отметьте хотя бы один тип элемента';
   else if (train && types.every((t) => LOOPED_TYPES.includes(t))) {
     errors.types = 'В паровозике нет элементов с петлями и встречной ездой: отметьте другой тип';
-  } else if (difficulty && types.every((t) => !atLevel(t, difficulty))) {
-    errors.types = 'Улитка, восьмёрка в габарите и замочная скважина — только для средней и сложной: отметьте другой тип';
-  } else if (difficulty && train && usableTypes({ types, difficulty, train }).length === 0) {
-    errors.types = 'Ни один отмеченный тип не подходит для паровозика на этой сложности: отметьте другой тип';
   }
 
   const sizes = parseSizes(src.sizes, types);

@@ -20,7 +20,7 @@ import {
 } from './generate.js';
 import { axisVector, boundsOverlap, dirAngle, obbCorners, obbOverlap, pointsBounds, polylineLength, wrapPi } from './geometry.js';
 import {
-  ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf, TYPE_LEVELS,
+  ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
 
 export { ELEMENTS_MAX };
@@ -456,10 +456,9 @@ export function elementSafety(layout, i) {
   });
 }
 
-/** Typical sizes of a type for the layout's difficulty and bike class; a type used only from medium takes medium sizes on an easy course. */
+/** Typical sizes of a type for the layout's difficulty and bike class. */
 function startingSizes(type, recipe) {
-  const levels = TYPE_LEVELS[type];
-  return typicalSizes(type, levels && !levels.includes(recipe.difficulty) ? levels[0] : recipe.difficulty, recipe.bike, recipe.sizes);
+  return typicalSizes(type, recipe.difficulty, recipe.bike, recipe.sizes);
 }
 
 /** The axis on which the element is entered as close to `dir` (0..7) as its type allows. */

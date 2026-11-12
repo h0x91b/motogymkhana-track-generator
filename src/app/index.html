@@ -99,12 +99,13 @@
         </span>
       </label>
       <p class="err" id="err-elements" data-for="elements"></p>
-      <fieldset class="segmented">
+      <fieldset class="segmented" aria-describedby="difficulty-hint">
         <legend>Сложность</legend>
         <label><input type="radio" name="difficulty" value="easy"><span>Лёгкая</span></label>
         <label><input type="radio" name="difficulty" value="medium"><span>Средняя</span></label>
         <label><input type="radio" name="difficulty" value="hard"><span>Сложная</span></label>
       </fieldset>
+      <p class="muted hint bike-hint" id="difficulty-hint">Сложность меняет размеры внутри элементов — шаг слалома, ширину ворот и коридоров, запас на разворотах, — а не набор типов.</p>
       <fieldset class="segmented" aria-describedby="bike-hint">
         <legend>Мотоцикл</legend>
         <label><input type="radio" name="bike" value="sport"><span>Спорт</span></label>
