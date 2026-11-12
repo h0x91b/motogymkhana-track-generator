@@ -255,7 +255,8 @@ describe('placement', () => {
     each((c) => {
       const byId = conesById(c);
       const start = c.route.start.cones.map((id) => coneXY(byId.get(id)));
-      const finish = c.route.shape === 'closed' ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
+      // A closed course's finish is its start line, a `return` one's its start box.
+      const finish = c.route.shape !== 'open' ? [] : c.route.finish.cones.map((id) => coneXY(byId.get(id)));
       c.elements.forEach((e, i) => {
         expect(Boolean(e.runOff), `${label(c)} ${e.id} ${e.type} run-off`).toBe(Boolean(RUN_OFF_TYPES[e.type]));
         if (!e.runOff) return;
@@ -808,50 +809,53 @@ describe('route', () => {
     });
   });
 
-  test('a closed course starts and finishes on the same line; an open one and one finishing by the start on two lines', () => {
+  test('a closed course starts and finishes on one line, a finish by the start in one box, an open course on two lines', () => {
     each((c, recipe) => {
       const { start, finish } = c.route;
       expect(c.route.shape).toBe(recipe.shape);
-      if (recipe.shape === 'closed') {
-        expect(finish).toEqual(start);
-      } else {
-        expect(finish.cones).not.toEqual(start.cones);
-      }
+      if (recipe.shape === 'closed') expect(finish).toEqual(start);
+      else if (recipe.shape === 'return') expect(finish.cones).toEqual(start.cones);
+      else expect(finish.cones).not.toEqual(start.cones);
       for (const t of [start, finish]) {
-        expect(t.cones).toHaveLength(2);
+        expect(t.cones).toHaveLength(recipe.shape === 'return' ? 4 : 2);
         for (const id of t.cones) expect(conesById(c).get(id).height).toBe('low');
       }
     });
   });
 
-  test('a course finishing by the start: the finish line within 8 m of the start line, zones apart, the way back clear of the start', () => {
-    // Separating axis test of two convex quadrilaterals.
-    const apart = (a, b) => [a, b].some((poly) => poly.some((p, i) => {
-      const q = poly[(i + 1) % poly.length];
-      const n = [q[1] - p[1], p[0] - q[0]];
-      const proj = (pts) => pts.map((r) => r[0] * n[0] + r[1] * n[1]);
-      const pa = proj(a);
-      const pb = proj(b);
-      return Math.max(...pa) <= Math.min(...pb) + 1e-6 || Math.max(...pb) <= Math.min(...pa) + 1e-6;
-    }));
+  test('a course finishing by the start: one square box, left across its start line and entered again by its back or a side, never the front', () => {
+    const angleOf = (dir) => (dir * Math.PI) / 4;
+    const off = (a, b) => Math.abs(((a - b + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
     let n = 0;
+    const seen = new Set();
     each((c, recipe) => {
       if (recipe.shape !== 'return') return;
       n++;
+      const byId = conesById(c);
       const { start, finish, legs } = c.route;
-      expect(Math.hypot(finish.x - start.x, finish.y - start.y), label(c)).toBeLessThanOrEqual(8);
-      expect(apart(start.zone, finish.zone), label(c)).toBe(true);
-      expect([start.dir, (start.dir + 4) % 8]).toContain(finish.dir);
+      const box = start.cones.map((id) => coneXY(byId.get(id)));
+      // A square: the start line in front, its two cones behind, as deep as the line is wide.
+      const side = (i) => Math.hypot(box[(i + 1) % 4][0] - box[i][0], box[(i + 1) % 4][1] - box[i][1]);
+      for (const i of [1, 2, 3]) expect(side(i), label(c)).toBeCloseTo(side(0), 6);
+      expect(Math.hypot((box[0][0] + box[1][0]) / 2 - start.x, (box[0][1] + box[1][1]) / 2 - start.y), label(c)).toBeLessThan(0.02);
+      // The rider stops in the middle of the box, having entered by its back or a side.
+      const middle = [(box[0][0] + box[2][0]) / 2, (box[0][1] + box[2][1]) / 2];
+      expect(Math.hypot(finish.x - middle[0], finish.y - middle[1]), label(c)).toBeLessThan(0.02);
+      const turn = (finish.dir - start.dir + 8) % 8;
+      expect([0, 2, 6], label(c)).toContain(turn);
+      seen.add(turn);
+      expect(finish.zone).toEqual(start.zone);
+      // Lined up one turning radius before the box's zone, then straight in;
+      // only that last straight is inside the zone.
       const back = legs.at(-1);
       expect(back.to).toBe('finish');
-      expect(polylineEnters(back.path, start.zone), label(c)).toBe(false);
-      // Lined up: the last stretch crosses the finish line square on.
-      const [p, q] = back.path.slice(-2);
-      const a = Math.atan2(q[1] - p[1], q[0] - p[0]);
-      const d = Math.abs(((a - (finish.dir * Math.PI) / 4 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
-      expect(d, label(c)).toBeLessThan(1e-6);
+      const [p, q, r] = back.path.slice(-3);
+      for (const [a, b] of [[p, q], [q, r]]) expect(off(Math.atan2(b[1] - a[1], b[0] - a[0]), angleOf(finish.dir)), label(c)).toBeLessThan(1e-6);
+      expect(polylineEnters(back.path.slice(0, -1), start.zone), label(c)).toBe(false);
     });
     expect(n).toBeGreaterThan(0);
+    // Not only through the back: the sides are used too.
+    expect(seen.size).toBeGreaterThan(1);
   });
 
   test('only allowed types are used, never the same type twice in a row', () => {
@@ -942,8 +946,9 @@ describe('паровозик', () => {
         for (let i = 0; i < pts.length; i++) {
           for (let j = i + 1; j < pts.length; j++) {
             const along = at[j] - at[i];
-            // A closed course is ridden round and round: count the way through the finish too.
-            const gap = c.route.shape === 'closed' ? Math.min(along, total - along) : along;
+            // A closed course is ridden round and round, and a finish by the start
+            // ends in the box it left: count the way through the finish too.
+            const gap = c.route.shape !== 'open' ? Math.min(along, total - along) : along;
             if (gap < TRAIN_NEAR || (owner[i] !== null && owner[i] === owner[j])) continue;
             const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]);
             if (d < TRAIN_CLEARANCE) throw new Error(`${name} seed ${c.seed}: ${d.toFixed(2)} m apart after ${gap.toFixed(1)} m of route at (${pts[i].map((v) => v.toFixed(1))})`);

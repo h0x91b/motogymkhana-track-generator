@@ -7,7 +7,7 @@ import { editAxes } from '../src/generator/catalog.js';
 import { ELEMENT_TYPES } from '../src/generator/recipe.js';
 import { conesCsv } from '../src/file/course-file.js';
 import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
-import { buildSetupSheet, dist } from '../src/sheet/setup-sheet.js';
+import { boxEntrySide, buildSetupSheet, dist } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
 
 const RECIPES = [
@@ -49,7 +49,8 @@ function reconstruct(sheet) {
     // U-turn cones of the connector leaving the element, from its anchor.
     for (const t of card.turnCones) cones.push({ pos: [card.anchor.x + t.dx, card.anchor.y + t.dy], height: 'tall', color: t.color });
   }
-  for (const t of sheet.shape === 'closed' ? [sheet.start] : [sheet.start, sheet.finish]) {
+  // A closed course finishes on its start line, a `return` one in its start box.
+  for (const t of sheet.shape === 'open' ? [sheet.start, sheet.finish] : [sheet.start]) {
     for (const c of t.cones) cones.push({ pos: [c.x, c.y], height: 'low', color: 'neutral' });
   }
   return cones;
@@ -261,29 +262,30 @@ describe('setup sheet', () => {
     expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
-  test('a closed course lists one start-finish line, an open course two lines', () => {
+  test('a closed course lists one start-finish line, a finish by the start one box, an open course two lines', () => {
     for (const course of courses) {
       const sheet = buildSetupSheet(course);
-      expect(sheet.start.cones).toHaveLength(2);
-      if (course.route.shape === 'closed') expect(sheet.finish).toEqual(sheet.start);
+      const { shape } = course.route;
+      expect(sheet.start.cones).toHaveLength(shape === 'return' ? 4 : 2);
+      if (shape === 'closed') expect(sheet.finish).toEqual(sheet.start);
+      else if (shape === 'return') expect(sheet.finish.cones).toEqual(sheet.start.cones);
       else expect(sheet.finish.cones).not.toEqual(sheet.start.cones);
     }
   });
 
-  test('a finish by the start is measured from the start line, and the offset leads to it', () => {
+  test('a finish by the start names the box size and the side the rider rides back in by', () => {
     let n = 0;
     for (const course of courses) {
       const sheet = buildSetupSheet(course);
       expect(sheet.shape).toBe(course.route.shape);
       if (course.route.shape !== 'return') {
-        expect(sheet.finish.fromStart).toBeUndefined();
+        expect(sheet.finish.entry).toBeUndefined();
         continue;
       }
       n++;
-      const { dx, dy } = sheet.finish.fromStart;
-      expect(sheet.start.center.x + dx).toBeCloseTo(sheet.finish.center.x, 9);
-      expect(sheet.start.center.y + dy).toBeCloseTo(sheet.finish.center.y, 9);
-      expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(8);
+      expect([3, 2 * Math.SQRT2].some((size) => Math.abs(sheet.start.box.size - size) < 1e-9)).toBe(true);
+      expect(sheet.finish.entry).toBe(boxEntrySide(sheet.start.dir, sheet.finish.dir));
+      expect(['back', 'left', 'right']).toContain(sheet.finish.entry);
     }
     expect(n).toBe(SEEDS);
   });

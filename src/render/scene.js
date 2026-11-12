@@ -7,7 +7,7 @@ import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
-import { terminalPlates } from './terminals.js';
+import { boxArrows, terminalPlates } from './terminals.js';
 
 const TAU = Math.PI * 2;
 // Below this many pixels per metre only the selected element shows its dimensions.
@@ -265,20 +265,16 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     }
   }
 
-  // A finish by the start: the zone both lines stand in, dashed round them.
+  // A finish by the start: the start-and-finish box, its sides through its four cones.
   if (course.route.shape === 'return') {
-    const pts = [...course.route.start.cones, ...course.route.finish.cones].map((id) => byId.get(id));
-    const x0 = Math.min(...pts.map((c) => c.hx / 2)) - 1;
-    const x1 = Math.max(...pts.map((c) => c.hx / 2)) + 1;
-    const y0 = Math.min(...pts.map((c) => c.hy / 2)) - 1;
-    const y1 = Math.max(...pts.map((c) => c.hy / 2)) + 1;
-    path([[x0, y0, 0.01], [x1, y0, 0.01], [x1, y1, 0.01], [x0, y1, 0.01]], '#edf0dfcc', 0.07, null, true, [0.4, 0.3]);
+    const pts = course.route.start.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2, 0.01]);
+    path(pts, '#edf0dfcc', 0.07, null, true, [0.4, 0.3]);
   }
 
   // Start / finish lines: a chequered band between the two low cones.
   const PLATE_TEXT = { start: 'СТАРТ', finish: 'ФИНИШ', both: 'СТАРТ · ФИНИШ' };
   for (const { t, kind, x: lx, y: ly } of terminalPlates(course.route, 1.6)) {
-    const [a, b] = t.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
+    const [a, b] = t.cones.slice(0, 2).map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const ux = Math.cos((t.dir * Math.PI) / 4);
     const uy = Math.sin((t.dir * Math.PI) / 4);
     const n = 10;
@@ -330,6 +326,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
       total += len;
     }
   });
+
+  // Out of the start-and-finish box and back into it.
+  for (const { x, y, a } of boxArrows(course.route)) arrow(x, y, a, 1, PALETTE.anchor);
 
   // Anchors: a ring on the ground around each element's anchor cone (a ring
   // element's centre, as the setup sheet measures it).

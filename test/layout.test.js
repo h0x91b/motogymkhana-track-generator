@@ -593,18 +593,32 @@ describe('problems of a layout', () => {
     }
   });
 
-  test('a finish by the start stays by the start while there is room, and says so when there is none', () => {
+  test('a finish by the start rides back into the start box, and says so when there is no way in', () => {
     const near = routeLayout(pair({ x: 35, y: 30 }, { shape: 'return' }));
     expect(near.problems).toEqual([]);
     const { start, finish } = near.course.route;
-    expect(Math.hypot(finish.x - start.x, finish.y - start.y)).toBeLessThanOrEqual(8);
-    // A strip just wide enough for the gates leaves no room for a second line beside the start.
+    expect(finish.cones).toEqual(start.cones);
+    expect(start.cones).toHaveLength(4);
+    expect(near.course.route.legs.at(-1).path.at(-1)).toEqual([finish.x, finish.y]);
+    // A strip just wide enough for the gates leaves no room to line up behind or beside the box.
     const tight = pair({ x: 35, y: 6 }, { shape: 'return' });
     tight.recipe = { ...tight.recipe, length: 12 };
     tight.elements[0] = { ...tight.elements[0], x: 10, y: 6 };
     const away = routeLayout(tight);
-    expect(codes(away.problems)).toContain('finish-away');
-    expect(away.course.route.legs.at(-1).path.length).toBeGreaterThan(1);
+    const problem = away.problems.find((p) => p.connector === 2);
+    expect(problem.text).toContain('2 → финиш');
+    expect(away.course.route.legs.at(-1).path.at(-1)).toEqual([away.course.route.finish.x, away.course.route.finish.y]);
+  });
+
+  test('a first element turned off the lattice still gets a square start box', () => {
+    const { course } = routeLayout(turnElementTo(pair({ x: 35, y: 30 }, { shape: 'return' }), 0, 22.5));
+    const byId = new Map(course.cones.map((c) => [c.id, c]));
+    const box = course.route.start.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
+    expect(Number.isInteger(course.route.start.dir)).toBe(false);
+    expect(box).toHaveLength(4);
+    const side = (i) => Math.hypot(box[(i + 1) % 4][0] - box[i][0], box[(i + 1) % 4][1] - box[i][1]);
+    for (const i of [1, 2, 3]) expect(side(i)).toBeCloseTo(side(0), 6);
+    expect(course.route.finish.cones).toEqual(course.route.start.cones);
   });
 
   test('in «паровозик» an element that rides over itself is reported', () => {

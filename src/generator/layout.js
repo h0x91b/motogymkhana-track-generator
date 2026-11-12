@@ -15,7 +15,7 @@
 import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  assemble, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeFinish, innerRect, inside,
+  assemble, boxEntries, boxFinish, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
   MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
@@ -217,7 +217,7 @@ export function routeLayout(layout) {
       }
     });
   };
-  const start = startTerminal(placed[0], closed);
+  const start = startTerminal(placed[0], shape);
   terminalProblems(start, 'Старт', 0, 'start');
   /** The finish line of an open course: straight past the last element. */
   const finishAhead = () => {
@@ -234,7 +234,7 @@ export function routeLayout(layout) {
   // Everything a connector keeps out of: zones of the elements and the lines, then the U-turn cones as they appear.
   const zones = [start, ...placed, ...(finish ? [finish] : [])];
   const zoneName = (z) => {
-    if (z === start) return 'зону старта';
+    if (z === start) return shape === 'return' ? 'коробку старта' : 'зону старта';
     if (z === finish) return 'зону финиша';
     const i = placed.indexOf(z);
     return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
@@ -301,21 +301,27 @@ export function routeLayout(layout) {
       connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → старт`, [id(n - 1), id(0)]);
     }
     legs.push(leg);
-  } else {
-    if (shape === 'return') {
-      // A finish line by the start, reached lined up like a closing connector.
-      const from = pose(last.exit, last.exitDir);
-      const accept = track && ((pts) => trainClear(track, [pts]));
-      let home = null;
-      for (const limit of CLOSING_TURN_LIMITS) home = home || homeFinish(from, start, radius, inner, site, zones, route(), limit, accept, coneGap);
-      if (home) {
-        finish = home.terminal;
-        legs.push(home.leg);
-      } else {
-        report('finish-away', `Финишу нет места у старта, он стоит за элементом ${n} — освободите место у старта или поверните элемент ${n} выходом к нему`, { elements: [id(0), id(n - 1)], connector: n });
-        finish = finishAhead();
+  } else if (shape === 'return') {
+    // Back into the start-and-finish box, lined up like a closing connector.
+    const from = pose(last.exit, last.exitDir);
+    const accept = track && ((pts) => trainClear(track, [pts], true));
+    let home = null;
+    for (const limit of CLOSING_TURN_LIMITS) home = home || homeBox(from, start, radius, inner, zones, route(), limit, accept, coneGap);
+    if (!home) {
+      // The least bad way in, through the back unless a side is less wrong.
+      let best = null;
+      for (const entry of boxEntries(start, radius)) {
+        const loose = looseConnector(from, pose(entry.approach, entry.dir), radius, inner, zones, route(), CLOSING_TURN_LIMITS.at(-1), accept, [entry.edge], coneGap);
+        if (!best || loose.weight < best.loose.weight) best = { loose, entry };
       }
+      const { loose, entry } = best;
+      const points = [...loose.leg.points, start.box];
+      home = { dir: entry.dir, leg: { ...loose.leg, points, bounds: pointsBounds(points) } };
+      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1), id(0)]);
     }
+    finish = boxFinish(start, home.dir);
+    legs.push(home.leg);
+  } else {
     if (legs.length === n) {
       const leg = straightLeg(last.exit, finish.center);
       if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);

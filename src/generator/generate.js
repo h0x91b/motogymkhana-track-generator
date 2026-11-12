@@ -22,13 +22,10 @@ const START_LEAD = 2; // start line → entry of the first element, metres
 const FINISH_LEAD = 2; // exit of the last element → finish line
 const BEHIND_START = 2; // open course: room to wait behind the start line
 const RUN_OUT = 2; // free space past the finish line
-// Course whose finish is by the start: the finish line's centre lies within
-// HOME_REACH m of the start line's, its zone clear of the start's. Offsets
-// tried, in whole metres across and along the start's direction of travel.
-const HOME_REACH = 8;
-const HOME_ACROSS = [3, 4, 5, 6, 7, 8];
-const HOME_ALONG = [0, -2, 2, -4, 4];
-const HOME_TRIES = 8; // finish lines per placement given a connector to try
+// Course whose finish is by the start (`return`): one start-and-finish box,
+// a square of four low cones whose front side is the start line. The rider
+// leaves it across the start line and rides back into it through its back or
+// one of its sides, never through the front (ADR 0018).
 const LINE_STEPS = { side: 3, diagonal: 2 }; // half-width of a start/finish line in half-metre lattice steps
 const CANDIDATES = 24; // placements drawn per element and type
 const BRANCH = 3; // best placements explored per element and type before backtracking
@@ -427,12 +424,41 @@ function lineTerminal(ideal, dir, from, to) {
   return { cones: [c1, c2], center, dir, zone, zoneBounds: obbBounds(zone), footprint: obbShape(zone) };
 }
 
-export function startTerminal(first, closed) {
+/**
+ * The start before the first element: a line for an open course (with room to
+ * wait behind it) and a closed one, the start-and-finish box for `return`.
+ */
+export function startTerminal(first, shape) {
   const u = axisVector(first.entryDir);
   const ideal = [first.entry[0] - u[0] * START_LEAD, first.entry[1] - u[1] * START_LEAD];
   const probe = lineTerminal(ideal, first.entryDir, 0, 0);
   const lead = (first.entry[0] - probe.center[0]) * u[0] + (first.entry[1] - probe.center[1]) * u[1];
-  return lineTerminal(ideal, first.entryDir, closed ? 0 : -BEHIND_START, lead);
+  if (shape === 'return') return boxTerminal(ideal, first.entryDir, lead);
+  return lineTerminal(ideal, first.entryDir, shape === 'closed' ? 0 : -BEHIND_START, lead);
+}
+
+/**
+ * The start-and-finish box: the start line and two more low cones behind it,
+ * a square as deep as the line is wide. Its zone takes in the box with the
+ * usual pad round its cones and runs forward to the first element. `box` is
+ * the middle of the box, where the rider stops at the finish.
+ */
+function boxTerminal(ideal, dir, lead) {
+  const line = lineTerminal(ideal, dir, 0, 0);
+  const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
+  const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
+  const [c1, c2] = line.cones;
+  const cones = [c1, c2, [c2[0] - dx * steps, c2[1] - dy * steps], [c1[0] - dx * steps, c1[1] - dy * steps]];
+  const depth = steps * Math.hypot(dx, dy);
+  const u = axisVector(dir);
+  const from = -depth - ZONE_PAD;
+  const zone = {
+    ...line.zone,
+    c: [line.center[0] + u[0] * ((from + lead) / 2), line.center[1] + u[1] * ((from + lead) / 2)],
+    hu: (lead - from) / 2,
+  };
+  const box = [line.center[0] - (u[0] * depth) / 2, line.center[1] - (u[1] * depth) / 2];
+  return { cones, center: line.center, dir, zone, zoneBounds: obbBounds(zone), footprint: obbShape(zone), box, depth };
 }
 
 export function finishTerminal(last) {
@@ -512,45 +538,54 @@ export function conesClear(cones, inner, zones, paths) {
 }
 
 /**
- * Finish line by the start, in a fixed order of preference: closest to the
- * start first, ties in the order tried (same direction of travel as the start
- * before the opposite one, then left before right, then along). Its zone keeps
- * clear of the start's and of every other zone and leg, and the last element's
- * connector reaches it lined up, like the closing connector of a closed course,
- * with its U-turn cones clear of the finish zone too.
+ * The way back into the start-and-finish box of a `return` course: lined up
+ * one turning radius before the side it enters by, like the closing connector
+ * of a closed course, then straight in to the middle of the box, where the
+ * rider stops. It enters through the back (the rider stops facing the way they
+ * started) or through one of the sides, never the front, where the start's
+ * lead-in is; of the ways in that connect, the shortest, ties in that order.
+ * The box's zone is in `zones`, so neither the connector nor its U-turn cones
+ * cut into it.
+ * @returns {{leg: object, dir: number} | null} the leg and the direction it enters by
  */
-export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept, coneGap = U_TURN_CONE_CLEARANCE) {
-  const u = axisVector(startT.dir);
-  const v = axisVector(startT.dir + 2);
-  const spots = [];
-  for (const dir of [startT.dir, (startT.dir + 4) % 8]) {
-    for (const across of HOME_ACROSS) {
-      for (const side of [1, -1]) {
-        for (const along of HOME_ALONG) {
-          const ideal = [
-            startT.center[0] + v[0] * across * side + u[0] * along,
-            startT.center[1] + v[1] * across * side + u[1] * along,
-          ];
-          const t = lineTerminal(ideal, dir, -FINISH_LEAD, RUN_OUT);
-          const dx = t.center[0] - startT.center[0];
-          const dy = t.center[1] - startT.center[1];
-          spots.push({ t, d2: dx * dx + dy * dy, order: spots.length });
-        }
-      }
-    }
+export function homeBox(fromPose, box, radius, inner, zones, paths, maxTurn, accept, coneGap = U_TURN_CONE_CLEARANCE) {
+  let best = null;
+  for (const { dir, edge, approach } of boxEntries(box, radius)) {
+    const last = [approach, edge];
+    if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) continue;
+    const whole = accept && ((pts) => accept([...pts, edge, box.box]));
+    const leg = connect(fromPose, pose(approach, dir), radius, inner, zones, paths, maxTurn, whole, coneGap);
+    if (!leg) continue;
+    const length = leg.length + radius + Math.hypot(box.box[0] - edge[0], box.box[1] - edge[1]);
+    if (best && best.leg.length <= length + 1e-9) continue;
+    const points = [...leg.points, edge, box.box];
+    best = { dir, leg: { ...leg, points, bounds: pointsBounds(points), length } };
   }
-  spots.sort((a, b) => a.d2 - b.d2 || a.order - b.order);
-  let tries = 0;
-  for (const { t, d2 } of spots) {
-    if (d2 > HOME_REACH * HOME_REACH) break;
-    if (!terminalInside(t, inner, site)) continue;
-    if (obbOverlap(t.zone, startT.zone) || !zoneClear(t, zones, paths)) continue;
-    if (++tries > HOME_TRIES) break;
-    const leg = closingLeg(fromPose, t, radius, inner, zones, paths, maxTurn, accept, coneGap);
-    if (leg && leg.cones.every((c) => !shapesOverlap(c.footprint, t.footprint))) return { terminal: t, leg };
-  }
-  return null;
+  return best;
 }
+
+/**
+ * The ways into a start-and-finish box, in order of preference: back, left
+ * side, right side. Each with its direction of travel, the point where it
+ * crosses the edge of the box's zone and the point one turning radius before.
+ */
+export function boxEntries(box, radius) {
+  const u = axisVector(box.dir);
+  const v = axisVector(box.dir + 2);
+  const { hv } = box.zone;
+  const back = -box.depth - ZONE_PAD;
+  return [
+    { dir: box.dir, edge: [box.center[0] + u[0] * back, box.center[1] + u[1] * back] },
+    { dir: (box.dir + 6) % 8, edge: [box.box[0] + v[0] * hv, box.box[1] + v[1] * hv] },
+    { dir: (box.dir + 2) % 8, edge: [box.box[0] - v[0] * hv, box.box[1] - v[1] * hv] },
+  ].map((e) => {
+    const w = axisVector(e.dir);
+    return { ...e, approach: [e.edge[0] - w[0] * radius, e.edge[1] - w[1] * radius] };
+  });
+}
+
+/** The finish of a `return` course: its start box, entered in direction `dir`. */
+export const boxFinish = (start, dir) => ({ ...start, center: start.box, dir, shared: true });
 
 export function pathClear(points, bounds, zones) {
   for (const z of zones) {
@@ -796,7 +831,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     let entryLeg;
     let terminal = null;
     if (i === 0) {
-      terminal = startTerminal(cand, closed);
+      terminal = startTerminal(cand, recipe.shape);
       if (!terminalInside(terminal, inner, site)) return null;
       if (closed) {
         // Room behind the line for the closing connector to line up.
@@ -831,14 +866,15 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
         if (!exitLeg) return null;
       } else if (recipe.shape === 'return') {
-        // Back to a finish line by the start; the start zone is an obstacle, and
-        // in «паровозик» the way there keeps clear of the whole route.
+        // Back into the start-and-finish box, an obstacle up to its edge; in
+        // «паровозик» the way there keeps clear of the whole route and rides
+        // back into its start, as on a closed course.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
-        const accept = track && ((pts) => trainClear(before, [pts]));
-        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
+        const accept = track && ((pts) => trainClear(before, [pts], true));
+        const home = homeBox(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
         if (!home) return null;
-        finishTerminalCand = home.terminal;
+        finishTerminalCand = boxFinish(startT, home.dir);
         exitLeg = home.leg;
       } else {
         finishTerminalCand = finishTerminal(cand);
@@ -898,7 +934,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         }
         if (fin) {
           finish = fin;
-          zones.push(fin);
+          // The start's box: its zone is already there.
+          if (!fin.shared) zones.push(fin);
         }
         turnLeft += entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);
         turnRight += entryLeg.turnRight + cand.tpl.turnRight + (exitLeg ? exitLeg.turnRight : 0);
@@ -1011,7 +1048,12 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
     });
   });
   for (let i = placed.length; i < legs.length; i++) connectorCones.push(legCones[i]());
-  const finishOut = recipe.shape === 'closed' ? startOut : terminalOut(finish);
+  // A closed course finishes on its start line, a `return` one in its start
+  // box: the same cones, counted once. The box's finish is its middle, with
+  // the direction the rider enters by.
+  const finishOut = recipe.shape === 'closed' ? startOut
+    : finish.shared ? { x: round2(finish.center[0]), y: round2(finish.center[1]), dir: finish.dir, cones: startOut.cones, zone: startOut.zone }
+      : terminalOut(finish);
   const routeLegs = [];
   legs.forEach((leg, i) => {
     const from = i === 0 ? 'start' : elements[i - 1].id;
