@@ -2,14 +2,16 @@ import {
   BIG_ELEMENT_AREA, BLOCKED_DEFAULT, BLOCKED_MAX, BLOCKED_NAMES, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
-import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
+import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile, readCourseText, readCourseUpload } from '../file/course-file.js';
 import { buildSetupSheet, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createEditor } from './editor.js';
 import { createGenerator } from './generator-client.js';
-import { loadEdit, loadForm, loadRideSpeed, loadZones, saveEdit, saveForm, saveRideSpeed, saveZones } from './storage.js';
+import {
+  COURSE_NAME_MAX, deleteCourse, listCourses, loadEdit, loadForm, loadRideSpeed, loadZones, renameCourse, saveCourse, saveEdit, saveForm, saveRideSpeed, saveZones,
+} from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
@@ -571,6 +573,7 @@ function blockedSummary(f) {
 }
 
 function renderSummary() {
+  if (state.course && editor.layout) $('saved-name').placeholder = defaultCourseName(editor.layout);
   const f = state.form;
   const c = state.course;
   const short = c && !state.stale && c.placed < c.requested;
@@ -1228,37 +1231,195 @@ function renderFileButtons() {
   $('share-csv').hidden = !canShareFiles([new File([';'], 'konusy.csv', { type: 'text/csv' })]);
 }
 
-const FILE_MAX = 1_000_000; // bytes; a course file is a few kilobytes
-
 async function onFilePicked() {
   const input = $('open-file');
   const file = input.files?.[0];
   input.value = '';
   if (!file) return;
-  if (file.size > FILE_MAX) {
-    fileStatus('Это не файл трассы: он слишком большой', 'error');
-    return;
-  }
-  let text;
-  try {
-    text = await file.text();
-  } catch {
-    fileStatus('Не удалось прочитать файл', 'error');
-    return;
-  }
-  const read = readCourseFile(text);
-  if (!read.ok) {
-    fileStatus(read.error, 'error');
-    return;
-  }
-  openCourse(read, file.name);
+  const read = await readCourseUpload(file);
+  if (!read.ok) fileStatus(read.error, 'error');
+  else openCourse(read, file.name);
+}
+
+/** A file error where it is seen: in the form when it is open, otherwise in a toast. */
+function fileError(text) {
+  if (formOpen) fileStatus(text, 'error');
+  else toast(text, 5000);
+}
+
+// A .json dropped anywhere on the page opens like «Открыть .json» (touch devices keep the picker).
+let dragDepth = 0;
+const dragsFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+
+function showDrop(on) {
+  $('drop-overlay').hidden = !on;
+  if (!on) dragDepth = 0;
+}
+
+function setupDrop() {
+  document.addEventListener('dragenter', (e) => {
+    if (!dragsFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    showDrop(true);
+  });
+  document.addEventListener('dragover', (e) => {
+    if (!dragsFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('dragleave', (e) => {
+    if (!dragsFiles(e)) return;
+    if (--dragDepth <= 0) showDrop(false);
+  });
+  document.addEventListener('drop', async (e) => {
+    if (!dragsFiles(e)) return;
+    e.preventDefault();
+    showDrop(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    const read = await readCourseUpload(file);
+    if (!read.ok) fileError(read.error);
+    else openCourse(read, file.name);
+  });
+  // Pasted course-file text, outside the fields: only what looks like a JSON object is tried.
+  document.addEventListener('paste', (e) => {
+    if (e.defaultPrevented || e.target.closest?.('input, textarea, [contenteditable]')) return;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!/^\s*\{/.test(text)) return;
+    e.preventDefault();
+    const read = readCourseText(text);
+    if (!read.ok) fileError(read.error);
+    else openCourse(read, 'из буфера обмена', 'paste');
+  });
+}
+
+// ---------------------------------------------------------------- my courses
+
+/** The name a saved course gets when none is typed: lot size · difficulty · seed · date. */
+function defaultCourseName(layout, date = new Date()) {
+  const { recipe, seed } = layout;
+  const day = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return `${recipe.width}×${recipe.length} м · ${DIFFICULTY_NAMES[recipe.difficulty] ?? recipe.difficulty} · seed ${seed} · ${day}`;
+}
+
+function savedStatus(text, kind = '') {
+  const p = $('saved-status');
+  p.textContent = text;
+  p.className = `form-status ${kind}`;
+}
+
+/** The row being renamed or asked to confirm its deletion: {id, mode: 'rename'|'delete'} or null. */
+let savedRow = null;
+
+function saveToMyCourses() {
+  if (!state.course || !editor.layout) return savedStatus('Сначала нужна трасса', 'error');
+  if (state.stale) return savedStatus('Исправьте ошибки в форме: сохраняется трасса этого рецепта', 'error');
+  const doc = courseDocument(editor.layout, { build: $('version').textContent.trim(), edited: editor.edited });
+  const input = $('saved-name');
+  const saved = saveCourse(input.value || defaultCourseName(editor.layout), doc);
+  if (!saved.ok) return savedStatus(saved.error, 'error');
+  input.value = '';
+  savedRow = null;
+  savedStatus(`Сохранено: «${saved.entry.name}»`);
+  renderSavedCourses();
+}
+
+function openSaved(entry) {
+  const read = readCourseFile(courseFileText(entry.doc));
+  if (!read.ok) return savedStatus(read.error, 'error');
+  savedStatus('');
+  openCourse(read, entry.name, 'saved');
+}
+
+const savedWhen = (t) => new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function button(text, onClick, cls = '') {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = text;
+  if (cls) b.className = cls;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function renderSavedCourses() {
+  const list = $('saved-list');
+  const courses = listCourses();
+  if (savedRow && !courses.some((e) => e.id === savedRow.id)) savedRow = null;
+  list.replaceChildren(...courses.map((entry) => {
+    const li = document.createElement('li');
+    li.className = 'saved-row';
+    const mode = savedRow?.id === entry.id ? savedRow.mode : null;
+    if (mode === 'rename') {
+      const input = document.createElement('input');
+      input.value = entry.name;
+      input.maxLength = COURSE_NAME_MAX;
+      input.setAttribute('aria-label', 'Новое название');
+      const done = () => {
+        const r = renameCourse(entry.id, input.value);
+        if (!r.ok) return savedStatus(r.error, 'error');
+        savedRow = null;
+        savedStatus('');
+        renderSavedCourses();
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); done(); }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); savedRow = null; renderSavedCourses(); }
+      });
+      const actions = document.createElement('div');
+      actions.className = 'saved-actions';
+      actions.append(button('Готово', done, 'primary'), button('Отмена', () => { savedRow = null; renderSavedCourses(); }));
+      li.append(input, actions);
+      queueMicrotask(() => input.focus());
+      return li;
+    }
+    const open = button('', () => openSaved(entry), 'saved-open');
+    const name = document.createElement('span');
+    name.className = 'saved-name';
+    name.textContent = entry.name;
+    const when = document.createElement('span');
+    when.className = 'muted saved-when';
+    when.textContent = `${savedWhen(entry.savedAt)}${entry.doc.edited ? ' · с правками' : ''}`;
+    open.append(name, when);
+    open.setAttribute('aria-label', `Открыть «${entry.name}»`);
+    const actions = document.createElement('div');
+    actions.className = 'saved-actions';
+    if (mode === 'delete') {
+      const ask = document.createElement('p');
+      ask.className = 'saved-ask';
+      ask.textContent = 'Удалить эту трассу из «Моих трасс»?';
+      actions.append(
+        button('Удалить', () => {
+          const r = deleteCourse(entry.id);
+          if (!r.ok) return savedStatus(r.error, 'error');
+          savedRow = null;
+          savedStatus(`Удалено: «${entry.name}»`);
+          renderSavedCourses();
+        }, 'danger'),
+        button('Отмена', () => { savedRow = null; renderSavedCourses(); }),
+      );
+      li.append(open, ask, actions);
+      return li;
+    }
+    actions.append(
+      button('Переименовать', () => { savedRow = { id: entry.id, mode: 'rename' }; renderSavedCourses(); }),
+      button('Скачать .json', () => {
+        downloadNow(new File([courseFileText(entry.doc)], courseFileName(entry.doc.recipe, entry.doc.seed, 'json'), { type: 'application/json' }));
+      }),
+      button('Удалить', () => { savedRow = { id: entry.id, mode: 'delete' }; renderSavedCourses(); }),
+    );
+    li.append(open, actions);
+    return li;
+  }));
+  $('saved-empty').hidden = courses.length > 0;
 }
 
 /** The form a recipe and seed are shown in: the recipe's own fields, so a field added to it travels too. */
 const formOf = (recipe, seed) => ({ ...DEFAULT_FORM, ...recipe, seed: String(seed), sizes: recipe.sizes ?? {} });
 
 /** Puts an opened course file on screen: its recipe and seed in the form, its elements on top of the course they give. */
-function openCourse(read, name) {
+function openCourse(read, name, from = 'file') {
   stopRide();
   if (state.setupStep !== null) exitSetup();
   if (editor.active) exitEdit();
@@ -1272,7 +1433,7 @@ function openCourse(read, name) {
   }
   writeForm(formOf(read.recipe, read.seed));
   state.adopt = read.layout;
-  state.opening = { name, edited: read.edited, layout: read.layout, kept };
+  state.opening = { name, from, edited: read.edited, layout: read.layout, kept };
   fileStatus('');
   if (formOpen) closeForm();
   else onFormChange(true);
@@ -1280,7 +1441,8 @@ function openCourse(read, name) {
 
 /** What the toast says once an opened file is on screen. */
 function openedText(opening, { unbuilt, replaced }) {
-  let text = `Открыт файл «${opening.name}»`;
+  let text = opening.from === 'saved' ? `Открыта трасса «${opening.name}»`
+    : opening.from === 'paste' ? 'Открыта трасса из буфера обмена' : `Открыт файл «${opening.name}»`;
   if (unbuilt) text += '. По его рецепту и seed эта сборка трассу не строит — показана трасса из файла';
   // Saved unedited, but this build generates another course for the seed (ADR 0009).
   else if (opening.layout && !opening.edited && editor.edited) {
@@ -1634,6 +1796,15 @@ function start() {
   $('open-json').addEventListener('click', () => $('open-file').click());
   $('open-file').addEventListener('change', onFilePicked);
   renderFileButtons();
+  $('save-mine').addEventListener('click', saveToMyCourses);
+  $('saved-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveToMyCourses();
+    }
+  });
+  renderSavedCourses();
+  setupDrop();
   $('close-picture').addEventListener('click', closePicture);
   $('picture-sheet').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePicture();

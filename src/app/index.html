@@ -161,6 +161,19 @@
           <button type="button" id="open-json" class="span2">Открыть .json</button>
         </div>
         <p class="form-status" id="file-status" role="status"></p>
+        <p class="muted drop-hint">Файл .json можно и просто перетащить на страницу.</p>
+      </section>
+      <section class="file-box saved-box" aria-labelledby="saved-title">
+        <h3 id="saved-title">Мои трассы</h3>
+        <p class="muted">Хранятся в этом браузере на этом устройстве.</p>
+        <label for="saved-name" class="saved-label">Название</label>
+        <div class="saved-new">
+          <input id="saved-name" maxlength="80" autocomplete="off" enterkeyhint="done">
+          <button type="button" id="save-mine" class="primary">Сохранить</button>
+        </div>
+        <p class="form-status" id="saved-status" role="status"></p>
+        <p class="muted saved-empty" id="saved-empty">Пока пусто: сохранённые трассы появятся здесь, новые сверху.</p>
+        <ul class="saved-list" id="saved-list" aria-label="Сохранённые трассы"></ul>
       </section>
       <div class="sheet-foot">
         <button type="button" id="close-form" class="primary wide">Готово</button>
@@ -190,6 +203,7 @@
     <div class="type-grid" id="type-grid"></div>
   </section>
   <div class="toast" id="toast" role="status" hidden></div>
+  <div class="drop-overlay" id="drop-overlay" hidden><p>Отпустите, чтобы открыть трассу</p></div>
   <input type="file" id="open-file" accept=".json,application/json" hidden>
 </main>
 <script type="text/plain" id="worker-src">/*WORKER*/</script>
