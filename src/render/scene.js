@@ -202,13 +202,15 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   /**
    * Cutouts and obstacles: hatched, so they read as «not here» at a glance. A
    * cutout is a hole in the slab, darker than the asphalt; an obstacle stands
-   * on it, and in 3D rises as a low block. The site margin round each is the
-   * edge's dashed line, kept on the slab.
+   * on it, and in 3D rises as a low block. The margin round each (its own, else
+   * the edge's) is a reserved zone, drawn like an element's and with them
+   * (`zones`), kept on the slab.
    */
   function drawBlocked(list) {
     const slab = [[0, 0], [SW, 0], [SW, SL], [0, SL]];
-    for (const b of list) {
-      clipped(slab, () => path(b.margin.map(([x, y]) => [x, y, 0.004]), '#bac7c355', 0.06, null, true, [0.4, 0.4]));
+    const st = ZONE_STYLE.zone;
+    for (const b of zones ? list : []) {
+      if (b.margin) clipped(slab, () => path(b.margin.map(([x, y]) => [x, y, 0.004]), st.stroke, st.width, null, true, st.dash));
     }
     for (const b of list) {
       const cut = b.kind === 'cutout';
