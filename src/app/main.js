@@ -1054,7 +1054,8 @@ const editor = createEditor({
   },
   /** An element picked in the panel that is off the screen (zoomed in elsewhere) is panned into view; the zoom stays. */
   reveal(id) {
-    const e = state.course.elements.find((x) => x.id === id);
+    // The start and the finish are picked in the panel too.
+    const e = id === 'start' || id === 'finish' ? state.course.route[id] : state.course.elements.find((x) => x.id === id);
     if (!e) return;
     const [x, y] = [(e.zone[0][0] + e.zone[2][0]) / 2, (e.zone[0][1] + e.zone[2][1]) / 2];
     const [W, H] = [canvas.clientWidth, canvas.clientHeight];

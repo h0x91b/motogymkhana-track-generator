@@ -619,6 +619,32 @@ function boxTerminal(ideal, dir, lead) {
   return { cones, center: line.center, dir, zone, zoneBounds: obbBounds(zone), footprint: obbShape(zone), inBox, depth };
 }
 
+/** Where `lineTerminal` puts the middle of a line whose first cone is `anchor`, crossed along `dir`. */
+function lineIdeal(anchor, dir) {
+  const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
+  const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
+  return [anchor[0] - (dy * steps) / 2, anchor[1] + (dx * steps) / 2];
+}
+
+/**
+ * A start put by hand in «Правка»: the line (or the box) with its first cone
+ * at `anchor` on whole metres, crossed along `dir`, wherever the first element
+ * is. Its zone runs START_LEAD ahead of the line, where the rider leaves it.
+ */
+export function startAt(anchor, dir, shape) {
+  const ideal = lineIdeal(anchor, dir);
+  if (shape === 'return') return boxTerminal(ideal, dir, START_LEAD);
+  return lineTerminal(ideal, dir, shape === 'closed' ? 0 : -BEHIND_START, START_LEAD);
+}
+
+/** The finish line of an open course put by hand: first cone at `anchor`, crossed along `dir`, with FINISH_LEAD before it and the run-out past it. */
+export const finishAt = (anchor, dir) => lineTerminal(lineIdeal(anchor, dir), dir, -FINISH_LEAD, RUN_OUT);
+
+/** How far ahead of a start put by hand its lead-in runs: the connector to the first element starts there. */
+export const START_LEAD_IN = START_LEAD;
+/** How far before a finish put by hand the rider is lined up. */
+export const FINISH_LEAD_IN = FINISH_LEAD;
+
 export function finishTerminal(last) {
   const u = axisVector(last.exitDir);
   const ideal = [last.exit[0] + u[0] * FINISH_LEAD, last.exit[1] + u[1] * FINISH_LEAD];

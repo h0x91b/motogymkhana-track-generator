@@ -5,7 +5,8 @@
 
 import {
   addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
-  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
+  removeBlocked, removeElement, replaceElement, resetTerminal, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement,
+  terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -63,9 +64,13 @@ function marginSteps(m) {
   return { less: at > 0 ? values[at - 1] : null, more: at >= 0 && at < values.length - 1 ? values[at + 1] : null };
 }
 
-const elementsOf = (layout) => JSON.stringify([layout.elements, layout.recipe.blocked]);
-/** The elements without the pivots turning leaves behind, and the blocked areas: two layouts with the same ones give the same course. */
-const courseOf = (layout) => JSON.stringify([layout.elements.map(({ pivot, ...e }) => e), layout.recipe.blocked]);
+const elementsOf = (layout) => JSON.stringify([layout.elements, layout.recipe.blocked, layout.start, layout.finish]);
+const unpivoted = (t) => (t ? (({ pivot, ...rest }) => rest)(t) : null);
+/** The elements and the start and finish without the pivots turning leaves behind, and the blocked areas: two layouts with the same ones give the same course. */
+const courseOf = (layout) => JSON.stringify([layout.elements.map(unpivoted), layout.recipe.blocked, unpivoted(layout.start), unpivoted(layout.finish)]);
+
+/** Is `i` the start or the finish rather than an element's index? */
+const isTerm = (i) => i === 'start' || i === 'finish';
 
 const capital = (s) => s[0].toUpperCase() + s.slice(1);
 /** «Вырез 1», «Препятствие 2»: blocked areas are numbered in the recipe's list. */
@@ -91,6 +96,7 @@ export function createEditor(host) {
   let routed = null; // { course, problems } of `layout`
   let selected = null; // index of the selected element
   let block = null; // index of the selected blocked area; never both at once
+  let term = null; // 'start' or 'finish' when that is selected instead of an element or a blocked area
   let undo = []; // { layout, selected }: what an undo goes back to, with the element that was being edited
   let redo = [];
   let drag = null; // { from, i, x, y }: the layout and the anchor an element is dragged from
@@ -118,7 +124,22 @@ export function createEditor(host) {
     const i = id && id[0] === 'e' ? Number(id.slice(1)) - 1 : NaN;
     return Number.isInteger(i) && layout && i >= 0 && i < layout.elements.length ? i : null;
   };
+  const termOf = (id) => (layout && (id === 'start' || id === 'finish') && terminalsOf(layout).includes(id) ? id : null);
   const name = (i) => TYPE_NAMES[layout.elements[i].type];
+  /** «Старт · финиш» for a course that finishes on its start, «Старт» and «Финиш» for an open one. */
+  const termTitle = (which) => (which === 'finish' ? 'Финиш' : layout.recipe.shape === 'open' ? 'Старт' : 'Старт · финиш');
+  /** What an announcement calls the thing being edited. */
+  const subject = () => (term ? termTitle(term) : `Элемент ${selected + 1}`);
+  /** The element index, or 'start' / 'finish': what the layout's move and turn functions take. */
+  const target = () => term ?? selected;
+  /** The axis of what is being edited, in 45° steps. */
+  const currentAxis = () => (term ? terminalPose(layout, term).axis : layout.elements[selected].axis);
+  /** Is a problem about the start (or the finish of an open course): the line, or the connector out of or back into it? */
+  const termProblem = (p, which) => {
+    const n = layout.elements.length;
+    if (which === 'finish') return p.code.startsWith('finish') || p.connector === n;
+    return p.code.startsWith('start') || p.connector === 0 || p.code === 'finish-overlap' || (layout.recipe.shape !== 'open' && p.connector === n);
+  };
   const say = (text) => (live.textContent = text);
   const sizeField = (key) => $(sizeFieldId(key));
 
@@ -138,12 +159,13 @@ export function createEditor(host) {
   function commit(next, sel, text, nextBlock = null) {
     if (elementsOf(next) === elementsOf(layout)) return false;
     const before = routed.problems.length;
-    undo.push({ layout, selected, block });
+    undo.push({ layout, selected, block, term });
     if (undo.length > UNDO_MAX) undo.shift();
     redo = [];
     layout = next;
-    selected = sel;
+    selected = isTerm(sel) ? null : sel;
     block = nextBlock;
+    term = isTerm(sel) ? sel : null;
     routed = routeLayout(layout);
     show();
     render();
@@ -154,18 +176,23 @@ export function createEditor(host) {
   function step(from, to, text) {
     if (!from.length || drag) return;
     const before = routed.problems.length;
-    to.push({ layout, selected, block });
-    ({ layout, selected, block = null } = from.pop());
+    to.push({ layout, selected, block, term });
+    ({ layout, selected, block = null, term = null } = from.pop());
     routed = routeLayout(layout);
     show();
     render();
     say(text + problemsNote(before));
   }
 
+  /** Selects element i, blocked area k, or with i = 'start' / 'finish' that line. */
   function select(i, k = null) {
-    if (i === selected && k === block) return;
-    selected = i;
-    block = i === null ? k : null;
+    const t = isTerm(i) ? i : null;
+    const el = t ? null : i;
+    const b = el === null && t === null ? k : null;
+    if (el === selected && t === term && b === block) return;
+    selected = el;
+    term = t;
+    block = b;
     show();
     render();
   }
@@ -178,6 +205,13 @@ export function createEditor(host) {
       if (!commit(next, null, `${blockedTitle(layout, block)}: X ${to.x}, Y ${to.y}\u00a0м.`, block)) say('Дальше край площадки: осталось на месте.');
       return;
     }
+    if (term) {
+      const p = terminalPose(layout, term);
+      const next = moveElement(layout, term, p.x + dx, p.y + dy);
+      const to = next[term];
+      if (!commit(next, term, `${termTitle(term)}: первый конус X ${to.x}, Y ${to.y} м.`)) say('Дальше край площадки: осталось на месте.');
+      return;
+    }
     if (selected === null) return;
     const el = layout.elements[selected];
     const next = moveElement(layout, selected, el.x + dx, el.y + dy);
@@ -188,32 +222,37 @@ export function createEditor(host) {
   const ACTIONS = {
     select: (arg) => {
       // The open row closes on a second tap.
-      select(Number(arg) === selected ? null : Number(arg));
-      if (selected !== null) host.reveal(idOf(selected));
+      const i = isTerm(arg) ? arg : Number(arg);
+      select(i === target() ? null : i);
+      if (target() !== null) host.reveal(term ?? idOf(selected));
     },
     // A blocked area's row in the list: opens it; a second tap closes it.
     selectBlocked: (arg) => select(null, Number(arg) === block ? null : Number(arg)),
+    resetTerminal: () => commit(resetTerminal(layout, term), term, term === 'finish' ? `Финиш снова за элементом ${layout.elements.length}.` : `${termTitle(term)} снова перед элементом 1.`),
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
     rotate: (arg) => {
-      const next = rotateElement(layout, selected, Number(arg));
-      commit(next, selected, `Элемент ${selected + 1} повёрнут на ${comma(axisDegrees(next.elements[selected].axis))}°.`);
+      const what = subject();
+      const next = rotateElement(layout, target(), Number(arg));
+      const axis = term ? next[term].axis : next.elements[selected].axis;
+      commit(next, target(), `${what} повёрнут на ${comma(axisDegrees(axis))}°.`);
     },
     /** A typed angle: the nearest orientation the element can be turned to (22.5° steps); the field says where the element went. */
     angle: (text) => {
       const typed = Number(String(text).trim().replace(',', '.').replace(/°$/, ''));
       const field = $('edit-angle');
-      const now = comma(axisDegrees(layout.elements[selected].axis));
+      const now = comma(axisDegrees(currentAxis()));
+      const what = subject();
       if (String(text).trim() === '' || !Number.isFinite(typed)) {
         if (field) field.value = now;
-        say(`Поворот — число градусов. Элемент ${selected + 1} стоит на ${now}°.`);
+        say(`Поворот — число градусов. ${what} стоит на ${now}°.`);
         return;
       }
-      const next = turnElementTo(layout, selected, typed);
-      const to = axisDegrees(next.elements[selected].axis);
-      const snapped = ((typed % 360) + 360) % 360 === to ? '' : ` — ближайшее к ${comma(typed)}° с шагом ${comma(turnStep(layout.elements[selected].type))}°`;
-      if (!commit(next, selected, `Элемент ${selected + 1} повёрнут на ${comma(to)}°${snapped}.`)) {
+      const next = turnElementTo(layout, target(), typed);
+      const to = axisDegrees(term ? terminalPose(next, term).axis : next.elements[selected].axis);
+      const snapped = ((typed % 360) + 360) % 360 === to ? '' : ` — ближайшее к ${comma(typed)}° с шагом ${comma(term ? 22.5 : turnStep(layout.elements[selected].type))}°`;
+      if (!commit(next, target(), `${what} повёрнут на ${comma(to)}°${snapped}.`)) {
         if (field) field.value = now;
-        say(`Элемент ${selected + 1} уже стоит на ${now}°${snapped}.`);
+        say(`${what} уже стоит на ${now}°${snapped}.`);
       }
     },
     mirror: () => commit(mirrorElement(layout, selected), selected, `Элемент ${selected + 1} отражён: повороты в другую сторону.`),
@@ -338,7 +377,7 @@ export function createEditor(host) {
    */
   function renderProblems() {
     const box = $('edit-problems');
-    const own = (p) => selected !== null && p.elements.includes(idOf(selected));
+    const own = (p) => (term ? termProblem(p, term) : selected !== null && p.elements.includes(idOf(selected)));
     const problems = [...routed.problems.filter(own), ...routed.problems.filter((p) => !own(p))];
     box.hidden = !problems.length;
     if (!problems.length) {
@@ -347,7 +386,7 @@ export function createEditor(host) {
       return problems;
     }
     // A different set of problems starts from its first one.
-    const key = JSON.stringify([selected, problems.map((p) => p.text)]);
+    const key = JSON.stringify([target(), problems.map((p) => p.text)]);
     if (key !== problemsKey) problemAt = 0;
     problemsKey = key;
     problemAt %= problems.length;
@@ -376,6 +415,7 @@ export function createEditor(host) {
     const n = layout.elements.length;
     const full = n >= ELEMENTS_MAX;
     const fullTitle = full ? ` disabled title="На трассе не больше ${ELEMENTS_MAX} элементов"` : '';
+    const finish = terminalsOf(layout).includes('finish') ? terminalRowHtml('finish') : '';
     const rows = layout.elements.map((el, i) => {
       const bad = wrong.has(idOf(i));
       const open = i === selected;
@@ -390,7 +430,50 @@ export function createEditor(host) {
       </li>`;
     }).join('');
     const first = `<button type="button" class="link insert-first" data-act="insert" data-arg="before" data-row="0"${fullTitle}>${icon('plus')}Вставить первым</button>`;
-    return `<div class="list-head"><span class="muted">${n} ${plural(n, 'элемент', 'элемента', 'элементов')} по порядку</span>${first}</div><ol class="edit-list" aria-label="Элементы по порядку маршрута">${rows}</ol>`;
+    return `<div class="list-head"><span class="muted">${n} ${plural(n, 'элемент', 'элемента', 'элементов')} по порядку</span>${first}</div><ol class="edit-list" aria-label="Элементы по порядку маршрута">${terminalRowHtml('start')}${rows}${finish}</ol>`;
+  }
+
+  /**
+   * The start (row 0) or an open course's finish (after the last element): it
+   * opens into its editor like an element's row, but stays where it is in the
+   * route — nothing moves it up or down, removes it or goes before the start.
+   */
+  function terminalRowHtml(which) {
+    const open = term === which;
+    const bad = routed.problems.some((p) => termProblem(p, which));
+    const title = termTitle(which);
+    const p = terminalPose(layout, which);
+    const kind = which === 'start' && layout.recipe.shape === 'return' ? 'коробка' : 'линия';
+    const sum = `${kind} · ${comma(axisDegrees(p.axis))}°${p.pinned ? ' · вручную' : ''}`;
+    return `<li class="el-row terminal-row${open ? ' open' : ''}${bad ? ' bad' : ''}">
+        <div class="el-head">
+          <button type="button" class="el-pick" data-act="select" data-arg="${which}" aria-expanded="${open}" aria-label="${title}${bad ? ', есть проблема' : ''}">`
+      + `<b class="el-num">${which === 'start' ? 0 : '⚑'}</b><span class="el-text"><span class="el-name">${title}</span><span class="el-sum">${esc(sum)}</span></span>${bad ? '<span class="mark" aria-hidden="true">!</span>' : ''}</button>
+        </div>${open ? `<div class="el-detail">${terminalHtml()}</div>` : ''}
+      </li>`;
+  }
+
+  /** The start's or finish's editor: where its first cone stands, moving, turning in 22.5° steps and the typed angle. */
+  function terminalHtml() {
+    const p = terminalPose(layout, term);
+    const tool = (act, arg, label, glyph) => `<button type="button" data-act="${act}" data-arg="${arg}" aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
+    const back = term === 'finish' ? `за элемент ${layout.elements.length}` : 'перед элементом 1';
+    const angle = `<div class="size-row angle-row">
+        <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied('кратно 22,5°, 0° — вдоль ширины')}<span class="sr-only">, против часовой стрелки</span></span></span>
+        <span class="angle-field"><input id="edit-angle" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(axisDegrees(p.axis))}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
+      </div>`;
+    const hint = p.pinned ? '' : `<p class="edit-hint muted">${tied(`Сейчас стоит ${back} и ходит за ним. Сдвинутый или повёрнутый, остаётся там, куда поставлен.`)}</p>`;
+    return `<div class="el-facts"><p class="anchor">Первый конус: X ${comma(p.x)} м · Y ${comma(p.y)} м</p></div>${hint}
+      <div class="edit-tools">
+        <span class="tool-group" role="group" aria-label="Сдвинуть">
+          ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
+        </span>
+        <span class="tool-group" role="group" aria-label="Повернуть">
+          ${tool('rotate', '1', 'Повернуть на 22,5° против часовой', 'ccw')}${tool('rotate', '-1', 'Повернуть на 22,5° по часовой', 'cw')}
+        </span>
+      </div>
+      ${p.pinned ? `<div class="edit-actions"><button type="button" data-act="resetTerminal">Вернуть ${back}</button></div>` : ''}
+      <div class="edit-sizes">${angle}</div>`;
   }
 
   /**
@@ -518,17 +601,18 @@ export function createEditor(host) {
     // About the whole course, so it is offered with no element selected.
     const reset = courseOf(layout) === courseOf(base) ? '' : '<button type="button" class="link" data-act="reset">Сбросить все правки</button>';
     if (block !== null && block >= layout.recipe.blocked.length) block = null;
-    const hint = selected === null && block === null ? '<p class="edit-hint muted">Нажмите на строку или на элемент на плане, чтобы править его. Выбранный элемент перетаскивается по плану.</p>' : '';
+    if (term && !terminalsOf(layout).includes(term)) term = null;
+    const hint = selected === null && block === null && term === null ? '<p class="edit-hint muted">Нажмите на строку или на элемент на плане, чтобы править его. Выбранный элемент перетаскивается по плану.</p>' : '';
     body.innerHTML = `${listHtml()}${blockedListHtml()}${hint}${reset}`;
     renderProblems();
-    $('edit-title').textContent = selected !== null ? `${selected + 1}. ${name(selected)}` : block !== null ? blockedTitle(layout, block) : 'Правка трассы';
+    $('edit-title').textContent = selected !== null ? `${selected + 1}. ${name(selected)}` : term ? termTitle(term) : block !== null ? blockedTitle(layout, block) : 'Правка трассы';
     $('edit-undo').disabled = !undo.length;
     $('edit-redo').disabled = !redo.length;
     body.scrollTop = scroll;
-    if (selected !== shownSelected) {
-      shownSelected = selected;
+    if (target() !== shownSelected) {
+      shownSelected = target();
       // A newly opened row comes into view from its head down, as much of it as fits.
-      const row = selected === null ? null : body.querySelectorAll('.el-row')[selected];
+      const row = target() === null ? null : body.querySelector('.el-row.open');
       if (row) {
         const view = body.getBoundingClientRect();
         const box = row.getBoundingClientRect();
@@ -590,7 +674,7 @@ export function createEditor(host) {
   });
   // The angle field: Enter or leaving it turns the element; the arrows step through the axes.
   body.addEventListener('change', (e) => {
-    if (selected === null || drag) return;
+    if (target() === null || drag) return;
     if (e.target.id === 'edit-angle') ACTIONS.angle(e.target.value);
     else if (e.target.dataset.size) ACTIONS.typedSize(`${e.target.dataset.size}:${e.target.value}`);
   });
@@ -633,7 +717,7 @@ export function createEditor(host) {
     }
   });
   body.addEventListener('keydown', (e) => {
-    if (e.target.id !== 'edit-angle' || selected === null || drag) return;
+    if (e.target.id !== 'edit-angle' || target() === null || drag) return;
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       ACTIONS.rotate(e.key === 'ArrowUp' ? '1' : '-1');
@@ -644,7 +728,7 @@ export function createEditor(host) {
       else ACTIONS.angle(e.target.value);
     } else if (e.key === 'Escape') {
       e.stopPropagation();
-      e.target.value = comma(axisDegrees(layout.elements[selected].axis));
+      e.target.value = comma(axisDegrees(currentAxis()));
       e.target.blur();
     }
   });
@@ -757,7 +841,7 @@ export function createEditor(host) {
     /** The course differs from the generated one. */
     get edited() { return !!layout && courseOf(layout) !== courseOf(base); },
     get problems() { return routed?.problems ?? []; },
-    get selectedId() { return block !== null ? `b${block + 1}` : idOf(selected); },
+    get selectedId() { return block !== null ? `b${block + 1}` : term ?? idOf(selected); },
     get dragging() { return !!drag; },
     get pickerOpen() { return !!picker; },
 
@@ -774,6 +858,7 @@ export function createEditor(host) {
       redo = [];
       selected = null;
       block = null;
+      term = null;
       drag = null;
       routed = { course, problems: [] };
       if (edited && courseOf(edited) !== courseOf(base)) {
@@ -789,6 +874,7 @@ export function createEditor(host) {
       active = true;
       selected = indexOf(id);
       block = null;
+      term = termOf(id);
       shownSelected = null;
       say('');
       show();
@@ -799,12 +885,13 @@ export function createEditor(host) {
       active = false;
       selected = null;
       block = null;
+      term = null;
       drag = null;
     },
 
     /** A tap on the plan: the element under it, or nothing. */
     select(id) {
-      select(indexOf(id), blockOf(id));
+      select(termOf(id) ?? indexOf(id), blockOf(id));
     },
 
     /**
@@ -815,8 +902,9 @@ export function createEditor(host) {
     dragStart(id, handle = null) {
       const k = blockOf(id);
       if (k !== null) {
-        if (block !== k || selected !== null) {
+        if (block !== k || selected !== null || term !== null) {
           selected = null;
+          term = null;
           block = k;
           render();
         }
@@ -824,10 +912,23 @@ export function createEditor(host) {
         drag = { from: layout, block: k, x: b.x, y: b.y, rect: { ...b }, handle: handle && (handle.sx || handle.sy) ? handle : null };
         return true;
       }
+      const t = termOf(id);
+      if (t) {
+        if (term !== t) {
+          selected = null;
+          block = null;
+          term = t;
+          render();
+        }
+        const p = terminalPose(layout, t);
+        drag = { from: layout, i: t, x: p.x, y: p.y };
+        return true;
+      }
       const i = indexOf(id);
       if (i === null) return false;
       if (selected !== i) {
         selected = i;
+        term = null;
         render();
       }
       drag = { from: layout, i, x: layout.elements[i].x, y: layout.elements[i].y };
@@ -854,7 +955,7 @@ export function createEditor(host) {
       const { from, i, block: k, handle } = drag;
       drag = null;
       if (elementsOf(from) !== elementsOf(layout)) {
-        undo.push(k !== undefined ? { layout: from, selected: null, block: k } : { layout: from, selected: i, block: null });
+        undo.push(k !== undefined ? { layout: from, selected: null, block: k } : isTerm(i) ? { layout: from, selected: null, block: null, term: i } : { layout: from, selected: i, block: null });
         if (undo.length > UNDO_MAX) undo.shift();
         redo = [];
         const before = routeLayout(from).problems.length;
@@ -863,6 +964,8 @@ export function createEditor(host) {
           say(handle
             ? `${blockedTitle(layout, k)}: ${b.w} × ${b.h} м, угол X ${b.x}, Y ${b.y} м.${problemsNote(before)}`
             : `${blockedTitle(layout, k)}: X ${b.x}, Y ${b.y} м.${problemsNote(before)}`);
+        } else if (isTerm(i)) {
+          say(`${termTitle(i)}: первый конус X ${layout[i].x}, Y ${layout[i].y} м.${problemsNote(before)}`);
         } else {
           const el = layout.elements[i];
           say(`Элемент ${i + 1}: якорь X ${el.x}, Y ${el.y} м.${problemsNote(before)}`);
@@ -899,7 +1002,7 @@ export function createEditor(host) {
       }
       if (mod || e.altKey || drag) return false;
       if (k === 'Escape') {
-        if (selected !== null || block !== null) select(null);
+        if (selected !== null || block !== null || term !== null) select(null);
         else host.leave();
         return true;
       }
@@ -911,6 +1014,18 @@ export function createEditor(host) {
         }
         if (k === 'Delete' || k === 'Backspace') {
           ACTIONS.remove();
+          return true;
+        }
+        return false;
+      }
+      if (term) {
+        if (NUDGES[k]) {
+          const [dx, dy] = NUDGES[k];
+          nudge(dx * (e.shiftKey ? 5 : 1), dy * (e.shiftKey ? 5 : 1));
+          return true;
+        }
+        if (k === 'r' || k === 'R' || k === 'к' || k === 'К') {
+          ACTIONS.rotate(e.shiftKey ? '1' : '-1');
           return true;
         }
         return false;
