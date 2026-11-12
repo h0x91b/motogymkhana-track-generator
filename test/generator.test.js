@@ -114,11 +114,24 @@ describe('recipe input', () => {
     expect(ELEMENT_TYPES).toHaveLength(20);
   });
 
-  test('only the types kept for medium and hard, ticked at easy, are a types error', () => {
-    const result = parseRecipe({ ...baseRecipe, difficulty: 'easy', types: ['snail', 'keyhole'] });
-    expect(result.ok).toBe(false);
-    expect(result.errors.types).toBeTruthy();
-    expect(parseRecipe({ ...baseRecipe, difficulty: 'medium', types: ['snail', 'keyhole'] }).ok).toBe(true);
+  test('every type is used at every difficulty, which changes only its sizes', () => {
+    // The snail, the licence-test eight and the keyhole used to be kept from
+    // easy courses; now they come at every difficulty, roomier at easy.
+    const size = { snail: 'corridor', 'box-eight': 'gate', keyhole: 'opening' };
+    for (const [type, key] of Object.entries(size)) {
+      const sizes = DIFFICULTIES.map((difficulty) => {
+        const recipe = { ...baseRecipe, closed: false, elements: 2, difficulty, types: [type] };
+        expect(parseRecipe(recipe).ok, `${type} ${difficulty}`).toBe(true);
+        const result = generateCourse(recipe, 1);
+        expect(result.ok, `${type} ${difficulty}`).toBe(true);
+        const e = result.course.elements.find((el) => el.type === type && el.axis % 2 === 0);
+        expect(e, `${type} ${difficulty}`).toBeTruthy();
+        return e.params[key];
+      });
+      // easy > medium > hard, or easy > hard where medium sits between
+      expect(sizes[0], type).toBeGreaterThan(sizes[1]);
+      expect(sizes[1], type).toBeGreaterThan(sizes[2]);
+    }
   });
 });
 

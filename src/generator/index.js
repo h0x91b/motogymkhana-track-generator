@@ -5,7 +5,7 @@ import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, elementMargins, feasibleTy
 import { parseRecipe, parseSeed, safetyOf, usableTypes } from './recipe.js';
 
 export {
-  parseRecipe, parseSeed, ELEMENT_SAFETY_KEYS, SAFETY_DEFAULTS, SAFETY_OPTIONS, safetyOf, safetyValues, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS,
+  parseRecipe, parseSeed, ELEMENT_SAFETY_KEYS, SAFETY_DEFAULTS, SAFETY_OPTIONS, safetyOf, safetyValues, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES,
 } from './recipe.js';
 export {
   BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues,

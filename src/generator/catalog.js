@@ -16,6 +16,8 @@ import { arcPoints, ellipsePoints, latticeUnit, PI, smoothPath, turning } from '
 
 /**
  * Starting sizes per difficulty (SPEC «Начальные размеры по сложности»).
+ * Every type has a row at every difficulty: the difficulty changes the sizes
+ * inside the elements, never which types are used (ADR 0017).
  * A pair is an inclusive range of centre-to-centre metres; a single value V
  * means "V on the 0.5 m grid", i.e. V ± 0.25 m. On a side axis that admits V
  * only; on a diagonal it admits the nearest √2-lattice length if it is that
@@ -35,6 +37,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [4.5],
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
+    snailCorridor: [3], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3.5], keyholeOpening: [3],
   },
   medium: {
     slalomStep: [4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],

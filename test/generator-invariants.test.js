@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES, TYPE_LEVELS,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
   uTurnRadius,
 } from '../src/generator/index.js';
 
@@ -58,7 +58,7 @@ const RECIPES = [
   },
   {
     name: 'only big types',
-    recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'closed', types: ['snail', 'crescent'] },
+    recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'closed', types: ['snail', 'crescent'] },
     seeds: sweep(30, 1),
   },
   {
@@ -695,14 +695,6 @@ describe('element shapes', () => {
       }
     });
     expect(seen).toBeGreaterThan(sweep(10, 0));
-  });
-
-  test('a snail, licence-test eight and keyhole appear only from medium difficulty', () => {
-    each((c, recipe) => {
-      for (const e of c.elements) {
-        if (TYPE_LEVELS[e.type]) expect(TYPE_LEVELS[e.type], `${label(c)} ${e.type}`).toContain(recipe.difficulty);
-      }
-    });
   });
 
   test('slalom steps and gate widths stay in the difficulty ranges, or on the size the recipe fixed', () => {
