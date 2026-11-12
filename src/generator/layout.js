@@ -15,8 +15,8 @@
 import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  areaClear, assemble, boxEntries, boxFinish, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
-  lineOnAsphalt, MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, quadOnAsphalt, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
+  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
+  finishAt, lineOnAsphalt, MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
@@ -109,7 +109,53 @@ export function parseLayout(raw) {
     }
     elements.push({ type: e.type, sizes, axis: e.axis, mirrored: e.mirrored, x: e.x, y: e.y, ...pivot, ...safety });
   }
-  return { recipe: recipe.recipe, seed: raw.seed, elements };
+  const out = { recipe: recipe.recipe, seed: raw.seed, elements };
+  // A start or finish put by hand; without one it follows the first or the last element.
+  for (const which of TERMINALS) {
+    if (raw[which] === undefined) continue;
+    const pose = parsePose(raw[which]);
+    if (!pose) return null;
+    if (which === 'start' || recipe.recipe.shape === 'open') out[which] = pose;
+  }
+  return out;
+}
+
+/** The two ends of a route that «Правка» moves like elements. A closed or `return` course has only the start: its finish is the same line. */
+export const TERMINALS = ['start', 'finish'];
+/** Axes a start or finish can be turned to: 22.5° steps, as an element off the lattice (ADR 0019). */
+export const TERMINAL_AXES = Array.from({ length: 16 }, (_, k) => k / 2);
+
+function parsePose(t) {
+  if (!t || typeof t !== 'object' || !Number.isInteger(t.x) || !Number.isInteger(t.y) || !TERMINAL_AXES.includes(t.axis)) return null;
+  const pivot = Array.isArray(t.pivot) && t.pivot.length === 2 && t.pivot.every(Number.isFinite) ? { pivot: [t.pivot[0], t.pivot[1]] } : {};
+  return { x: t.x, y: t.y, axis: t.axis, ...pivot };
+}
+
+/** The terminals a layout of this shape has: the start, and for an open course its own finish. */
+export const terminalsOf = (layout) => (layout.recipe.shape === 'open' ? TERMINALS : ['start']);
+
+/** The start or finish line as the generator puts it: before the first element, past the last. */
+function derivedTerminal(layout, which, placed = null) {
+  const { recipe } = layout;
+  if (which === 'start') return startTerminal(placed?.[0] ?? place(layout.elements[0], recipe), recipe.shape);
+  return finishTerminal(placed?.[placed.length - 1] ?? place(layout.elements.at(-1), recipe));
+}
+
+/** Is the terminal `t` built where the pose says: its first cone, and crossed along its axis? */
+const samePose = (p, t) => Math.abs(t.cones[0][0] - p.x) < 1e-9 && Math.abs(t.cones[0][1] - p.y) < 1e-9 && t.dir === p.axis;
+
+/** The start or finish line where a pose puts it. */
+const terminalAt = (which, p, shape) => (which === 'start' ? startAt([p.x, p.y], p.axis, shape) : finishAt([p.x, p.y], p.axis));
+
+/**
+ * The pose of the start or finish: the one put by hand, or the one the
+ * generator gives it — its first cone, on whole metres, and the axis it is
+ * crossed along — and whether it was put by hand.
+ */
+export function terminalPose(layout, which) {
+  if (layout[which]) return { ...layout[which], pinned: true };
+  const t = derivedTerminal(layout, which);
+  return { x: t.cones[0][0], y: t.cones[0][1], axis: t.dir, pinned: false };
 }
 
 // ---------------------------------------------------------------- routing
@@ -148,6 +194,20 @@ function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, 
     }
   }
   return best;
+}
+
+/**
+ * A straight leg from `a` (heading `aDir`) to `b` (entered along `bDir`) when
+ * it continues both within CHAIN_ANGLE, as the generator joins a start line to
+ * its first element: on the asphalt and through none of `zones`. Else null.
+ */
+function straightOn(a, aDir, b, bDir, inner, zones) {
+  const bearing = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const limit = (CHAIN_ANGLE * Math.PI) / 180 + 1e-9;
+  if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-9) return null;
+  if (Math.abs(wrapPi(bearing - dirAngle(aDir))) > limit || Math.abs(wrapPi(bearing - dirAngle(bDir))) > limit) return null;
+  const leg = straightLeg(a, b);
+  return lineOnAsphalt(inner, leg.points, leg.bounds) && pathClear(leg.points, leg.bounds, zones) ? leg : null;
 }
 
 const fmt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
@@ -221,28 +281,39 @@ export function routeLayout(layout) {
 
   // Start and finish lines follow from the first and the last element. A line
   // may stand in the run-off zone of its own element, never of another one.
-  const terminalProblems = (t, name, own, code) => {
+  // A start or finish put by hand stands where it was put; the problems then say to move it, not the element.
+  const terminalProblems = (t, name, own, code, pinned) => {
     const lead = name === 'Старт' ? 'перед элементом 1' : `за элементом ${n}`;
+    const which = name === 'Старт' ? 'старт' : 'финиш';
     if (!terminalInside(t, inner, site)) {
-      report(`${code}-off-site`, `${name} не помещается ${lead} — отодвиньте элемент от края площадки или поверните`, { elements: [id(own)] });
+      report(`${code}-off-site`, pinned ? `${name} выходит за площадку или на вырез — отодвиньте его от края или поверните` : `${name} не помещается ${lead} — отодвиньте элемент от края площадки или поверните`, { elements: pinned ? [] : [id(own)] });
       return;
     }
     placed.forEach((p, i) => {
+      const apart = pinned ? `отодвиньте ${which} или элемент ${i + 1}` : `раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`;
       if (clash(t, p)) {
-        report(`${code}-overlap`, `${name} накладывается на элемент ${i + 1} — раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`, { elements: [id(own), id(i)] });
+        report(`${code}-overlap`, `${name} накладывается на элемент ${i + 1} — ${apart}`, { elements: pinned ? [id(i)] : [id(own), id(i)] });
       } else if (i !== own && inRunOff(p, t)) {
-        report(`${code}-overlap`, `${name} стоит в зоне выката элемента ${i + 1} — раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`, { elements: [id(own), id(i)] });
+        report(`${code}-overlap`, `${name} стоит в зоне выката элемента ${i + 1} — ${apart}`, { elements: pinned ? [id(i)] : [id(own), id(i)] });
       }
     });
   };
-  const start = startTerminal(placed[0], shape);
-  terminalProblems(start, 'Старт', 0, 'start');
-  /** The finish line of an open course: straight past the last element. */
+  // A pose that is where the generator would put the line anyway changes nothing.
+  const pinnedTerminal = (which) => {
+    if (!layout[which] || (which === 'finish' && shape !== 'open')) return null;
+    const derived = derivedTerminal(layout, which, placed);
+    return samePose(layout[which], derived) ? null : terminalAt(which, layout[which], shape);
+  };
+  const pinnedStart = pinnedTerminal('start');
+  const pinnedFinish = pinnedTerminal('finish');
+  const start = pinnedStart ?? startTerminal(placed[0], shape);
+  terminalProblems(start, 'Старт', 0, 'start', !!pinnedStart);
+  /** The finish line of an open course: straight past the last element, or where it was put. */
   const finishAhead = () => {
-    const line = finishTerminal(placed[n - 1]);
-    terminalProblems(line, 'Финиш', n - 1, 'finish');
+    const line = pinnedFinish ?? finishTerminal(placed[n - 1]);
+    terminalProblems(line, 'Финиш', n - 1, 'finish', !!pinnedFinish);
     if (obbOverlap(line.zone, start.zone)) {
-      report('finish-overlap', 'Финиш накладывается на старт — раздвиньте первый и последний элементы', { elements: [id(0), id(n - 1)] });
+      report('finish-overlap', pinnedStart || pinnedFinish ? 'Финиш накладывается на старт — отодвиньте одну из линий' : 'Финиш накладывается на старт — раздвиньте первый и последний элементы', { elements: [id(0), id(n - 1)] });
     }
     return line;
   };
@@ -257,19 +328,10 @@ export function routeLayout(layout) {
     const i = placed.indexOf(z);
     return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
   };
-  const legs = [straightLeg(start.center, placed[0].entry)];
+  const legs = [];
   // The route a U-turn cone keeps clear of: the legs, and every element's run-in and run-out.
   const ends = placed.flatMap((p) => p.ends);
   const route = () => [...legs, ...ends];
-  let track = recipe.train && trainGap > 0 ? emptyTrack(trainGap) : null;
-  const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
-  if (track) {
-    if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
-    track = extendTrack(track, [legs[0].points, ridden(placed[0])]);
-  }
-  // The route after the first element: what the way back across the start line is checked against.
-  let tail = track && emptyTrack(trainGap);
-
   /** A connector by the generator's rules, or the least bad one with its problem. `name` is «3 → 4». */
   const connectorProblem = (fault, connector, name, ends) => {
     const texts = {
@@ -281,6 +343,36 @@ export function routeLayout(layout) {
     };
     report(fault.code, texts[fault.code], { elements: ends, connector });
   };
+
+  if (pinnedStart) {
+    // From a start put by hand: straight on to the first element when it lies ahead, as the generator joins them;
+    // else across the line and its lead-in, then a connector like any other.
+    const leg = straightOn(start.center, start.dir, placed[0].entry, placed[0].entryDir, inner, zones.filter((z) => z !== start && z !== placed[0]));
+    if (leg) legs.push(leg);
+    else {
+      const u = axisVector(start.dir);
+      const out = [start.center[0] + u[0] * START_LEAD_IN, start.center[1] + u[1] * START_LEAD_IN];
+      const from = pose(out, start.dir);
+      const to = pose(placed[0].entry, placed[0].entryDir);
+      let lead = connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, coneGap);
+      if (!lead) {
+        const loose = looseConnector(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, [], coneGap);
+        lead = loose.leg;
+        connectorProblem(loose.faults[0], 0, 'старт → 1', [id(0)]);
+      }
+      const points = [start.center, ...lead.points];
+      legs.push({ ...lead, points, bounds: pointsBounds(points), length: lead.length + START_LEAD_IN });
+      zones.push(...lead.cones);
+    }
+  } else legs.push(straightLeg(start.center, placed[0].entry));
+  let track = recipe.train && trainGap > 0 ? emptyTrack(trainGap) : null;
+  const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
+  if (track) {
+    if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
+    track = extendTrack(track, [legs[0].points, ridden(placed[0])]);
+  }
+  // The route after the first element: what the way back across the start line is checked against.
+  let tail = track && emptyTrack(trainGap);
 
   for (let i = 1; i < n; i++) {
     const [prev, cur] = [placed[i - 1], placed[i]];
@@ -346,6 +438,21 @@ export function routeLayout(layout) {
     }
     finish = boxFinish(start, home.dir, home.stop);
     legs.push(home.leg);
+  } else if (pinnedFinish) {
+    // To a finish put by hand: lined up one turning radius before it, like the closing connector of a closed course.
+    const from = pose(last.exit, last.exitDir);
+    const others = zones.filter((z) => z !== finish);
+    let leg = straightOn(last.exit, last.exitDir, finish.center, finish.dir, inner, others.filter((z) => z !== last));
+    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, finish, radius, inner, others, route(), limit, null, coneGap);
+    if (!leg) {
+      const u = axisVector(finish.dir);
+      const approach = [finish.center[0] - u[0] * radius, finish.center[1] - u[1] * radius];
+      const loose = looseConnector(from, pose(approach, finish.dir), radius, inner, others, route(), CLOSING_TURN_LIMITS.at(-1), null, [finish.center], coneGap);
+      leg = loose.leg;
+      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1)]);
+    }
+    if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);
+    legs.push(leg);
   } else {
     if (legs.length === n) {
       const leg = straightLeg(last.exit, finish.center);
@@ -420,13 +527,64 @@ function turned(layout, i, change) {
   return withElement(layout, i, fitted(centred({ ...el, ...change, pivot }, pivot, recipe), recipe));
 }
 
-/** Moves the anchor of element i to (x, y), whole metres, as far as the site lets it. */
+/** Is `i` the start or the finish rather than an element's index? */
+const isTerminal = (i) => i === 'start' || i === 'finish';
+
+/** The layout with the start or finish put at `pose` by hand. */
+const withTerminal = (layout, which, pose) => ({ ...layout, [which]: pose });
+
+/**
+ * The start or finish slid the least so that its cones are inside the margin
+ * and its zone on the site, as an element is (`fitted`); where it cannot be,
+ * it keeps its cones on the site if it can, and otherwise stays.
+ */
+function fittedTerminal(layout, which, p) {
+  const { recipe } = layout;
+  const inner = innerRect(recipe);
+  const t = terminalAt(which, p, recipe.shape);
+  const [x0, y0, x1, y1] = pointsBounds(t.cones);
+  const [z0, w0, z1, w1] = t.zoneBounds;
+  const cones = [[inner[0] - x0, inner[2] - x1], [inner[1] - y0, inner[3] - y1]];
+  const full = [[Math.max(cones[0][0], -z0), Math.min(cones[0][1], recipe.width - z1)], [Math.max(cones[1][0], -w0), Math.min(cones[1][1], recipe.length - w1)]];
+  const shift = [0, 1].map((k) => clampInt(0, ...full[k]) ?? clampInt(0, ...cones[k]) ?? 0);
+  return shift[0] || shift[1] ? { ...p, x: p.x + shift[0], y: p.y + shift[1] } : p;
+}
+
+/** The start or finish turned to `axis` about the middle of its line, which it remembers as `pivot` like a turned element. */
+function turnedTerminal(layout, which, axis) {
+  const { recipe } = layout;
+  const now = terminalPose(layout, which);
+  const pivot = now.pivot ?? terminalAt(which, now, recipe.shape).center;
+  const origin = terminalAt(which, { x: 0, y: 0, axis }, recipe.shape).center;
+  const p = { x: Math.round(pivot[0] - origin[0]), y: Math.round(pivot[1] - origin[1]), axis, pivot };
+  return withTerminal(layout, which, fittedTerminal(layout, which, p));
+}
+
+/**
+ * Moves the anchor of element i to (x, y), whole metres, as far as the site
+ * lets it. With i = 'start' or 'finish' it moves that line's first cone
+ * instead, and the line stays where it is put from then on.
+ */
 export function moveElement(layout, i, x, y) {
+  if (isTerminal(i)) {
+    const { pivot, pinned, ...now } = terminalPose(layout, i);
+    return withTerminal(layout, i, fittedTerminal(layout, i, { ...now, x: Math.round(x), y: Math.round(y) }));
+  }
   return withElement(layout, i, fitted({ ...unpinned(layout.elements[i]), x: Math.round(x), y: Math.round(y) }, layout.recipe));
 }
 
-/** Turns element i by one step of the axes it can be turned to in «Правка» — 22.5°, or 45° for a side-only type (ADR 0019) — about the middle of its zone. */
+/**
+ * Turns element i by one step of the axes it can be turned to in «Правка» —
+ * 22.5°, or 45° for a side-only type (ADR 0019) — about the middle of its
+ * zone. The start or finish ('start', 'finish') turns by 22.5° about the
+ * middle of its line.
+ */
 export function rotateElement(layout, i, dir) {
+  if (isTerminal(i)) {
+    const { axis } = terminalPose(layout, i);
+    const k = TERMINAL_AXES.indexOf(axis);
+    return turnedTerminal(layout, i, TERMINAL_AXES[(k + dir + TERMINAL_AXES.length) % TERMINAL_AXES.length]);
+  }
   const el = layout.elements[i];
   const axes = editAxes(el.type);
   return turned(layout, i, { axis: axes[(axes.indexOf(el.axis) + dir + axes.length) % axes.length] });
@@ -444,22 +602,36 @@ export const turnStep = (type) => 360 / editAxes(type).length;
  * Halfway between two the one nearer `current` wins, then the
  * counter-clockwise one. Null for something that is not a number.
  */
-export function nearestAxis(type, degrees, current = 0) {
+export const nearestAxis = (type, degrees, current = 0) => nearestOf(editAxes(type), degrees, current);
+
+function nearestOf(axes, degrees, current) {
   if (!Number.isFinite(degrees)) return null;
   const off = (a, d) => Math.abs((((d - axisDegrees(a)) % 360) + 540) % 360 - 180);
   let best = null;
-  for (const axis of editAxes(type)) {
+  for (const axis of axes) {
     const key = [off(axis, degrees), off(axis, axisDegrees(current)), -axis];
     if (!best || key[0] < best.key[0] - 1e-9 || (Math.abs(key[0] - best.key[0]) <= 1e-9 && (key[1] < best.key[1] || (key[1] === best.key[1] && key[2] < best.key[2])))) best = { axis, key };
   }
   return best.axis;
 }
 
-/** Turns element i to the axis nearest to `degrees` it can be turned to, about the middle of its zone like `rotateElement`. */
+/** Turns element i (or the start or finish) to the axis nearest to `degrees` it can be turned to, about its middle like `rotateElement`. */
 export function turnElementTo(layout, i, degrees) {
+  if (isTerminal(i)) {
+    const now = terminalPose(layout, i).axis;
+    const axis = nearestOf(TERMINAL_AXES, degrees, now);
+    return axis === null || axis === now ? layout : turnedTerminal(layout, i, axis);
+  }
   const el = layout.elements[i];
   const axis = nearestAxis(el.type, degrees, el.axis);
   return axis === null || axis === el.axis ? layout : turned(layout, i, { axis });
+}
+
+/** The start or finish back where the generator puts it: before the first element, past the last. */
+export function resetTerminal(layout, which) {
+  if (!layout[which]) return layout;
+  const { [which]: _, ...rest } = layout;
+  return rest;
 }
 
 /** Mirrors element i across its axis: turns swap sides, and so do the colours of its cones. */

@@ -316,6 +316,15 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     if (editing && e.id === selected) path(e.zone.map(([x, y]) => [x, y, 0.007]), wrong ? PALETTE.problem : PALETTE.select, 0.12, null, true);
   }
 
+  // The start and an open course's finish in «Правка»: their zones are tap and drag targets after the elements', and the one being edited is outlined.
+  if (editing) {
+    const ends = course.route.shape === 'open' ? [['start', course.route.start], ['finish', course.route.finish]] : [['start', course.route.start]];
+    for (const [id, t] of ends) {
+      hits.push({ kind: 'zone', element: id, poly: t.zone.map(([x, y]) => project(x, y, 0.005)) });
+      if (id === selected) path(t.zone.map(([x, y]) => [x, y, 0.007]), PALETTE.select, 0.12, null, true);
+    }
+  }
+
   // Walls between low cones (closed sides of boxes and U-turns, corridors) are
   // guides, not marked on the asphalt; a mirror's chalk line is painted.
   for (const e of course.elements) {
@@ -349,7 +358,8 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
         path([pt(s0, o0), pt(s1, o0), pt(s1, o1), pt(s0, o1)], null, 0, (i + j) % 2 ? '#253239' : '#edf0df', true);
       }
     }
-    plate(PLATE_TEXT[kind], lx, ly, { size: 11, bg: '#2e3a42' });
+    // In «Правка» the start and the finish are picked and dragged like elements.
+    plate(PLATE_TEXT[kind], lx, ly, { size: 11, bg: '#2e3a42', hit: editing ? (kind === 'finish' ? 'finish' : 'start') : null });
   }
 
   // Route: element trajectories solid, connectors dashed, arrows every 5 m.

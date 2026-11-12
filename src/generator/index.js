@@ -15,7 +15,7 @@ export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN
 export {
   addBlocked, BLOCKED_DEFAULT, blockedMarginOf, moveBlocked, removeBlocked, resizeBlocked, resizeBlockedSide, setBlockedMargin,
   axisDegrees, turnStep, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
-  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, setElementSafety, setElementSize, shiftElement, turnElementTo,
+  removeElement, replaceElement, resetTerminal, resizeElement, rotateElement, routeLayout, setElementSafety, setElementSize, shiftElement, terminalPose, terminalsOf, turnElementTo,
 } from './layout.js';
 export { editAxes, typeAxes } from './catalog.js';
 

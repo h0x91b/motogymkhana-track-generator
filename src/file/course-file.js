@@ -27,7 +27,7 @@ const firstVersionAxis = (e) => typeAxes(e.type).includes(e.axis);
 
 /**
  * The document of a course file for a layout.
- * @param {object} layout `{recipe, seed, elements}` (layoutOf or the editor's)
+ * @param {object} layout `{recipe, seed, elements, start?, finish?}` (layoutOf or the editor's)
  * @param {{build?: string, edited?: boolean}} meta which build saved it, and whether the course was edited by hand
  */
 export function courseDocument(layout, { build = '', edited = false } = {}) {
@@ -49,6 +49,9 @@ export function courseDocument(layout, { build = '', edited = false } = {}) {
       // Margins the element sets for itself in «Правка» (ADR 0014).
       ...(e.safety ? { safety: { ...e.safety } } : {}),
     })),
+    // A start or finish put by hand in «Правка»; without one it follows the first or the last element.
+    // An older build skips these and opens the course with them where the generator puts them, so the version stays.
+    ...Object.fromEntries(['start', 'finish'].filter((k) => layout[k]).map((k) => [k, { ...layout[k] }])),
   };
 }
 
@@ -166,7 +169,8 @@ export function conesCsv(course, sheet = buildSetupSheet(course)) {
     for (const t of card.turnCones) {
       const pass = course.passes.find((p) => p.cone === t.cone && p.connector);
       const to = pass.connector.to === 'finish' ? (closed ? 'старт' : 'финиш') : orderOf.get(pass.connector.to);
-      add(t.cone, `Связка ${e.order} → ${to}: конус разворота`, '', t.color);
+      const from = pass.connector.from === 'start' ? 'старт' : e.order;
+      add(t.cone, `Связка ${from} → ${to}: конус разворота`, '', t.color);
     }
   });
   if (!closed) for (const id of course.route.finish.cones) add(id, 'Финиш', '', 'neutral');

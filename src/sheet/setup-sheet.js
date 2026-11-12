@@ -554,13 +554,15 @@ export function buildSetupSheet(course) {
   for (const card of cards) card.turnCones = [];
   for (const pass of course.passes) {
     if (!pass.connector) continue;
-    const card = cards.find((c) => c.element === pass.connector.from);
+    // Off a start put by hand in «Правка» the way to element 1 can turn round a cone too: it is laid out with element 1.
+    const fromStart = pass.connector.from === 'start';
+    const card = fromStart ? cards[0] : cards.find((c) => c.element === pass.connector.from);
     const c = byId.get(pass.cone);
     const x = c.hx / 2;
     const y = c.hy / 2;
     const dx = x - card.anchor.x + 0;
     const dy = y - card.anchor.y + 0;
-    const to = pass.connector.to === 'finish' ? (course.route.shape === 'closed' ? 'к старту' : 'к финишу') : `к элементу ${orderOf.get(pass.connector.to)}`;
+    const to = fromStart ? 'от старта к элементу 1' : pass.connector.to === 'finish' ? (course.route.shape === 'closed' ? 'к старту' : 'к финишу') : `к элементу ${orderOf.get(pass.connector.to)}`;
     const colour = pass.side === 'left' ? 'синего' : 'красного';
     card.turnCones.push({
       cone: pass.cone, x, y, dx, dy, side: pass.side, color: pass.side === 'left' ? 'blue' : 'red',
