@@ -320,7 +320,7 @@ export function createEditor(host) {
         ${metric(c) ? sizeInput(c) : `<span class="size-value">${esc(sizeText(c))}</span>`}
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
-    // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0017).
+    // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0019).
     const angle = `<div class="size-row angle-row">
         <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>
         <span class="angle-field"><input id="edit-angle" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(axisDegrees(el.axis))}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>

@@ -25,7 +25,7 @@ export const latticeUnit = (diagonal) => (diagonal ? 0.5 * Math.SQRT2 : 0.5);
 /**
  * Unit vector (metres) of an axis or direction in steps of 45° counter-clockwise
  * from +X. Exact for the eight 45° cases; an element turned off the lattice in
- * «Правка» (ADR 0017) stands on a half step, 22.5° between two of them.
+ * «Правка» (ADR 0019) stands on a half step, 22.5° between two of them.
  */
 export function axisVector(axis) {
   if (!Number.isInteger(axis)) {
