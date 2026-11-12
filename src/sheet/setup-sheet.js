@@ -10,7 +10,16 @@ export const fmt = (v) => {
   const r = Math.round(v * 100) / 100;
   return String(Object.is(r, -0) ? 0 : r).replace('.', ',').replace('-', '−');
 };
-export const metres = (v) => `${fmt(v)} м`;
+/**
+ * A distance on the setup sheet and in «Расстановка»: always to 0.1 m, so a
+ * whole metre reads «12,0» next to «1,5» and no figure looks rounder than the
+ * rest. `fmt` stays for the form, where «1,5» chips and site sizes are terse.
+ */
+export const dist = (v) => {
+  const r = Math.round(v * 10) / 10;
+  return (Object.is(r, -0) ? 0 : r).toFixed(1).replace('.', ',').replace('-', '−');
+};
+export const metres = (v) => `${dist(v)} м`;
 
 /**
  * True length of a diagonal run that goes `v` metres along X and as many along
@@ -327,7 +336,7 @@ export function buildSetupSheet(course) {
       radii: g.radii,
       from: g.from,
       to: g.to,
-      label: `Центр X ${fmt(g.x)} · Y ${fmt(g.y)}: ${g.radii.length > 1 ? 'дуги радиусом' : 'дуга радиусом'} ${g.radii.map(fmt).join('; ')} м`,
+      label: `Центр X ${dist(g.x)} · Y ${dist(g.y)}: ${g.radii.length > 1 ? 'дуги радиусом' : 'дуга радиусом'} ${g.radii.map(dist).join('; ')} м`,
     }));
     return {
       number: e.order,
@@ -350,7 +359,7 @@ export function buildSetupSheet(course) {
 
   // Each anchor also from the previous one in passing order: a short tape run
   // from the element just laid out instead of a long one from corner A.
-  const signed = (v) => (v > 0 ? `+${fmt(v)}` : v < 0 ? `−${fmt(-v)}` : '0');
+  const signed = (v) => (v > 0 ? `+${dist(v)}` : v < 0 ? `−${dist(-v)}` : '0,0');
 
   // U-turn cones of the connector leaving an element, measured from that
   // element's anchor like the next anchor in the chain.

@@ -357,7 +357,7 @@ describe('sizes as the editor prints them', () => {
     expect(rows.name).toBe('Между рядами');
     expect(rows.value).toBe(2 * slalom.elements[0].sizes.shift);
     const sheet = buildSetupSheet(routeLayout(slalom).course);
-    expect(sheet.cards[0].notes.join(' ')).toContain(`между рядами ${String(rows.value).replace('.', ',')} м`);
+    expect(sheet.cards[0].notes.join(' ')).toContain(`между рядами ${rows.value.toFixed(1).replace('.', ',')} м`);
   });
 
   test('on a diagonal a length is what a tape shows between the cones', () => {

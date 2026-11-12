@@ -7,7 +7,7 @@
 // (SPEC, «Картинка схемы»).
 
 import { SHAPE_NAMES } from '../generator/recipe.js';
-import { fmt } from '../sheet/setup-sheet.js';
+import { dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -470,7 +470,7 @@ function cardBlock(card, width) {
   const rows = Math.ceil(card.cones.length / tables);
   const head = textBlock([
     { text: card.name, size: 28, weight: 700, gap: 4 },
-    { text: `Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: card.fromPrevious ? 2 : 6 },
+    { text: `Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: card.fromPrevious ? 2 : 6 },
     ...(card.fromPrevious ? [{ text: card.fromPrevious.label, size: 21, weight: 600, color: '#6b4c00', gap: 6 }] : []),
     { text: `Ось: ${card.axis.label}`, size: 20 },
     { text: `Проезд: ${card.travel}`, size: 20, gap: 6 },
@@ -537,8 +537,8 @@ function cardBlock(card, width) {
         ctx.textAlign = 'left';
         const a = card.axis.diagonal ? cone.dx : cone.along;
         const b = card.axis.diagonal ? cone.dy : cone.across;
-        ctx.fillText(`${fmt(a)} м`, colX[2] + (tables === 1 ? 20 : 0), ty + rowH / 2);
-        ctx.fillText(`${fmt(b)} м`, colX[3], ty + rowH / 2);
+        ctx.fillText(`${dist(a)} м`, colX[2] + (tables === 1 ? 20 : 0), ty + rowH / 2);
+        ctx.fillText(`${dist(b)} м`, colX[3], ty + rowH / 2);
       });
       const ty = top + rowH * (rows + 1);
       if (!card.axis.diagonal) {
@@ -612,7 +612,7 @@ function packCards(cards, available) {
 export function renderSheetImages(course, sheet, makeCanvas) {
   const probe = makeCanvas(1, 1).getContext('2d');
   const width = W - 2 * PAD;
-  const fmtCone = (c) => `X ${fmt(c.x)} · Y ${fmt(c.y)}`;
+  const fmtCone = (c) => `X ${dist(c.x)} · Y ${dist(c.y)}`;
   const subtitle = `Площадка ${sheet.site.width} × ${sheet.site.length} м · ${sheet.cards.length} элем. · ${SHAPE_NAMES[sheet.shape]} · ${BIKE_LABELS[sheet.bike]} · все расстояния между центрами конусов, от опорного угла A`;
   const intro = textBlock([
     { text: 'Схема расстановки трассы', size: 44, weight: 800, gap: 4 },

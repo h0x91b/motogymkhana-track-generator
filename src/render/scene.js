@@ -3,7 +3,7 @@
 // metric scene. Draws only when asked (no animation loop).
 
 import { TYPE_NAMES } from '../generator/catalog.js';
-import { fmt } from '../sheet/setup-sheet.js';
+import { dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -361,7 +361,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
       const { from, dx, dy } = card.fromPrevious;
       const p = sheet.cards.find((c) => c.number === from).anchor;
       const q = card.anchor;
-      const signed = (v) => (v > 0 ? `+${fmt(v)}` : `−${fmt(-v)}`);
+      const signed = (v) => (v > 0 ? `+${dist(v)}` : `−${dist(-v)}`);
       const legs = [];
       // Labels go to the outside of the L, away from the other leg.
       if (dx) legs.push({ a: [p.x, p.y], b: [q.x, p.y], label: `X ${signed(dx)} м`, normal: [0, dy > 0 ? -1 : 1] });

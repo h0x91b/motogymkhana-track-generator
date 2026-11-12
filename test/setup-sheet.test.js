@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
-import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
+import { buildSetupSheet, dist } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
 
 const RECIPES = [
@@ -22,6 +22,8 @@ const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
 const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'crescent'];
 const isHalf = (v) => Number.isInteger(v * 2);
+/** A setup-sheet distance: always one decimal, decimal comma («12,0», «1,5»). */
+const d1 = (v) => v.toFixed(1).replace('.', ',');
 
 /** Rebuilds cone positions (metres) using nothing but the sheet. */
 function reconstruct(sheet) {
@@ -48,6 +50,15 @@ function reconstruct(sheet) {
 }
 
 describe('setup sheet', () => {
+  test('distances are printed to 0.1 m, always with one decimal and a decimal comma', () => {
+    expect(dist(12)).toBe('12,0');
+    expect(dist(1.5)).toBe('1,5');
+    expect(dist(3.54)).toBe('3,5');
+    expect(dist(-2.5)).toBe('−2,5');
+    expect(dist(-0)).toBe('0,0');
+    expect(dist(-0.01)).toBe('0,0');
+  });
+
   test('all cone positions are recovered from the sheet alone and match the course', () => {
     for (const course of courses) {
       const sheet = buildSetupSheet(course);
@@ -129,7 +140,7 @@ describe('setup sheet', () => {
         seen++;
         const across = card.cones.map((c) => c.across);
         const gap = Math.max(...across) - Math.min(...across);
-        expect(card.notes.join(' ')).toContain(`между рядами ${String(gap).replace('.', ',')} м`);
+        expect(card.notes.join(' ')).toContain(`между рядами ${d1(gap)} м`);
       }
     }
     expect(seen).toBeGreaterThan(sweep(3, 0));
@@ -151,10 +162,10 @@ describe('setup sheet', () => {
             expect(Math.abs(dx)).toBe(Math.abs(dy));
             expect(d.value).toBe(Math.abs(dx));
             // Labelled with the true slant length, not the X/Y offset.
-            expect(d.label).toBe(`${String(Math.round(d.value * Math.SQRT2 * 10) / 10).replace('.', ',')} м`);
+            expect(d.label).toBe(`${d1(Math.round(d.value * Math.SQRT2 * 10) / 10)} м`);
           } else {
             expect(d.value).toBe(Math.hypot(dx, dy));
-            expect(d.label).toBe(`${String(d.value).replace('.', ',')} м`);
+            expect(d.label).toBe(`${d1(d.value)} м`);
           }
           expect(d.value > 0 && isHalf(d.value), `seed ${course.seed} ${card.type}`).toBe(true);
           // The sheet's notes give the same number.
@@ -183,7 +194,7 @@ describe('setup sheet', () => {
   });
 
   test('each element after the first is placed from the previous anchor, and that chain alone rebuilds every anchor', () => {
-    const signed = (v) => (v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
+    const signed = (v) => (v > 0 ? `+${d1(v)}` : v < 0 ? `−${d1(-v)}` : '0,0');
     for (const course of courses) {
       const { cards } = buildSetupSheet(course);
       expect(cards[0].fromPrevious).toBeNull();
