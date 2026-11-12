@@ -14,6 +14,8 @@ const RECIPES = [
   // Puts on the course the types whose cards have their own checks, which a few
   // seeds of the mixed recipes can miss.
   { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['gate', 'figure-eight', 'box', 'lane-change', 'offset-slalom'] },
+  // Figure eights alone with small types: the recipe above rarely fits one beside its box.
+  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'open', types: ['figure-eight', 'gate', 'straight-slalom'] },
 ];
 const SEEDS = sweep(40, 3);
 const courses = RECIPES.flatMap((r) => Array.from({ length: SEEDS }, (_, seed) => generateCourse(r, seed).course));

@@ -4,14 +4,13 @@
 import { describe, expect, test } from 'bun:test';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
-  generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, TYPE_LEVELS, uTurnRadius,
+  generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, uTurnRadius,
 } from '../src/generator/index.js';
 import { sweep } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
 const SEEDS = [1, 2];
 const unitOf = (e) => (e.axis % 2 === 1 ? 0.5 * Math.SQRT2 : 0.5);
-const difficultyFor = (type) => (TYPE_LEVELS[type] ? 'medium' : 'hard');
 
 /** The size an option gave this element, in metres along its axis. */
 function sizeOf(e, option) {
@@ -29,7 +28,7 @@ describe('size options', () => {
   for (const [type, options] of Object.entries(SIZE_OPTIONS)) {
     for (const option of options) {
       test(`${type} ${option.key}: every offered value is the size the element gets`, () => {
-        const difficulty = difficultyFor(type);
+        const difficulty = 'hard';
         let seen = 0;
         for (const bike of ['cruiser', 'sport']) {
           for (const value of sizeValues(option)) {
