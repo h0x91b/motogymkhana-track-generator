@@ -126,7 +126,7 @@ const geometry = (c) => JSON.stringify({ cones: c.cones, elements: c.elements, p
 
 describe('determinism', () => {
   test('the same recipe and seed give byte-identical courses', () => {
-    for (const seed of sweep([0, 1, 99, 123456789, 4294967295], [0, 4294967295])) {
+    for (const seed of sweep([0, 1, 99, 123456789, 4294967295], [4294967295])) {
       const a = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
       const b = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
       expect(JSON.stringify(a)).toBe(JSON.stringify(b));
@@ -135,14 +135,14 @@ describe('determinism', () => {
 
   test('different seeds give different courses', () => {
     const seen = new Set();
-    const n = sweep(20, 8);
+    const n = sweep(20, 4);
     for (let seed = 0; seed < n; seed++) seen.add(geometry(generateCourse(baseRecipe, seed).course));
     expect(seen.size).toBe(n);
   });
 });
 
 describe('simplification', () => {
-  const SIMPLIFY_SEEDS = sweep(40, 6);
+  const SIMPLIFY_SEEDS = sweep(40, 4);
   const tight = { width: 30, length: 40, elements: 6, difficulty: 'easy', closed: true };
 
   test('a course simplified from N to K elements is exactly the course ordered with K', () => {

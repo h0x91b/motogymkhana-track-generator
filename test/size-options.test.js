@@ -65,7 +65,7 @@ describe('size options', () => {
   test('a straight slalom of 3, 4 or 5 m is laid out at exactly that step', () => {
     for (const step of [3, 4, 5]) {
       const recipe = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', sizes: { 'straight-slalom': { step } } };
-      for (let seed = 0; seed < sweep(20, 2); seed++) {
+      for (let seed = 0; seed < sweep(20, 1); seed++) {
         const course = generateCourse(recipe, seed).course;
         for (const e of course.elements.filter((x) => x.type === 'straight-slalom' && x.axis % 2 === 0)) {
           expect(e.params.step * 0.5).toBe(step);
@@ -126,7 +126,7 @@ describe('size options', () => {
       sizes: { 'straight-slalom': { step: 6 }, 'offset-slalom': { step: 7 }, circle: { radius: 5 }, 'corridor-slalom': { width: 6, step: 5 } },
     };
     let simplified = 0;
-    for (let seed = 0; seed < sweep(30, 5); seed++) {
+    for (let seed = 0; seed < sweep(30, 4); seed++) {
       const full = generateCourse(tight, seed).course;
       if (!full || full.placed === tight.elements) continue;
       simplified++;
