@@ -353,6 +353,33 @@ export function rotateElement(layout, i, dir) {
   return turned(layout, i, { axis: axes[(axes.indexOf(el.axis) + dir + axes.length) % axes.length] });
 }
 
+/** The angle of an axis in degrees, counter-clockwise from along the width (axis 0 points to +X). */
+export const axisDegrees = (axis) => axis * 45;
+
+/**
+ * The axis a type stands on nearest to `degrees` (any number, wrapped to a
+ * full turn): there is nothing between the axes (ADR 0001). Halfway between
+ * two the one nearer `current` wins, then the counter-clockwise one. Null for
+ * something that is not a number.
+ */
+export function nearestAxis(type, degrees, current = 0) {
+  if (!Number.isFinite(degrees)) return null;
+  const off = (a, d) => Math.abs((((d - axisDegrees(a)) % 360) + 540) % 360 - 180);
+  let best = null;
+  for (const axis of typeAxes(type)) {
+    const key = [off(axis, degrees), off(axis, axisDegrees(current)), -axis];
+    if (!best || key[0] < best.key[0] - 1e-9 || (Math.abs(key[0] - best.key[0]) <= 1e-9 && (key[1] < best.key[1] || (key[1] === best.key[1] && key[2] < best.key[2])))) best = { axis, key };
+  }
+  return best.axis;
+}
+
+/** Turns element i to the axis of its type nearest to `degrees`, about the middle of its zone like `rotateElement`. */
+export function turnElementTo(layout, i, degrees) {
+  const el = layout.elements[i];
+  const axis = nearestAxis(el.type, degrees, el.axis);
+  return axis === null || axis === el.axis ? layout : turned(layout, i, { axis });
+}
+
 /** Mirrors element i across its axis: turns swap sides, and so do the colours of its cones. */
 export function mirrorElement(layout, i) {
   return turned(layout, i, { mirrored: !layout.elements[i].mirrored });

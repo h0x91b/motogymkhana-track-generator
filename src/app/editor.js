@@ -4,8 +4,8 @@
 // generator/layout.js; nothing here knows how a course is routed.
 
 import {
-  ELEMENT_TYPES, ELEMENTS_MAX, elementControls, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord, removeElement,
-  replaceElement, resizeElement, rotateElement, routeLayout, shiftElement, typeAxes, TYPE_NAMES,
+  axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord, removeElement,
+  replaceElement, resizeElement, rotateElement, routeLayout, shiftElement, turnElementTo, typeAxes, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -145,7 +145,28 @@ export function createEditor(host) {
       host.reveal(idOf(selected));
     },
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
-    rotate: (arg) => commit(rotateElement(layout, selected, Number(arg)), selected, `Элемент ${selected + 1} повёрнут.`),
+    rotate: (arg) => {
+      const next = rotateElement(layout, selected, Number(arg));
+      commit(next, selected, `Элемент ${selected + 1} повёрнут на ${axisDegrees(next.elements[selected].axis)}°.`);
+    },
+    /** A typed angle: the nearest axis of the type; the field says where the element went. */
+    angle: (text) => {
+      const typed = Number(String(text).trim().replace(',', '.').replace(/°$/, ''));
+      const field = $('edit-angle');
+      const now = axisDegrees(layout.elements[selected].axis);
+      if (String(text).trim() === '' || !Number.isFinite(typed)) {
+        if (field) field.value = now;
+        say(`Поворот — число градусов. Элемент ${selected + 1} стоит на ${now}°.`);
+        return;
+      }
+      const next = turnElementTo(layout, selected, typed);
+      const to = axisDegrees(next.elements[selected].axis);
+      const snapped = ((typed % 360) + 360) % 360 === to ? '' : ` — ближайшая ось к ${comma(typed)}°`;
+      if (!commit(next, selected, `Элемент ${selected + 1} повёрнут на ${to}°${snapped}.`)) {
+        if (field) field.value = now;
+        say(`Элемент ${selected + 1} уже стоит на ${now}°${snapped}.`);
+      }
+    },
     mirror: () => commit(mirrorElement(layout, selected), selected, `Элемент ${selected + 1} отражён: повороты в другую сторону.`),
     size: (arg) => {
       const [key, dir] = arg.split(':');
@@ -226,6 +247,11 @@ export function createEditor(host) {
         <span class="size-value">${esc(sizeText(c))}</span>
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
+    // The angle can be typed; whatever is typed lands on the nearest axis of the type (ADR 0001).
+    const angle = `<div class="size-row angle-row">
+        <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>
+        <span class="angle-field"><input id="edit-angle" inputmode="numeric" autocomplete="off" enterkeyhint="done" value="${axisDegrees(el.axis)}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
+      </div>`;
     const tool = (act, arg, label, glyph) => `<button type="button" data-act="${act}"${arg === null ? '' : ` data-arg="${arg}"`} aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
     const n = layout.elements.length;
     // Moving and the route actions first: they stay where they are from one
@@ -244,7 +270,7 @@ export function createEditor(host) {
         <button type="button" data-act="shift" data-arg="1" aria-label="Позже по маршруту"${i === n - 1 ? ' disabled' : ''}>Позже</button>
         <button type="button" class="danger" data-act="remove"${n === 1 ? ' disabled title="Последний элемент трассы не удаляется"' : ''}>Удалить</button>
       </div>
-      <div class="edit-sizes">${sizes}</div>`;
+      <div class="edit-sizes">${angle}${sizes}</div>`;
   }
 
   function render() {
@@ -252,6 +278,7 @@ export function createEditor(host) {
     // The panel is rebuilt whole: keep the keyboard where it was.
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
     const key = focused && [focused.dataset.act, focused.dataset.arg];
+    const angleFocused = focused?.id === 'edit-angle';
     const scroll = body.querySelector('.edit-chips')?.scrollLeft ?? 0;
     const hint = '<p class="edit-hint muted">Нажмите на элемент на плане или на его номер. Выбранный элемент перетаскивается по плану, а размеры, поворот и порядок меняются здесь.</p>';
     // About the whole course, so it is offered with no element selected.
@@ -273,7 +300,10 @@ export function createEditor(host) {
       }
     }
     hintMore();
-    if (key) {
+    if (angleFocused && $('edit-angle')) {
+      $('edit-angle').focus({ preventScroll: true });
+      $('edit-angle').select();
+    } else if (key && key[0]) {
       const same = [...body.querySelectorAll('[data-act]')].find((b) => b.dataset.act === key[0] && b.dataset.arg === key[1] && !b.disabled);
       // The button is gone or at its limit: undo is the next thing wanted.
       const next = same ?? [$('edit-undo'), $('edit-done')].find((b) => !b.disabled);
@@ -296,6 +326,30 @@ export function createEditor(host) {
     if (!button || button.disabled || drag) return;
     ACTIONS[button.dataset.act](button.dataset.arg);
   });
+  // The angle field: Enter or leaving it turns the element; the arrows step through the axes.
+  body.addEventListener('change', (e) => {
+    if (e.target.id === 'edit-angle' && selected !== null && !drag) ACTIONS.angle(e.target.value);
+  });
+  body.addEventListener('keydown', (e) => {
+    if (e.target.id !== 'edit-angle' || selected === null || drag) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      ACTIONS.rotate(e.key === 'ArrowUp' ? '1' : '-1');
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      // A phone hides its keyboard; at a desk the cursor stays in the field.
+      if (matchMedia('(pointer: coarse)').matches) e.target.blur();
+      else ACTIONS.angle(e.target.value);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.target.value = axisDegrees(layout.elements[selected].axis);
+      e.target.blur();
+    }
+  });
+  body.addEventListener('focusin', (e) => {
+    if (e.target.id === 'edit-angle') e.target.select();
+  });
+
   /** Undo or redo from its button; when that was the last step the keyboard moves to the other one. */
   const history = (button, other, run) => button.addEventListener('click', () => {
     run();

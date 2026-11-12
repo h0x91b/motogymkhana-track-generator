@@ -7,7 +7,7 @@ import { canonicalJSON, ELEMENT_TYPES, generateCourse } from '../src/generator/i
 import { SIZE_OPTIONS, SIZE_SPECS, sizeControls, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import {
   ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, parseLayout, removeElement, replaceElement, resizeElement,
-  rotateElement, routeLayout, shiftElement,
+  nearestAxis, rotateElement, routeLayout, shiftElement, turnElementTo,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { coneXY, conesById, distanceToPath, insidePolygon } from './helpers/course-geometry.js';
@@ -227,6 +227,35 @@ describe('editing a layout', () => {
       axes.push(layout.elements[0].axis);
     }
     expect(axes).toEqual([2, 4, 6, 0]);
+  });
+
+  test('a typed angle snaps to the nearest axis the type stands on', () => {
+    expect([0, 20, 30, 44, 90, 179, 315, 359, 360, 405, -45, -90].map((d) => nearestAxis('offset-slalom', d))).toEqual([0, 0, 1, 1, 2, 4, 7, 0, 0, 1, 7, 6]);
+    expect([30, 46, 134, 136, 271, -45.5].map((d) => nearestAxis('snail', d))).toEqual([0, 2, 2, 4, 6, 6]);
+    // Halfway between two axes: the one nearer the current axis, then counter-clockwise.
+    expect(nearestAxis('offset-slalom', 22.5, 0)).toBe(0);
+    expect(nearestAxis('offset-slalom', 22.5, 1)).toBe(1);
+    expect(nearestAxis('snail', 45, 0)).toBe(0);
+    expect(nearestAxis('snail', 45, 2)).toBe(2);
+    expect(nearestAxis('snail', 45, 5)).toBe(2);
+    expect(nearestAxis('offset-slalom', Number.NaN)).toBeNull();
+  });
+
+  test('turning to an angle is the same edit as turning step by step', () => {
+    for (const type of ['offset-slalom', 'snail']) {
+      let stepped = single(type);
+      const step = typeAxes(type)[1] * 45;
+      for (let k = 1; k <= typeAxes(type).length; k++) {
+        stepped = rotateElement(stepped, 0, 1);
+        const typed = turnElementTo(single(type), 0, (k * step) % 360);
+        // Both turn about the middle of the zone the element started from.
+        expect(bare(routed(typed)), `${type} ${k * step}°`).toEqual(bare(routed(stepped)));
+        expect(typed.elements[0].axis).toBe(stepped.elements[0].axis);
+      }
+    }
+    const layout = single('offset-slalom');
+    expect(turnElementTo(layout, 0, 10)).toBe(layout);
+    expect(turnElementTo(layout, 0, Number.NaN)).toBe(layout);
   });
 
   test('a turn onto a diagonal and back keeps the sizes', () => {
