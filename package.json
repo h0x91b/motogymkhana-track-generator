@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "bun test",
+    "test:slow": "SLOW=1 bun test",
     "build": "bun scripts/build.js",
     "dev": "bun scripts/dev.js"
   }

@@ -9,6 +9,7 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
   COURSE_FILE_FORMAT, COURSE_FILE_VERSION, conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile,
 } from '../src/file/course-file.js';
+import { sweep } from './helpers/slow.js';
 
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true },
@@ -16,7 +17,7 @@ const RECIPES = [
   { width: 40, length: 60, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'return', sizes: { 'straight-slalom': { step: 4 } } },
   { width: 28, length: 30, elements: 5, difficulty: 'easy', bike: 'sport', shape: 'closed', train: true },
 ];
-const SEEDS = [0, 1, 7, 4294967295];
+const SEEDS = sweep([0, 1, 7, 4294967295], [0, 4294967295]);
 
 const courses = RECIPES.flatMap((recipe) => SEEDS.map((seed) => generateCourse(recipe, seed)).filter((r) => r.ok).map((r) => r.course));
 
@@ -26,7 +27,7 @@ const saved = (layout, meta) => readCourseFile(courseFileText(courseDocument(lay
 
 describe('course file', () => {
   test('a generated course opens back as the same course', () => {
-    expect(courses.length).toBeGreaterThan(10);
+    expect(courses.length).toBeGreaterThan(sweep(10, 4));
     for (const course of courses) {
       const read = saved(layoutOf(course), { build: 'abc1234 · 12.11.2026' });
       expect(read.ok).toBe(true);

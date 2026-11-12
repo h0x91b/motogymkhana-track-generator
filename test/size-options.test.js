@@ -6,6 +6,7 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
   generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, TYPE_LEVELS, uTurnRadius,
 } from '../src/generator/index.js';
+import { sweep } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
 const SEEDS = [1, 2];
@@ -64,7 +65,7 @@ describe('size options', () => {
   test('a straight slalom of 3, 4 or 5 m is laid out at exactly that step', () => {
     for (const step of [3, 4, 5]) {
       const recipe = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', sizes: { 'straight-slalom': { step } } };
-      for (let seed = 0; seed < 20; seed++) {
+      for (let seed = 0; seed < sweep(20, 2); seed++) {
         const course = generateCourse(recipe, seed).course;
         for (const e of course.elements.filter((x) => x.type === 'straight-slalom' && x.axis % 2 === 0)) {
           expect(e.params.step * 0.5).toBe(step);
@@ -125,14 +126,14 @@ describe('size options', () => {
       sizes: { 'straight-slalom': { step: 6 }, 'offset-slalom': { step: 7 }, circle: { radius: 5 }, 'corridor-slalom': { width: 6, step: 5 } },
     };
     let simplified = 0;
-    for (let seed = 0; seed < 30; seed++) {
+    for (let seed = 0; seed < sweep(30, 5); seed++) {
       const full = generateCourse(tight, seed).course;
       if (!full || full.placed === tight.elements) continue;
       simplified++;
       const direct = generateCourse({ ...tight, elements: full.placed }, seed).course;
       expect({ ...direct, requested: 0 }).toEqual({ ...full, requested: 0, recipe: { ...full.recipe, elements: full.placed } });
     }
-    expect(simplified).toBeGreaterThan(3);
+    expect(simplified).toBeGreaterThan(sweep(3, 1));
   }, 30_000);
 
   test('the setup sheet card says which sizes the recipe fixed and what the class raised', () => {

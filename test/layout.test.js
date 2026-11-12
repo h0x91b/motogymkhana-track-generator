@@ -10,6 +10,7 @@ import {
   nearestAxis, rotateElement, routeLayout, shiftElement, turnElementTo,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
+import { sweep } from './helpers/slow.js';
 import { coneXY, conesById, distanceToPath, insidePolygon } from './helpers/course-geometry.js';
 
 const RECIPES = [
@@ -23,11 +24,13 @@ const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' },
   { width: 40, length: 60, elements: 6, difficulty: 'hard', shape: 'return', train: true },
 ];
-const SEEDS = 8;
+const SEEDS = sweep(8, 2);
 
 const generated = RECIPES.flatMap((recipe) => {
   const out = [];
-  for (let seed = 0; seed < SEEDS; seed++) {
+  // The default run takes two seeds of the first recipe (tests edit generated[1]) and one of each other.
+  const n = recipe === RECIPES[0] ? SEEDS : sweep(SEEDS, 1);
+  for (let seed = 0; seed < n; seed++) {
     const result = generateCourse(recipe, seed);
     if (!result.ok) throw new Error(`${JSON.stringify(recipe)} seed ${seed}: ${JSON.stringify(result.error)}`);
     out.push(result.course);
@@ -291,7 +294,7 @@ describe('editing a layout', () => {
   });
 
   test('a type used from medium can be put on an easy course', () => {
-    const easy = layoutOf(generated[SEEDS]); // the easy open recipe
+    const easy = layoutOf(generated.find((c) => c.recipe.difficulty === 'easy' && c.route.shape === 'open')); // the easy open recipe
     for (const type of ['snail', 'box-eight', 'keyhole']) expect(routed(replaceElement(easy, 0, type)).elements[0].type).toBe(type);
   });
 

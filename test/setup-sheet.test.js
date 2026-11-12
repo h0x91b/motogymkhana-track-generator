@@ -4,14 +4,19 @@
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
+import { sweep } from './helpers/slow.js';
 
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
   { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' },
   { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' },
   { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true },
+  // Puts on the course the types whose cards have their own checks, which a few
+  // seeds of the mixed recipes can miss.
+  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['gate', 'figure-eight', 'box', 'lane-change', 'offset-slalom'] },
 ];
-const courses = RECIPES.flatMap((r) => Array.from({ length: 40 }, (_, seed) => generateCourse(r, seed).course));
+const SEEDS = sweep(40, 3);
+const courses = RECIPES.flatMap((r) => Array.from({ length: SEEDS }, (_, seed) => generateCourse(r, seed).course));
 
 const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
@@ -114,7 +119,7 @@ describe('setup sheet', () => {
         expect(card.notes.join(' ')).toContain(left ? 'смещены влево' : 'смещены вправо');
       }
     }
-    expect(seen).toBeGreaterThan(5);
+    expect(seen).toBeGreaterThan(sweep(5, 0));
   });
 
   test('an offset slalom note gives the same gap between the rows as the cone table', () => {
@@ -127,7 +132,7 @@ describe('setup sheet', () => {
         expect(card.notes.join(' ')).toContain(`между рядами ${String(gap).replace('.', ',')} м`);
       }
     }
-    expect(seen).toBeGreaterThan(3);
+    expect(seen).toBeGreaterThan(sweep(3, 0));
   });
 
   test('dimension lines run along or across the axis, are multiples of 0.5 m and are labelled with their length', () => {
@@ -233,7 +238,7 @@ describe('setup sheet', () => {
         expect(t.label).toContain(`от якоря ${card.number}`);
       }
     }
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
   test('a closed course lists one start-finish line, an open course two lines', () => {
@@ -260,7 +265,7 @@ describe('setup sheet', () => {
       expect(sheet.start.center.y + dy).toBeCloseTo(sheet.finish.center.y, 9);
       expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(8);
     }
-    expect(n).toBe(40);
+    expect(n).toBe(SEEDS);
   });
 
   test('the sheet carries the site size and the simplification counts', () => {

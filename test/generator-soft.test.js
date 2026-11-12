@@ -1,13 +1,15 @@
-// Soft criteria are judged on many seeds, never on a single course.
+// Soft criteria are judged on many seeds, never on a single course, so the whole
+// file runs only in the slow suite (SLOW=1, helpers/slow.js).
 // Thresholds sit below the measured means (generator v11, 60 seeds): the run-off
 // zones of turning elements cost about one element on a 40×60 site, and fewer
 // elements spread less, vary less and balance their turns less. Worst recipe:
 // imbalance 0.22, coverage 0.44, quadrants 3.2; on 40×60 medium about five
 // elements fit once cruiser-sized U-turns and run-off zones stack, 4.6 types.
 
-import { expect, test } from 'bun:test';
+import { expect } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
 import { fullRoute, turns } from './helpers/course-geometry.js';
+import { SLOW, slowTest } from './helpers/slow.js';
 
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
@@ -19,10 +21,10 @@ const RECIPES = [
 ];
 const SEEDS = 60;
 
-const courses = RECIPES.map((recipe) => Array.from({ length: SEEDS }, (_, seed) => generateCourse(recipe, seed).course));
+const courses = !SLOW ? [] : RECIPES.map((recipe) => Array.from({ length: SEEDS }, (_, seed) => generateCourse(recipe, seed).course));
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-test('left and right turning is balanced on average', () => {
+slowTest('left and right turning is balanced on average', () => {
   for (const set of courses) {
     const imbalance = mean(set.map((c) => {
       const t = turns(fullRoute(c));
@@ -32,7 +34,7 @@ test('left and right turning is balanced on average', () => {
   }
 });
 
-test('elements are spread over the whole site, not bunched in a corner', () => {
+slowTest('elements are spread over the whole site, not bunched in a corner', () => {
   for (const set of courses) {
     const centres = (c) => c.elements.map((e) => [(e.zone[0][0] + e.zone[2][0]) / 2, (e.zone[0][1] + e.zone[2][1]) / 2]);
     const coverage = mean(set.map((c) => {
@@ -46,7 +48,7 @@ test('elements are spread over the whole site, not bunched in a corner', () => {
   }
 });
 
-test('with every type allowed, a course uses most of them rather than a few compact ones', () => {
+slowTest('with every type allowed, a course uses most of them rather than a few compact ones', () => {
   for (const set of courses.slice(0, 2)) {
     // Measured against how many elements fit: 40×60 medium fits about six once
     // the U-turns are sized for a cruiser, and nearly all of them differ.

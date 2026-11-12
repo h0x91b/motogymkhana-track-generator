@@ -1,4 +1,6 @@
-// Hard rules of a course, checked on hundreds of seeds through generateCourse.
+// Hard rules of a course, checked through generateCourse on a few seeds per
+// recipe by default and on hundreds with SLOW=1 (helpers/slow.js). A recipe with
+// no fast seeds is covered by another recipe in the default run.
 
 import { describe, expect, test } from 'bun:test';
 import {
@@ -11,25 +13,26 @@ const CLASS_SIZED_TYPES = ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn',
 import {
   coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
 } from './helpers/course-geometry.js';
+import { slowTest, sweep } from './helpers/slow.js';
 
 const RECIPES = [
-  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: 150 },
-  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: 80 },
-  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: 80 },
-  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: 60 },
-  { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, seeds: 80 },
+  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, 2) },
+  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: sweep(80, 2) },
+  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: sweep(80, 2) },
+  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: sweep(60, 2) },
+  { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, seeds: sweep(80, 1) },
   {
     name: 'eights and slaloms only',
     recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['figure-eight', 'straight-slalom'] },
-    seeds: 60,
+    seeds: sweep(60, 2),
   },
-  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, seeds: 60 },
-  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, seeds: 80 },
-  { name: '40×60 medium return', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, seeds: 100 },
-  { name: '30×45 hard return', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'return' }, seeds: 60 },
-  { name: '25×30 easy return (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'return' }, seeds: 40 },
-  { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: 60 },
-  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: 50 },
+  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, seeds: sweep(60, 1) },
+  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, seeds: sweep(80, 2) },
+  { name: '40×60 medium return', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, seeds: sweep(100, 2) },
+  { name: '30×45 hard return', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'return' }, seeds: sweep(60, 0) },
+  { name: '25×30 easy return (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'return' }, seeds: sweep(40, 1) },
+  { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: sweep(60, 2) },
+  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: sweep(50, 1) },
   {
     name: '50×70 medium closed, fixed sizes',
     recipe: {
@@ -40,17 +43,28 @@ const RECIPES = [
         zigzag: { step: 2.5 }, 'corridor-slalom': { width: 3, step: 5 }, keyhole: { radius: 4.5 }, crescent: { radius: 8 },
       },
     },
-    seeds: 60,
+    seeds: sweep(60, 2),
+  },
+  {
+    // Few seeds of the mixed recipes miss some types: this one puts every
+    // class-sized U-turn and every type with its own shape test on the course
+    // (figure eights come from the eights-and-slaloms recipe).
+    name: 'turning and shaped types',
+    recipe: {
+      width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed',
+      types: ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'lane-change'],
+    },
+    seeds: sweep(30, 4),
   },
   {
     name: 'only big types',
     recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'closed', types: ['snail', 'crescent'] },
-    seeds: 30,
+    seeds: sweep(30, 1),
   },
   {
     name: 'only big types, train',
     recipe: { width: 40, length: 60, elements: 4, difficulty: 'hard', shape: 'open', train: true, types: ['snail', 'crescent', 'figure-eight'] },
-    seeds: 30,
+    seeds: sweep(30, 2),
   },
 ];
 
@@ -230,7 +244,7 @@ describe('placement', () => {
         }
       });
     });
-    expect(seen).toBeGreaterThan(100);
+    expect(seen).toBeGreaterThan(sweep(100, 0));
   });
 
   test('connectors turn no tighter than the bike allows: Ø 9 m on a cruiser, Ø 7.5 m on a sport bike', () => {
@@ -291,28 +305,28 @@ describe('placement', () => {
     });
   });
 
-  test('the closing connector rides a loop only when no loop-free course back to the start fits: never on a roomy site', () => {
-    let closed = 0;
-    let loops = 0;
-    for (const { name, recipe, courses } of generated) {
-      if (recipe.shape === 'open') continue;
+  // A closing connector of more than 300° of turning rides a loop.
+  const closingLoops = () => generated.filter(({ recipe }) => recipe.shape !== 'open').flatMap(({ name, recipe, courses }) => courses.map((c) => {
+    const t = turns(c.route.legs[c.route.legs.length - 1].path);
+    return { name, recipe, c, loop: t.left + t.right > 301 };
+  }));
+
+  test('the closing connector never rides a loop on a roomy site', () => {
+    for (const { name, recipe, c, loop } of closingLoops()) {
       // Roomy for a cruiser's 9 m turns; on 30×45 it can take a loop to get back to the start.
       // With only eights and slaloms allowed, a cruiser-sized eight with its run-off zone
       // can leave room for a single slalom, which then needs the loop to come back.
       const roomy = recipe.width >= 40 && recipe.length >= 60 && !recipe.types?.includes('figure-eight');
-      for (const c of courses) {
-        const last = c.route.legs[c.route.legs.length - 1];
-        const t = turns(last.path);
-        const loop = t.left + t.right > 301;
-        if (roomy) expect(loop, `${name} seed ${c.seed}`).toBe(false);
-        closed++;
-        if (loop) loops++;
-      }
+      if (roomy) expect(loop, `${name} seed ${c.seed}`).toBe(false);
     }
+  });
+
+  slowTest('the closing connector rides a loop only when no loop-free course back to the start fits: rarely', () => {
+    const all = closingLoops();
     // Measured 0.04 at v12: run-off zones leave tight sites (25×30, 30×45) fewer
     // loop-free closures, so the looser limit is needed about twice as often.
     // 0.058 with the field sizes: 4 m slalom steps and the larger circle, keyhole and box eight.
-    expect(loops / closed).toBeLessThan(0.07);
+    expect(all.filter((x) => x.loop).length / all.length).toBeLessThan(0.07);
   });
 
   test('no route leg passes over a cone it does not belong to', () => {
@@ -456,7 +470,7 @@ describe('U-turn cones on connectors', () => {
         expect(cones.map((k) => k.id).sort(), `${label(c)} ${leg.from}→${leg.to}`).toEqual([...used].sort());
       }
     });
-    expect(turns160).toBeGreaterThan(100);
+    expect(turns160).toBeGreaterThan(sweep(100, 0));
   });
 
   test('a U-turn cone keeps 1.5 m from every element zone and every other route leg', () => {
@@ -563,7 +577,7 @@ describe('element shapes', () => {
         }
       }
     });
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
   test('pivot turns are 270°, 360° or 720° around their cone, as the pass says', () => {
@@ -580,7 +594,7 @@ describe('element shapes', () => {
         expect(Math.abs(Math.abs(sweepAround(arc, cone)) - pass.angle), `${label(c)} ${e.id}`).toBeLessThan(11);
       }
     });
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
   test('a lane change is ridden straight through both gates and changes lean once between them', () => {
@@ -615,7 +629,7 @@ describe('element shapes', () => {
         });
       }
     });
-    expect(seen).toBeGreaterThan(20);
+    expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
   test('pivot angles follow the difficulty: easy 270°, hard 360° or two laps', () => {
@@ -653,7 +667,7 @@ describe('element shapes', () => {
         expect(crossingsOf(e.path, a, b).length, `${label(c)} ${e.id}`).toBeGreaterThan(0);
       }
     });
-    expect(seen).toBeGreaterThan(10);
+    expect(seen).toBeGreaterThan(sweep(10, 0));
   });
 
   test('wall and chalk lines join cones of their own element', () => {
@@ -680,7 +694,7 @@ describe('element shapes', () => {
         expect(Math.sign(crossings[0]) === -Math.sign(crossings[1])).toBe(true);
       }
     });
-    expect(seen).toBeGreaterThan(10);
+    expect(seen).toBeGreaterThan(sweep(10, 0));
   });
 
   test('a snail, licence-test eight and keyhole appear only from medium difficulty', () => {
@@ -816,7 +830,7 @@ describe('route', () => {
       if (big) seen++;
       expect(big, label(c)).toBeLessThanOrEqual(1);
     });
-    expect(seen).toBeGreaterThan(100);
+    expect(seen).toBeGreaterThan(sweep(100, 0));
   });
 
   test('with only always-big types usable, the course has one element and says the rule is why', () => {
@@ -863,8 +877,8 @@ describe('паровозик', () => {
 
   test('rides a snail and a mirror', () => {
     const elements = trains.flatMap(({ courses }) => courses.flatMap((c) => c.elements));
-    expect(elements.filter((e) => e.type === 'snail').length).toBeGreaterThan(5);
-    expect(elements.filter((e) => e.type === 'mirror').length).toBeGreaterThan(5);
+    expect(elements.filter((e) => e.type === 'snail').length).toBeGreaterThan(sweep(5, 0));
+    expect(elements.filter((e) => e.type === 'mirror').length).toBeGreaterThan(sweep(5, 0));
   });
 
   test(`the route never crosses itself or comes back within ${TRAIN_CLEARANCE} m of itself, except inside a snail or a mirror`, () => {
@@ -897,7 +911,7 @@ describe('паровозик', () => {
     }
     }, 30_000);
 
-  test('still lays out most of what was asked on a roomy site', () => {
+  slowTest('still lays out most of what was asked on a roomy site', () => {
     const [{ courses }] = trains;
     const placed = courses.reduce((n, c) => n + c.placed, 0) / courses.length;
     // About 5 of 8: a cruiser's connectors turn on 9 m, and in a column they
