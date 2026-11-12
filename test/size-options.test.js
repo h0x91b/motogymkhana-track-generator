@@ -147,7 +147,7 @@ describe('size options', () => {
     expect(slalom.fixed).toEqual([{ key: 'step', name: 'Шаг', value: 4.5, label: 'Задано в рецепте: шаг 4,5 м' }]);
     expect(slalom.notes[0]).toBe('Задано в рецепте: шаг 4,5 м');
     expect(uTurn.fixed[0].raisedTo).toBe(11);
-    expect(uTurn.notes[0]).toBe('Задано в рецепте: ширина 8 м — мало для мотоцикла «крузер», взято не меньше 11 м');
+    expect(uTurn.notes[0]).toBe('Задано в рецепте: ширина 8,0 м — мало для мотоцикла «крузер», взято не меньше 11,0 м');
     const plain = buildSetupSheet(generateCourse({ ...recipe, sizes: {} }, 2).course);
     expect(plain.cards.every((c) => c.fixed.length === 0)).toBe(true);
   });

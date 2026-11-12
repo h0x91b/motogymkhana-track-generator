@@ -3,7 +3,7 @@ import {
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
-import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
+import { buildSetupSheet, dist, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
@@ -781,7 +781,7 @@ function coneTable(card, big = false) {
   const rows = card.cones.map((c) => {
     const a = diag ? c.dx : c.along;
     const b = diag ? c.dy : c.across;
-    return `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${fmt(a)} м</td><td>${fmt(b)} м</td></tr>`;
+    return `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${dist(a)} м</td><td>${dist(b)} м</td></tr>`;
   }).join('');
   const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';
   const table = `<table class="cones${big ? ' big' : ''}"><tr>${head}</tr>${rows}</table>${note}`;
@@ -791,7 +791,7 @@ function coneTable(card, big = false) {
 
 function cardHtml(card, big = false) {
   return `<h3>${card.number}. ${esc(card.name)}</h3>
-    <p class="anchor${big ? ' big' : ''}">Якорь: X ${fmt(card.anchor.x)} м · Y ${fmt(card.anchor.y)} м</p>
+    <p class="anchor${big ? ' big' : ''}">Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м</p>
     ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
     <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>
     ${card.notes.map((n) => `<p>${esc(n)}</p>`).join('')}
@@ -863,7 +863,7 @@ function setupSteps() {
 }
 
 function terminalHtml(t, title) {
-  const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${fmt(c.x)} м</td><td>Y ${fmt(c.y)} м</td></tr>`).join('');
+  const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${dist(c.x)} м</td><td>Y ${dist(c.y)} м</td></tr>`).join('');
   const near = t.fromStart ? `<p><b>Финиш у старта:</b> ${esc(t.fromStart.label.replace('От', 'от'))}</p>` : '';
   return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>${near}
     <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
