@@ -683,7 +683,7 @@ export function setElementSafety(layout, i, key, value) {
 /**
  * Element i's margins as the editor shows them: per key its value, whether
  * the element sets it itself, what the recipe gives its type (a single-cone
- * element half the run-off, ADR 0023) and the option it is one of.
+ * element half the run-off, ADR 0024) and the option it is one of.
  * Run-off only for a type with a turn.
  */
 export function elementSafety(layout, i) {

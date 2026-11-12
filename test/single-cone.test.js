@@ -1,4 +1,4 @@
-// Single-cone elements (ADR 0023): «Конус слева», «Конус справа», «Малый
+// Single-cone elements (ADR 0024): «Конус слева», «Конус справа», «Малый
 // разворот» and the pivot turn. Their geometry and colours through the
 // catalog, their place in a generated course as gap fillers, and their way
 // through «Правка» and the course file.

@@ -178,7 +178,7 @@ export const RUN_OFF_TYPES = {
 };
 
 /**
- * Single-cone elements (ADR 0023): one tall cone and the line round it, no
+ * Single-cone elements (ADR 0024): one tall cone and the line round it, no
  * walls — the rider picks the line and the class radius is only its minimum.
  * They are small, so a turning one keeps a shorter run-off: this share of the
  * recipe's (`runOffFor`); an element's own run-off in «Правка» is taken as set.

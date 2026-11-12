@@ -110,7 +110,7 @@ export function generateCourse(recipeInput, seedInput) {
         if (!result.ok) continue;
         const done = (r, m) => ({ ok: true, course: { ...r.course, requested: recipe.elements, placed: m, ...(m < recipe.elements ? limitedBy : {}) } });
         // Gaps left: the same search with up to m − k single-cone fillers
-        // (ADR 0023), m from the order down; k elements of its own stay the
+        // (ADR 0024), m from the order down; k elements of its own stay the
         // floor, so a filled course never has fewer than the plain one.
         if (fills) {
           for (let m = recipe.elements; m > k; m--) {
