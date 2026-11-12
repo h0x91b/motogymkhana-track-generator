@@ -2,7 +2,7 @@
 // docs/reference. Plan view = tilt 0; the 3D view tilts and rotates the same
 // metric scene. Draws only when asked (no animation loop).
 
-import { passColor, TYPE_NAMES } from '../generator/catalog.js';
+import { passColor, SINGLE_CONE_TYPES, TYPE_NAMES } from '../generator/catalog.js';
 import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
@@ -579,13 +579,15 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const text = `${wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order)}${wrong ? ' !' : ''}`;
     const sel = e.id === selected;
     const tone = wrong ? { bg: sel ? '#ffe2dd' : '#7c241ce6', fill: sel ? '#6b1710' : '#ffe9e5' } : { bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee' };
-    labels.push([text, cx, cy, { size: 13, z: 0.05, ...tone, hit: e.id, top: sel }]);
+    // A single cone stands about the middle of its zone: its number goes above it, not over it.
+    const lift = SINGLE_CONE_TYPES.includes(e.type) ? -(Math.max(6, 0.35 * scale) + 16) : 0;
+    labels.push([text, cx, cy, { size: 13, z: 0.05, dy: lift, ...tone, hit: e.id, top: sel }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = anchorPoint(e, byId);
-      const below = project(a.x, a.y, 0).y >= project(cx, cy, 0.05).y;
+      const below = lift !== 0 || project(a.x, a.y, 0).y >= project(cx, cy, 0.05).y;
       const m = (v) => String(v).replace('.', ',');
-      labels.push([`якорь X ${m(a.x)} · Y ${m(a.y)}`, a.x, a.y, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
+      labels.push([`якорь X ${m(a.x)} · Y ${m(a.y)}`, a.x, a.y, { size: 12, z: 0, dy: (below ? 1 : -1) * (lift ? -lift : 24), bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
     }
   }
   const coneRadius = Math.max(6, 0.35 * scale);

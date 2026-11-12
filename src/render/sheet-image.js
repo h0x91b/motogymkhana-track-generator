@@ -70,13 +70,13 @@ function coneGlyph(ctx, x, y, cone, { anchor = false, r = 11 } = {}) {
       ctx.beginPath();
       ctx.arc(x, y, r * 0.58, 0, Math.PI * 2);
       ctx.stroke();
-      return;
+    } else {
+      font(ctx, Math.round(r * 1.25), 700);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(cone.color === 'blue' ? 'Л' : 'П', x, y + 1);
     }
-    font(ctx, Math.round(r * 1.25), 700);
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(cone.color === 'blue' ? 'Л' : 'П', x, y + 1);
   } else {
     ctx.fillStyle = '#fff';
     ctx.beginPath();

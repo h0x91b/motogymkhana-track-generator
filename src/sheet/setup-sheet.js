@@ -185,7 +185,7 @@ function describe(element, cones, diagonal, turn, shift, dims) {
     case 'pass-right':
       return [
         `Один высокий конус, ${colour(first)}: объехать, оставив его ${element.type === 'pass-left' ? 'слева' : 'справа'}`,
-        'Линию выбирает гонщик; поворот к следующему элементу — какой нужен, до 90°',
+        'Линию выбирает гонщик; поворот к следующему элементу — какой нужен маршруту',
       ];
     case 'small-turn':
       return [

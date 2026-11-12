@@ -255,7 +255,12 @@ export function createEditor(host) {
         say(`${what} уже стоит на ${now}°${snapped}.`);
       }
     },
-    mirror: () => commit(mirrorElement(layout, selected), selected, `Элемент ${selected + 1} отражён: повороты в другую сторону.`),
+    mirror: () => {
+      const next = mirrorElement(layout, selected);
+      const type = next.elements[selected].type;
+      // A cone passed on one side mirrors into the cone passed on the other.
+      commit(next, selected, type !== layout.elements[selected].type ? `Элемент ${selected + 1} отражён: теперь «${TYPE_NAMES[type]}».` : `Элемент ${selected + 1} отражён: повороты в другую сторону.`);
+    },
     size: (arg) => {
       const [key, dir] = arg.split(':');
       const control = elementControls(layout, selected).find((c) => c.key === key);
