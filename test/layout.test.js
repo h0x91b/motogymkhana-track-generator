@@ -127,7 +127,9 @@ describe('sizes set by hand', () => {
       }
     }
     expect(seen).toBeGreaterThan(400);
-  });
+    // Every corner of every type, routed with exact footprints: seconds on a
+    // busy CI runner running the files in parallel.
+  }, 30_000);
 
   test('a step up and back down is the same element, and the steps end at both ends of the range', () => {
     for (const type of ELEMENT_TYPES) {
