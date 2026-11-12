@@ -930,10 +930,14 @@ function boundaryPoint(point, dir, box, outward) {
  * Builds the local template of one element: cones, passes, trajectory with
  * entry and exit poses on the zone edge, the zone rectangle, the core
  * rectangle (cones + trajectory, without the clearance pad) and, for a turning
- * type, the run-off rectangle (null otherwise).
+ * type, the run-off rectangle (null otherwise, and when `margins.runOff` is 0).
+ * `margins` sets the zone's clearance (`pad`) and the run-off distance
+ * (`runOff`) in metres; either left out takes the field rule.
  * All coordinates are in lattice steps of this axis class.
  */
-export function instantiate(type, params, diagonal, mirrored) {
+export function instantiate(type, params, diagonal, mirrored, margins = {}) {
+  const zonePad = margins.pad ?? ZONE_PAD;
+  const runOffDistance = margins.runOff ?? RUN_OFF;
   const unit = unitFor(diagonal);
   let g = { lines: [], guides: [], ...TYPES[type].build(params, unit) };
   if (mirrored) g = mirrorGeometry(g);
@@ -948,14 +952,14 @@ export function instantiate(type, params, diagonal, mirrored) {
     if (p[1] > b1) b1 = p[1];
   }
   const core = [a0, b0, a1, b1];
-  const pad = ZONE_PAD / unit;
+  const pad = zonePad / unit;
   const zone = [a0 - pad, b0 - pad, a1 + pad, b1 + pad];
   const entry = boundaryPoint(g.path[0], g.entryDir, zone, false);
   const exit = boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true);
   const path = [entry, ...g.path, exit];
   let runOff = null;
-  if (RUN_OFF_TYPES[type]) {
-    const r = RUN_OFF / unit;
+  if (RUN_OFF_TYPES[type] && runOffDistance > 0) {
+    const r = Math.max(runOffDistance, zonePad) / unit;
     runOff = [a0 - r, b0 - r, a1 + r, b1 + r];
     if (RUN_OFF_TYPES[type] === 'turnaround') {
       // The entry side keeps only the zone's own clearance.
@@ -983,6 +987,7 @@ export function instantiate(type, params, diagonal, mirrored) {
     core,
     zone,
     runOff,
+    margins: { pad: zonePad, runOff: runOff ? runOffDistance : 0 },
     turnLeft: turn.left,
     turnRight: turn.right,
   };

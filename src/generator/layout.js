@@ -12,14 +12,16 @@
 // Everything here is a pure function of the layout, so undo, redo and storage
 // keep layouts and nothing else.
 
-import { BIKE_TURN_RADIUS, elementParams, elementSizes, instantiate, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
+import { BIKE_TURN_RADIUS, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  assemble, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, EMPTY_TRACK, extendTrack, finishTerminal, homeFinish, innerRect, inside,
-  MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, ridden, SITE_MARGIN, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
+  assemble, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeFinish, innerRect, inside,
+  MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
 import { axisVector, boundsOverlap, dirAngle, obbCorners, obbOverlap, pointsBounds, polylineLength, wrapPi } from './geometry.js';
-import { ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, TYPE_LEVELS } from './recipe.js';
+import {
+  ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf, TYPE_LEVELS,
+} from './recipe.js';
 
 export { ELEMENTS_MAX };
 
@@ -28,18 +30,35 @@ export { ELEMENTS_MAX };
 const templates = new Map();
 
 /** The catalog template of an element; elements of one kind share it, however often the layout is routed. */
-function template(type, params, diagonal, mirrored) {
-  const key = `${type}|${diagonal ? 1 : 0}${mirrored ? 1 : 0}|${SIZE_SPECS[type].map((s) => params[s.key]).join(',')}`;
+function template(type, params, diagonal, mirrored, margins) {
+  const key = `${type}|${diagonal ? 1 : 0}${mirrored ? 1 : 0}|${SIZE_SPECS[type].map((s) => params[s.key]).join(',')}|${margins.pad},${margins.runOff}`;
   if (!templates.has(key)) {
     if (templates.size > 400) templates.clear();
-    templates.set(key, instantiate(type, params, diagonal, mirrored));
+    templates.set(key, instantiate(type, params, diagonal, mirrored, margins));
   }
   return templates.get(key);
 }
 
-function place(el, bike) {
+/**
+ * Margins element `el` sets for itself over the recipe's, or null: only the
+ * ones its type has (no run-off on a type without a turn).
+ */
+function ownMargins(el) {
+  if (!el.safety) return null;
+  const own = {};
+  for (const key of ELEMENT_SAFETY_KEYS) {
+    if (el.safety[key] === undefined || (key === 'runOff' && !RUN_OFF_TYPES[el.type])) continue;
+    own[key] = el.safety[key];
+  }
+  return Object.keys(own).length ? own : null;
+}
+
+function place(el, recipe) {
   const diagonal = el.axis % 2 === 1;
-  return placeTemplate(template(el.type, elementParams(el.type, el.sizes, diagonal, bike), diagonal, el.mirrored), el.axis, el.x, el.y);
+  const own = ownMargins(el);
+  const margins = { ...elementMargins(recipe), ...own };
+  const p = placeTemplate(template(el.type, elementParams(el.type, el.sizes, diagonal, recipe.bike), diagonal, el.mirrored, margins), el.axis, el.x, el.y);
+  return own ? { ...p, override: own } : p;
 }
 
 /** The layout of a course: what `routeLayout` needs to build it again. */
@@ -50,7 +69,10 @@ export function layoutOf(course) {
     seed: course.seed,
     elements: course.elements.map((e) => {
       const anchor = byId.get(e.anchor);
-      return { type: e.type, sizes: elementSizes(e.type, e.params, e.axis % 2 === 1), axis: e.axis, mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2 };
+      return {
+        type: e.type, sizes: elementSizes(e.type, e.params, e.axis % 2 === 1), axis: e.axis, mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
+        ...(e.safety ? { safety: { ...e.safety } } : {}),
+      };
     }),
   };
 }
@@ -72,7 +94,20 @@ export function parseLayout(raw) {
     if (!e.sizes || !SIZE_SPECS[e.type].every((s) => Number.isFinite(e.sizes[s.key]))) return null;
     const sizes = Object.fromEntries(SIZE_SPECS[e.type].map((s) => [s.key, e.sizes[s.key]]));
     const pivot = Array.isArray(e.pivot) && e.pivot.length === 2 && e.pivot.every(Number.isFinite) ? { pivot: [e.pivot[0], e.pivot[1]] } : {};
-    elements.push({ type: e.type, sizes, axis: e.axis, mirrored: e.mirrored, x: e.x, y: e.y, ...pivot });
+    let safety = {};
+    if (e.safety !== undefined) {
+      if (!e.safety || typeof e.safety !== 'object' || Object.keys(e.safety).some((k) => !ELEMENT_SAFETY_KEYS.includes(k))) return null;
+      const own = {};
+      for (const key of ELEMENT_SAFETY_KEYS) {
+        if (e.safety[key] === undefined) continue;
+        if (typeof e.safety[key] !== 'number') return null;
+        const value = parseSafetyValue(SAFETY_OPTIONS.find((o) => o.key === key), e.safety[key]);
+        if (value === null) return null;
+        own[key] = value;
+      }
+      if (Object.keys(own).length) safety = { safety: own };
+    }
+    elements.push({ type: e.type, sizes, axis: e.axis, mirrored: e.mirrored, x: e.x, y: e.y, ...pivot, ...safety });
   }
   return { recipe: recipe.recipe, seed: raw.seed, elements };
 }
@@ -86,13 +121,13 @@ const overlaps = (a, aBounds, b, bBounds) => boundsOverlap(aBounds, bBounds) && 
  * site if any does, then out of zones, then loop-free. Returns the leg and
  * what is wrong with it, worst first.
  */
-function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, tail = []) {
+function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, tail = [], coneGap = undefined) {
   let best = null;
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(from, to, rho)) {
       const points = [...path.points, ...tail];
       const bounds = pointsBounds(points);
-      const cones = uTurnCones(path.arcs);
+      const cones = uTurnCones(path.arcs, coneGap);
       const faults = [];
       if (!points.every((p) => inside(inner, p))) faults.push({ code: 'connector-off-site', weight: 16 });
       const hit = zones.filter((z) => !pathClear(points, bounds, [z]));
@@ -109,6 +144,8 @@ function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, 
   }
   return best;
 }
+
+const fmt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
 
 const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
 
@@ -131,7 +168,8 @@ export function routeLayout(layout) {
   const inner = innerRect(recipe);
   const site = [0, 0, recipe.width, recipe.length];
   const radius = BIKE_TURN_RADIUS[recipe.bike];
-  const placed = layout.elements.map((el) => place(el, recipe.bike));
+  const { coneGap, trainGap, edge } = safetyOf(recipe);
+  const placed = layout.elements.map((el) => place(el, recipe));
   const n = placed.length;
   const id = (i) => `e${i + 1}`;
   const problems = [];
@@ -140,9 +178,9 @@ export function routeLayout(layout) {
   // Each element on its own, then every pair.
   placed.forEach((p, i) => {
     if (!p.core.every((q) => inside(inner, q))) {
-      report('off-site', `Элемент ${i + 1} ближе ${SITE_MARGIN} м к краю площадки — отодвиньте его от края`, { elements: [id(i)] });
+      report('off-site', edge > 0 ? `Элемент ${i + 1} ближе ${fmt(edge)} м к краю площадки — отодвиньте его от края` : `Элемент ${i + 1} выходит за площадку — отодвиньте его от края`, { elements: [id(i)] });
     } else if (p.runOff && !obbCorners(p.runOff).every((q) => inside(site, q))) {
-      report('run-off-site', `Зоне выката элемента ${i + 1} не хватает 5 м асфальта у края площадки — отодвиньте его от края`, { elements: [id(i)] });
+      report('run-off-site', `Зоне выката элемента ${i + 1} не хватает ${fmt(p.tpl.margins.runOff)} м асфальта у края площадки — отодвиньте его от края или уменьшите выкат`, { elements: [id(i)] });
     }
   });
   for (let i = 0; i < n; i++) {
@@ -151,9 +189,9 @@ export function routeLayout(layout) {
       if (overlaps(a.zone, a.zoneBounds, b.zone, b.zoneBounds)) {
         report('overlap', `Элементы ${i + 1} и ${j + 1} накладываются — раздвиньте их`, { elements: [id(i), id(j)] });
       } else if (a.runOff && overlaps(a.runOff, a.runOffBounds, b.zone, b.zoneBounds)) {
-        report('in-run-off', `Элемент ${j + 1} стоит в зоне выката элемента ${i + 1}: вокруг разворота нужно 5 м — раздвиньте их`, { elements: [id(i), id(j)] });
+        report('in-run-off', `Элемент ${j + 1} стоит в зоне выката элемента ${i + 1}: вокруг разворота нужно ${fmt(a.tpl.margins.runOff)} м — раздвиньте их или уменьшите выкат`, { elements: [id(i), id(j)] });
       } else if (b.runOff && overlaps(b.runOff, b.runOffBounds, a.zone, a.zoneBounds)) {
-        report('in-run-off', `Элемент ${i + 1} стоит в зоне выката элемента ${j + 1}: вокруг разворота нужно 5 м — раздвиньте их`, { elements: [id(i), id(j)] });
+        report('in-run-off', `Элемент ${i + 1} стоит в зоне выката элемента ${j + 1}: вокруг разворота нужно ${fmt(b.tpl.margins.runOff)} м — раздвиньте их или уменьшите выкат`, { elements: [id(i), id(j)] });
       }
     }
   }
@@ -197,7 +235,7 @@ export function routeLayout(layout) {
     return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
   };
   const legs = [straightLeg(start.center, placed[0].entry)];
-  let track = recipe.train ? EMPTY_TRACK : null;
+  let track = recipe.train && trainGap > 0 ? emptyTrack(trainGap) : null;
   const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
   if (track) {
     if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
@@ -210,7 +248,7 @@ export function routeLayout(layout) {
       'connector-off-site': `Связка ${name} выходит за площадку — отодвиньте элементы от края или поверните один из них`,
       'connector-zone': `Связка ${name} проходит через ${fault.hit ? fault.hit.map(zoneName).join(' и ') : ''} — освободите ей путь или поверните один из элементов`,
       'connector-loop': `Связка ${name} закладывает петлю — раздвиньте элементы или поверните один из них входом к другому`,
-      'connector-cone': `Конусу разворота на связке ${name} не хватает 1,5 м свободного асфальта — раздвиньте элементы`,
+      'connector-cone': coneGap > 0 ? `Конусу разворота на связке ${name} не хватает ${fmt(coneGap)} м свободного асфальта — раздвиньте элементы` : `Конус разворота на связке ${name} стоит в зоне — раздвиньте элементы`,
       'connector-train': `Связка ${name} пересекает маршрут: в паровозике мотоциклы встретятся — переставьте элементы`,
     };
     report(fault.code, texts[fault.code], { elements: ends, connector });
@@ -221,15 +259,15 @@ export function routeLayout(layout) {
     const from = pose(prev.exit, prev.exitDir);
     const to = pose(cur.entry, cur.entryDir);
     const accept = track && ((pts) => trainClear(track, [pts, ridden(cur)]));
-    let leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, accept);
+    let leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, accept, coneGap);
     if (!leg && track) {
       // The rules hold but for «паровозик»: is it the connector that meets the route, or the element it leads into?
-      leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN);
+      leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, null, coneGap);
       if (leg && trainClear(track, [leg.points])) trainProblem(i);
       else if (leg) connectorProblem({ code: 'connector-train' }, i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
     }
     if (!leg) {
-      const loose = looseConnector(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])));
+      const loose = looseConnector(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])), [], coneGap);
       leg = loose.leg;
       connectorProblem(loose.faults[0], i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
     }
@@ -244,11 +282,11 @@ export function routeLayout(layout) {
     const from = pose(last.exit, last.exitDir);
     const accept = track && ((pts) => trainClear(track, [pts], true));
     let leg = null;
-    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, legs, limit, accept);
+    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, legs, limit, accept, coneGap);
     if (!leg) {
       const u = axisVector(start.dir);
       const approach = [start.center[0] - u[0] * radius, start.center[1] - u[1] * radius];
-      const loose = looseConnector(from, pose(approach, start.dir), radius, inner, zones, legs, CLOSING_TURN_LIMITS.at(-1), accept, [start.center]);
+      const loose = looseConnector(from, pose(approach, start.dir), radius, inner, zones, legs, CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
       leg = loose.leg;
       connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → старт`, [id(n - 1), id(0)]);
     }
@@ -259,7 +297,7 @@ export function routeLayout(layout) {
       const from = pose(last.exit, last.exitDir);
       const accept = track && ((pts) => trainClear(track, [pts]));
       let home = null;
-      for (const limit of CLOSING_TURN_LIMITS) home = home || homeFinish(from, start, radius, inner, site, zones, legs, limit, accept);
+      for (const limit of CLOSING_TURN_LIMITS) home = home || homeFinish(from, start, radius, inner, site, zones, legs, limit, accept, coneGap);
       if (home) {
         finish = home.terminal;
         legs.push(home.leg);
@@ -312,7 +350,7 @@ function slack(p, recipe, withRunOff) {
  * the site if it can, and otherwise stays where it is.
  */
 function fitted(el, recipe) {
-  const p = place(el, recipe.bike);
+  const p = place(el, recipe);
   const full = slack(p, recipe, true);
   const core = slack(p, recipe, false);
   const shift = [0, 1].map((k) => clampInt(0, ...full[k]) ?? clampInt(0, ...core[k]) ?? 0);
@@ -320,8 +358,8 @@ function fitted(el, recipe) {
 }
 
 /** The element with the centre of its zone as close to `centre` as an anchor on whole metres allows. */
-function centred(el, centre, bike) {
-  const origin = place({ ...el, x: 0, y: 0 }, bike);
+function centred(el, centre, recipe) {
+  const origin = place({ ...el, x: 0, y: 0 }, recipe);
   return { ...el, x: Math.round(centre[0] - origin.center[0]), y: Math.round(centre[1] - origin.center[1]) };
 }
 
@@ -336,9 +374,9 @@ const unpinned = ({ pivot, ...el }) => el;
  */
 function turned(layout, i, change) {
   const el = layout.elements[i];
-  const { bike } = layout.recipe;
-  const pivot = el.pivot ?? place(el, bike).center;
-  return withElement(layout, i, fitted(centred({ ...el, ...change, pivot }, pivot, bike), layout.recipe));
+  const { recipe } = layout;
+  const pivot = el.pivot ?? place(el, recipe).center;
+  return withElement(layout, i, fitted(centred({ ...el, ...change, pivot }, pivot, recipe), recipe));
 }
 
 /** Moves the anchor of element i to (x, y), whole metres, as far as the site lets it. */
@@ -390,6 +428,34 @@ export function resizeElement(layout, i, sizes) {
   return withElement(layout, i, fitted({ ...unpinned(layout.elements[i]), sizes }, layout.recipe));
 }
 
+/**
+ * Sets one of element i's own margins (`ELEMENT_SAFETY_KEYS`) to `value`
+ * metres, or back to the recipe's with null; its anchor stays, slid only as
+ * far as a wider run-off needs to stay on the site.
+ */
+export function setElementSafety(layout, i, key, value) {
+  const el = layout.elements[i];
+  const { [key]: _, ...rest } = el.safety ?? {};
+  const own = value === null || value === undefined ? rest : { ...rest, [key]: value };
+  const { safety: __, ...bare } = unpinned(el);
+  return withElement(layout, i, fitted(Object.keys(own).length ? { ...bare, safety: own } : bare, layout.recipe));
+}
+
+/**
+ * Element i's margins as the editor shows them: per key its value, whether
+ * the element sets it itself, the recipe's value and the option it is one of.
+ * Run-off only for a type with a turn.
+ */
+export function elementSafety(layout, i) {
+  const el = layout.elements[i];
+  const recipe = safetyOf(layout.recipe);
+  return ELEMENT_SAFETY_KEYS.filter((key) => key !== 'runOff' || RUN_OFF_TYPES[el.type]).map((key) => {
+    const option = SAFETY_OPTIONS.find((o) => o.key === key);
+    const own = el.safety?.[key];
+    return { key, name: option.name, value: own ?? recipe[key], own: own !== undefined, recipe: recipe[key], option };
+  });
+}
+
 /** Typical sizes of a type for the layout's difficulty and bike class; a type used only from medium takes medium sizes on an easy course. */
 function startingSizes(type, recipe) {
   const levels = TYPE_LEVELS[type];
@@ -397,11 +463,11 @@ function startingSizes(type, recipe) {
 }
 
 /** The axis on which the element is entered as close to `dir` (0..7) as its type allows. */
-function axisEnteredAlong(el, dir, bike) {
+function axisEnteredAlong(el, dir, recipe) {
   let best = el.axis;
   let off = Infinity;
   for (const axis of typeAxes(el.type)) {
-    const d = Math.abs(wrapPi(dirAngle(place({ ...el, axis, x: 0, y: 0 }, bike).entryDir) - dirAngle(dir)));
+    const d = Math.abs(wrapPi(dirAngle(place({ ...el, axis, x: 0, y: 0 }, recipe).entryDir) - dirAngle(dir)));
     if (d < off - 1e-9) {
       off = d;
       best = axis;
@@ -414,10 +480,10 @@ function axisEnteredAlong(el, dir, bike) {
 export function replaceElement(layout, i, type) {
   const { recipe } = layout;
   const old = layout.elements[i];
-  const was = place(old, recipe.bike);
+  const was = place(old, recipe);
   const el = { type, sizes: startingSizes(type, recipe), axis: typeAxes(type)[0], mirrored: old.mirrored, x: 0, y: 0 };
-  el.axis = axisEnteredAlong(el, was.entryDir, recipe.bike);
-  return withElement(layout, i, fitted(centred(el, was.center, recipe.bike), recipe));
+  el.axis = axisEnteredAlong(el, was.entryDir, recipe);
+  return withElement(layout, i, fitted(centred(el, was.center, recipe), recipe));
 }
 
 /** Removes element i; the last element of a course stays. */
@@ -451,7 +517,7 @@ const SPOT_TRIES = 40; // free places routed, best first, before settling for th
 export function insertElement(layout, at, type) {
   const { recipe } = layout;
   if (layout.elements.length >= ELEMENTS_MAX) return layout;
-  const others = layout.elements.map((e) => place(e, recipe.bike));
+  const others = layout.elements.map((e) => place(e, recipe));
   const prev = others[at - 1];
   const next = others[at];
   const along = (p, dir, d) => [p[0] + axisVector(dir)[0] * d, p[1] + axisVector(dir)[1] * d];
@@ -464,7 +530,7 @@ export function insertElement(layout, at, type) {
   const bearing = (from, to) => Math.atan2(to[1] - from[1], to[0] - from[0]);
   const spots = [];
   for (const axis of typeAxes(type)) {
-    const origin = place({ ...el, axis }, recipe.bike);
+    const origin = place({ ...el, axis }, recipe);
     const range = slack(origin, recipe, true).map(([lo, hi]) => [Math.ceil(lo - 1e-9), Math.floor(hi + 1e-9)]);
     for (let x = range[0][0]; x <= range[0][1]; x += SPOT_STEP) {
       for (let y = range[1][0]; y <= range[1][1]; y += SPOT_STEP) {
@@ -494,7 +560,7 @@ export function insertElement(layout, at, type) {
     elements.splice(at, 0, { ...el, axis: spot.axis, x: spot.x, y: spot.y });
     return { ...layout, elements };
   };
-  if (!spots.length) return withSpot(fitted(centred(el, ideal, recipe.bike), recipe));
+  if (!spots.length) return withSpot(fitted(centred(el, ideal, recipe), recipe));
   const before = routeLayout(layout).problems.length;
   let best = null;
   for (const spot of spots.slice(0, SPOT_TRIES)) {

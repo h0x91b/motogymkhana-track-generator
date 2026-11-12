@@ -1,6 +1,6 @@
 import {
-  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SHAPE_NAMES, SIZE_OPTIONS,
-  sizeDefault, sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
+  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
+  SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
@@ -26,7 +26,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {},
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {}, safety: {},
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -92,6 +92,49 @@ function sizePanel(type) {
       <p class="muted size-note" data-type="${type}" data-key="${o.key}"></p>
     </fieldset>`).join('');
   return panel;
+}
+
+const safetyName = (key) => `safety:${key}`;
+const SAFETY_NOTES = {
+  runOff: 'Вокруг разворотов и петель, чтобы выехать, если занесло шире. Обычно 5 м.',
+  pad: 'Вокруг конусов и линии езды элемента: туда не заходят ни другие элементы, ни связки. Обычно 0,75 м.',
+  coneGap: 'Вокруг высокого конуса на развороте связки: ни зона, ни другая связка ближе не подходят. Обычно 1,5 м.',
+  trainGap: 'В паровозике маршрут не подходит к себе ближе: мотоциклы колонны не встретятся. Обычно 2 м.',
+  edge: 'От края площадки до конусов — бордюр, разметка, столбы. Обычно 1 м.',
+};
+
+/** The «Безопасность» group: per rule, its value in steps, the default marked. */
+function buildSafety() {
+  $('safety').innerHTML = SAFETY_OPTIONS.map((o) => `<fieldset class="size-option safety-option" data-key="${o.key}">
+      <legend>${o.name}</legend>
+      <div class="chips">
+        ${safetyValues(o).map((v) => `<label><input type="radio" name="${safetyName(o.key)}" value="${v}"${v === o.default ? ' checked' : ''}><span${v === o.default ? ' class="default"' : ''}>${v === 0 ? 'нет' : fmt(v)}</span></label>`).join('')}
+      </div>
+      <p class="muted safety-note">${SAFETY_NOTES[o.key]}</p>
+    </fieldset>`).join('');
+}
+
+/** Safety values from the form, numbers in metres; the recipe keeps the ones off their defaults. */
+function readSafety() {
+  const safety = {};
+  for (const o of SAFETY_OPTIONS) {
+    const v = form.querySelector(`[name="${safetyName(o.key)}"]:checked`)?.value;
+    if (v !== undefined) safety[o.key] = Number(v);
+  }
+  return safety;
+}
+
+/** The safety summary toggle says what is off its default, so a narrowed course is never a surprise. */
+function syncSafety() {
+  const set = SAFETY_OPTIONS.filter((o) => {
+    const v = form.querySelector(`[name="${safetyName(o.key)}"]:checked`)?.value;
+    return v !== undefined && Number(v) !== o.default;
+  });
+  form.querySelector('#safety-details summary').textContent = set.length
+    ? `Безопасность: изменено ${set.length} из ${SAFETY_OPTIONS.length}`
+    : 'Ещё: безопасность — свободное место вокруг';
+  form.querySelector('#safety-details summary').classList.toggle('set', set.length > 0);
+  form.querySelector('.safety-option[data-key="trainGap"]').hidden = !form.train.checked;
 }
 
 function buildTypeChecks() {
@@ -175,6 +218,7 @@ function syncTypes() {
   for (const s of form.querySelectorAll('.train-off')) s.hidden = !train;
   for (const s of form.querySelectorAll('.level-off')) s.hidden = difficulty !== 'easy';
   syncSizes();
+  syncSafety();
 }
 
 const SHAPE_HINTS = {
@@ -213,6 +257,11 @@ function writeForm(f) {
       input.checked = true;
     }
   }
+  for (const o of SAFETY_OPTIONS) {
+    const value = f.safety?.[o.key] ?? o.default;
+    const input = form.querySelector(`[name="${safetyName(o.key)}"][value="${value}"]`) ?? form.querySelector(`[name="${safetyName(o.key)}"][value="${o.default}"]`);
+    input.checked = true;
+  }
   syncTypes();
 }
 
@@ -228,6 +277,7 @@ function readForm() {
     seed: form.seed.value,
     types: [...form.querySelectorAll('[name="types"]:checked')].map((c) => c.value),
     sizes: readSizes(),
+    safety: readSafety(),
   };
 }
 
@@ -249,6 +299,7 @@ function showErrors(errors) {
     form[name].setAttribute('aria-invalid', errors[name] ? 'true' : 'false');
   }
   if (errors.types || errors.sizes) form.querySelector('details').open = true;
+  if (errors.safety) $('safety-details').open = true;
 }
 
 function validate(raw) {
@@ -1435,6 +1486,7 @@ form.addEventListener('focusin', (e) => {
 
 function start() {
   buildTypeChecks();
+  buildSafety();
   state.adopt = parseLayout(loadEdit());
   const saved = loadForm();
   const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
@@ -1446,6 +1498,7 @@ function start() {
   form.addEventListener('input', () => onFormChange());
   form.train.addEventListener('change', syncTypes);
   form.addEventListener('change', syncSizes);
+  form.addEventListener('change', syncSafety);
   for (const r of form.querySelectorAll('[name="difficulty"]')) r.addEventListener('change', syncTypes);
   for (const r of form.querySelectorAll('[name="shape"]')) r.addEventListener('change', syncShapeHint);
   form.addEventListener('change', () => onFormChange());

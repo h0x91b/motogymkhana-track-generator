@@ -139,6 +139,56 @@ function parseSizes(value, types) {
   return { ok: true, sizes };
 }
 
+// Safety margins: the free asphalt the generator keeps, adjustable so that a
+// tight lot can be packed by hand. Each is a distance in metres on its own
+// step; 0 switches that rule off. Defaults are the field rules of ADR 0007.
+export const SAFETY_OPTIONS = [
+  { key: 'runOff', name: 'Выкат вокруг разворотов и петель', min: 0, max: 5, step: 0.5, default: 5 },
+  { key: 'pad', name: 'Запас вокруг элемента', min: 0, max: 2, step: 0.25, default: 0.75 },
+  { key: 'coneGap', name: 'Свободно у конуса разворота', min: 0, max: 3, step: 0.5, default: 1.5 },
+  { key: 'trainGap', name: 'Зазор маршрута в паровозике', min: 0, max: 5, step: 0.5, default: 2 },
+  { key: 'edge', name: 'Отступ от края площадки', min: 0, max: 3, step: 0.5, default: 1 },
+];
+export const SAFETY_DEFAULTS = Object.fromEntries(SAFETY_OPTIONS.map((o) => [o.key, o.default]));
+// The ones an element in «Правка» can set for itself.
+export const ELEMENT_SAFETY_KEYS = ['runOff', 'pad'];
+
+/** Values a safety option takes: min to max on its step. */
+export const safetyValues = (o) => Array.from({ length: Math.round((o.max - o.min) / o.step) + 1 }, (_, k) => o.min + k * o.step);
+
+/** Every safety value of a recipe, defaults filled in. */
+export const safetyOf = (recipe) => ({ ...SAFETY_DEFAULTS, ...(recipe?.safety ?? {}) });
+
+/** A safety distance from a number or a form string, or null when it is not one of the option's values. */
+export function parseSafetyValue(option, raw) {
+  const metres = parseMetres(raw);
+  if (metres === null || metres < option.min - 1e-9 || metres > option.max + 1e-9) return null;
+  const k = (metres - option.min) / option.step;
+  return Math.abs(k - Math.round(k)) < 1e-9 ? metres : null;
+}
+
+/**
+ * Safety values the recipe sets, `{ [key]: metres }`; only the ones that
+ * differ from the default are kept, so a recipe at defaults stays `{}`.
+ * @returns {{ok: true, safety: object} | {ok: false, error: string}}
+ */
+function parseSafety(value) {
+  if (value === undefined || value === null) return { ok: true, safety: {} };
+  if (typeof value !== 'object' || Array.isArray(value)) return { ok: false, error: 'Безопасность задана неверно' };
+  for (const key of Object.keys(value)) {
+    if (!SAFETY_OPTIONS.some((o) => o.key === key)) return { ok: false, error: `Нет такого правила безопасности: «${key}»` };
+  }
+  const safety = {};
+  for (const o of SAFETY_OPTIONS) {
+    const raw = value[o.key];
+    if (raw === undefined || raw === null || raw === '') continue;
+    const metres = parseSafetyValue(o, raw);
+    if (metres === null) return { ok: false, error: `${o.name}: от ${fmtMetres(o.min)} до ${fmtMetres(o.max)} м с шагом ${fmtMetres(o.step)} м` };
+    if (metres !== o.default) safety[o.key] = metres;
+  }
+  return { ok: true, safety };
+}
+
 function parseBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -202,9 +252,12 @@ export function parseRecipe(input) {
   const sizes = parseSizes(src.sizes, types);
   if (!sizes.ok) errors.sizes = sizes.error;
 
+  const safety = parseSafety(src.safety);
+  if (!safety.ok) errors.safety = safety.error;
+
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, bike, shape, train, sizes: sizes.sizes },
+    recipe: { width, length, elements, types, difficulty, bike, shape, train, sizes: sizes.sizes, safety: safety.safety },
   };
 }

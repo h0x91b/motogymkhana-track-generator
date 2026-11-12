@@ -292,6 +292,12 @@ button:disabled:active { filter: none; scale: none; }
 .size-name { font-weight: 600; }
 .size-row button { display: inline-grid; place-items: center; padding: 0; }
 .size-value { text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The element's own margins under its sizes: a quiet line says whose value it is. */
+.edit-margins { padding-top: 8px; border-top: 1px solid var(--edge); }
+.margin-row .size-name { display: grid; font-weight: 500; }
+.margin-row.own .size-name { font-weight: 600; }
+.margin-note { font-size: 13px; font-weight: 400; }
+.size-row .margin-reset { display: inline; justify-self: start; min-height: 0; padding: 2px 0; font-size: 13px; font-weight: 400; }
 /* Move and turn in one row of seven: two groups, a wider gap between them. */
 .edit-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 44px)) 2px repeat(3, minmax(0, 44px)); gap: 6px; }
 .tool-group { display: contents; }
@@ -559,3 +565,9 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   background: var(--bg);
 }
 .angle-field > span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--muted); pointer-events: none; }
+/* The field rule among the safety values: a dot under it, so «обычно» is findable at a glance. */
+.chips span.default { position: relative; }
+.chips span.default::after { content: ''; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; opacity: .55; }
+.safety-option[hidden] { display: none; }
+.safety-note { margin: 0; font-size: 13px; text-wrap: pretty; }
+#safety-details summary.set { color: var(--accent); font-weight: 700; }
