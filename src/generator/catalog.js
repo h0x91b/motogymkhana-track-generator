@@ -1118,11 +1118,11 @@ export const typeAxes = (type) => (TYPES[type].sideOnly ? [0, 2, 4, 6] : [0, 1, 
 /**
  * Axes an element of the type can be turned to in «Правка», in 45° steps:
  * half steps (22.5°) for a type that also stands on diagonals, whole ones for
- * a side-only type (ADR 0017). The generator keeps to `typeAxes`.
+ * a side-only type (ADR 0019). The generator keeps to `typeAxes`.
  */
 export const editAxes = (type) => Array.from({ length: TYPES[type].sideOnly ? 8 : 16 }, (_, k) => (TYPES[type].sideOnly ? k : k / 2));
 
-/** Is an element of the type on this axis built on the diagonal lattice (ADR 0005)? Off the lattice it is built along a side and turned (ADR 0017). */
+/** Is an element of the type on this axis built on the diagonal lattice (ADR 0005)? Off the lattice it is built along a side and turned (ADR 0019). */
 export const diagonalAxis = (type, axis) => axis % 2 === 1 && !TYPES[type].sideOnly;
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);

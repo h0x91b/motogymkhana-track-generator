@@ -35,7 +35,7 @@ const degrees = (axis) => `${String(((axis * 45) % 360 + 360) % 360).replace('.'
 
 /**
  * Where a direction in 45° steps points. Between two of the eight arrows — an
- * element turned by a half step in «Правка» (ADR 0017) — it says the angle and
+ * element turned by a half step in «Правка» (ADR 0019) — it says the angle and
  * the arrows it lies between.
  */
 export function travelLabel(dir) {
@@ -113,7 +113,7 @@ const half = (v) => Math.round(v * 2) / 2 + 0;
 /**
  * One dimension line in site metres. On a diagonal its value is the offset by
  * X and by Y (equal), from which the cone table lays it out; its label is the
- * true slant length, which is what the rider gets. Off the lattice (ADR 0017)
+ * true slant length, which is what the rider gets. Off the lattice (ADR 0019)
  * the foot is wherever it falls and the value is the true length itself.
  */
 function dimension(points, axis, diagonal, offLattice, [kind, i, j]) {
@@ -476,7 +476,7 @@ const RING_DEGREES = 270;
  */
 export function anchorPoint(e, byId) {
   const g = e.guides?.length === 1 && e.guides[0].radii.length === 1 ? e.guides[0] : null;
-  // Off the lattice (ADR 0017) the centre is not on the 0.5 m grid: the anchor stays on its cone, on whole metres.
+  // Off the lattice (ADR 0019) the centre is not on the 0.5 m grid: the anchor stays on its cone, on whole metres.
   if (g && g.to - g.from > RING_DEGREES && e.offLattice !== true) return { x: g.x, y: g.y, ring: true };
   const c = byId.get(e.anchor);
   return { x: c.hx / 2, y: c.hy / 2, ring: false };
@@ -499,7 +499,7 @@ export function buildSetupSheet(course) {
     const at = anchorPoint(e, byId);
     // In half-metre steps, like the cones.
     const anchor = { hx: at.x * 2, hy: at.y * 2 };
-    // Off the lattice (ADR 0017) the element is built along a side and turned, so
+    // Off the lattice (ADR 0019) the element is built along a side and turned, so
     // its sizes are true lengths; its cones are laid out by X and Y like a diagonal's.
     const offLattice = e.offLattice === true;
     const diagonal = e.axis % 2 === 1 && !offLattice;

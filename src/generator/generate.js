@@ -251,14 +251,14 @@ function facingAxis(plan, mirrored, from, to) {
   return best;
 }
 
-/** Does a template on this axis stand on the half-metre lattice (ADR 0001), or was it turned off it in «Правка» (ADR 0017)? */
+/** Does a template on this axis stand on the half-metre lattice (ADR 0001), or was it turned off it in «Правка» (ADR 0019)? */
 export const onLattice = (tpl, axis) => Number.isInteger(axis) && (axis % 2 === 1) === tpl.diagonal;
 
 /**
  * Lattice step of a template turned onto `axis`, in half-metres along X and Y:
  * one of `AXIS_STEPS` when the axis is of the template's class, otherwise a
  * real vector of the template's unit — an element turned off the lattice in
- * «Правка» (ADR 0017), or a side-only type on a diagonal.
+ * «Правка» (ADR 0019), or a side-only type on a diagonal.
  */
 function templateStep(tpl, axis) {
   if (onLattice(tpl, axis)) return AXIS_STEPS[axis % 8];
@@ -298,7 +298,7 @@ function originShapes(tpl, axis) {
   return byAxis[axis];
 }
 
-/** Places a local template: axis in 45° steps (a half step off the lattice, ADR 0017), anchor on whole metres. */
+/** Places a local template: axis in 45° steps (a half step off the lattice, ADR 0019), anchor on whole metres. */
 export function placeTemplate(tpl, axis, ax, ay) {
   const [dx, dy] = templateStep(tpl, axis);
   const px = -dy;
@@ -405,7 +405,7 @@ export function chainedPlacement(plan, mirrored, prev, radius, k, inner, site) {
 
 /** A start or finish line two low cones wide, across `dir`, centred near `ideal`. */
 function lineTerminal(ideal, dir, from, to) {
-  // Off the lattice (behind or past an element turned by a half step, ADR 0017) the second cone is off it too.
+  // Off the lattice (behind or past an element turned by a half step, ADR 0019) the second cone is off it too.
   const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
   const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
   const px = -dy;
@@ -1025,7 +1025,7 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
       type: p.tpl.type,
       axis: p.axis,
       mirrored: p.tpl.mirrored,
-      // Turned off the half-metre lattice in «Правка» (ADR 0017): cones stand anywhere, measured by X and Y.
+      // Turned off the half-metre lattice in «Правка» (ADR 0019): cones stand anywhere, measured by X and Y.
       ...(onLattice(p.tpl, p.axis) ? {} : { offLattice: true }),
       params: p.tpl.params,
       anchor: ids[0],

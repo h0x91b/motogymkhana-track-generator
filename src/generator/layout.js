@@ -400,7 +400,7 @@ export function moveElement(layout, i, x, y) {
   return withElement(layout, i, fitted({ ...unpinned(layout.elements[i]), x: Math.round(x), y: Math.round(y) }, layout.recipe));
 }
 
-/** Turns element i by one step of the axes it can be turned to in «Правка» — 22.5°, or 45° for a side-only type (ADR 0017) — about the middle of its zone. */
+/** Turns element i by one step of the axes it can be turned to in «Правка» — 22.5°, or 45° for a side-only type (ADR 0019) — about the middle of its zone. */
 export function rotateElement(layout, i, dir) {
   const el = layout.elements[i];
   const axes = editAxes(el.type);
@@ -415,7 +415,7 @@ export const turnStep = (type) => 360 / editAxes(type).length;
 
 /**
  * The axis an element of the type can be turned to nearest to `degrees` (any
- * number, wrapped to a full turn): there is nothing between them (ADR 0017).
+ * number, wrapped to a full turn): there is nothing between them (ADR 0019).
  * Halfway between two the one nearer `current` wins, then the
  * counter-clockwise one. Null for something that is not a number.
  */
