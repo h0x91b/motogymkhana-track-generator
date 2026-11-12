@@ -14,7 +14,7 @@ import {
   PI, pointsBounds, polylineHitsObb, polylineHitsShape, polylineLength, round2, shapeOf, shapesOverlap, shiftShape, wrapPi,
 } from './geometry.js';
 import { createStream } from './prng.js';
-import { safetyOf, TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
+import { blockedMargin, safetyOf, TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
 
 export const SITE_MARGIN = 1; // the field rule; a recipe can set its own (`safety.edge`)
@@ -203,17 +203,38 @@ const rectObb = (x0, y0, x1, y1) => ({ c: [(x0 + x1) / 2, (y0 + y1) / 2], u: [1,
  * The blocked areas of a recipe (cutouts and obstacles) as the search tests
  * them: the rectangle itself (`obb`, as a shape `shape`), which a run-off zone,
  * a line's waiting area or a U-turn cone's keep-out may not enter, and the
- * rectangle grown by the lot edge margin (`keep`, `safetyOf(recipe).edge`),
- * which element cores, cones and connectors keep out of, as they do the edge.
+ * rectangle grown by the area's own margin (`keep`, `m`: its `margin`, else the
+ * lot edge margin, ADR 0021), which element cores, cones and connectors keep
+ * out of, as they do the edge.
  */
 export function blockedAreas(recipe) {
-  const m = safetyOf(recipe).edge;
   return (recipe.blocked ?? []).map((b) => {
+    const m = blockedMargin(recipe, b);
     const r = [b.x, b.y, b.x + b.w, b.y + b.h];
     const obb = rectObb(...r);
     const keep = rectObb(r[0] - m, r[1] - m, r[2] + m, r[3] + m);
-    return { ...b, rect: r, obb, shape: obbShape(obb), keep, keepBounds: obbBounds(keep) };
+    return { ...b, m, rect: r, obb, shape: obbShape(obb), keep, keepBounds: obbBounds(keep) };
   });
+}
+
+/**
+ * How far an element's core keeps in from each side of free rectangle `r`
+ * (`[x0, y0, x1, y1]`): the lot edge margin on a side on the lot's edge, else
+ * the largest margin of the blocked areas that side runs along.
+ */
+function freeInsets(r, inner, width, length) {
+  const along = (lo, hi, a0, a1) => a0 < hi && lo < a1;
+  const side = (onEdge, touching) => {
+    if (onEdge) return inner.margin;
+    const ms = inner.blocked.filter(touching).map((b) => b.m);
+    return ms.length ? Math.max(...ms) : inner.margin;
+  };
+  return [
+    side(r[0] <= 0, (b) => b.rect[2] === r[0] && along(r[1], r[3], b.rect[1], b.rect[3])),
+    side(r[1] <= 0, (b) => b.rect[3] === r[1] && along(r[0], r[2], b.rect[0], b.rect[2])),
+    side(r[2] >= width, (b) => b.rect[0] === r[2] && along(r[1], r[3], b.rect[1], b.rect[3])),
+    side(r[3] >= length, (b) => b.rect[1] === r[3] && along(r[0], r[2], b.rect[0], b.rect[2])),
+  ];
 }
 
 /**
@@ -227,7 +248,10 @@ export function innerRect(recipe) {
   const inner = [m, m, recipe.width - m, recipe.length - m];
   inner.margin = m;
   inner.blocked = blockedAreas(recipe);
-  if (inner.blocked.length) inner.free = freeRects(recipe.width, recipe.length, inner.blocked);
+  if (inner.blocked.length) {
+    inner.free = freeRects(recipe.width, recipe.length, inner.blocked);
+    inner.insets = inner.free.map((r) => freeInsets(r, inner, recipe.width, recipe.length));
+  }
   return inner;
 }
 
@@ -321,11 +345,11 @@ function rectFits(tpl, rect, w, h) {
  */
 export function templateFits(tpl, inner, site) {
   // With blocked areas, the element has to fit one rectangle of free asphalt:
-  // its core inside it by the margin, its run-off zone inside it.
+  // its core inside it by the margins of its sides, its run-off zone inside it.
   if (inner.free) {
-    return inner.free.some((r) => {
-      const m = inner.margin;
-      const own = [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
+    return inner.free.some((r, k) => {
+      const [a, b, c, d] = inner.insets[k];
+      const own = [r[0] + a, r[1] + b, r[2] - c, r[3] - d];
       return own[2] > own[0] && own[3] > own[1] && templateFits(tpl, own, r);
     });
   }

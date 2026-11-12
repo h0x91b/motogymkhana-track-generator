@@ -180,18 +180,22 @@ export function reservedZones(course) {
 
 /**
  * The lot's blocked areas (cutouts and obstacles), for drawing: the rectangle,
- * its margin (the site margin round it, clipped to the site by the renderer),
- * its number in the recipe's list and its name. Empty for a plain rectangle.
+ * its margin (`m` metres round it: its own, else the lot edge margin; drawn as
+ * a reserved zone and clipped to the site by the renderer, none at 0), its
+ * number in the recipe's list and its name. Empty for a plain rectangle.
  */
 export function blockedOutlines(course) {
-  const { margin: m, blocked = [] } = course.site;
+  const { margin: edge, blocked = [] } = course.site;
   const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-  return blocked.map((b, i) => ({
-    kind: b.kind,
-    n: i + 1,
-    name: `${b.kind === 'cutout' ? 'Вырез' : 'Препятствие'} ${i + 1}`,
-    x: b.x, y: b.y, w: b.w, h: b.h,
-    poly: rect(b.x, b.y, b.x + b.w, b.y + b.h),
-    margin: rect(b.x - m, b.y - m, b.x + b.w + m, b.y + b.h + m),
-  }));
+  return blocked.map((b, i) => {
+    const m = b.margin ?? edge;
+    return {
+      kind: b.kind,
+      n: i + 1,
+      name: `${b.kind === 'cutout' ? 'Вырез' : 'Препятствие'} ${i + 1}`,
+      x: b.x, y: b.y, w: b.w, h: b.h, m,
+      poly: rect(b.x, b.y, b.x + b.w, b.y + b.h),
+      margin: m > 0 ? rect(b.x - m, b.y - m, b.x + b.w + m, b.y + b.h + m) : null,
+    };
+  });
 }

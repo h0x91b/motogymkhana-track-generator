@@ -596,11 +596,14 @@ export function buildSetupSheet(course) {
     finish.crossing = lineCrossing(start.dir, finish.dir);
   }
   // Cutouts and obstacles, measured from corner A like everything else: the corner nearest it, then the size.
+  // With its margin: its own, or the lot edge's (ADR 0021).
   const blocked = (course.site.blocked ?? []).map((b, i) => {
     const name = `${b.kind === 'cutout' ? 'Вырез' : 'Препятствие'} ${i + 1}`;
+    const margin = b.margin ?? course.site.margin;
+    const own = b.margin !== undefined && b.margin !== course.site.margin;
     return {
-      n: i + 1, kind: b.kind, name, x: b.x, y: b.y, w: b.w, h: b.h,
-      label: `${name}: угол X ${fmt(b.x)} · Y ${fmt(b.y)} м, по X ${fmt(b.w)} м, по Y ${fmt(b.h)} м`,
+      n: i + 1, kind: b.kind, name, x: b.x, y: b.y, w: b.w, h: b.h, margin,
+      label: `${name}: угол X ${fmt(b.x)} · Y ${fmt(b.y)} м, по X ${fmt(b.w)} м, по Y ${fmt(b.h)} м; отступ ${margin > 0 ? `${fmt(margin)} м` : 'нет'}${own ? '' : ', как от края площадки'}`,
     };
   });
   return {

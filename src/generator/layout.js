@@ -20,7 +20,7 @@ import {
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
-  BLOCKED_KINDS, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
+  BLOCKED_KINDS, BLOCKED_MARGIN, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
 
 export { ELEMENTS_MAX };
@@ -153,14 +153,14 @@ function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, 
 const fmt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
 
 /**
- * «вырез 1» or «препятствие 2», numbered in the recipe's list: the first
- * blocked area an element's core comes within the margin of, or, given, that
- * its run-off zone (a shape) enters.
+ * The first blocked area an element's core comes within the margin of, or,
+ * given, that its run-off zone (a shape) enters: its name, «вырез 1» or
+ * «препятствие 2» numbered in the recipe's list, and the margin it keeps.
  */
-function blockedName(inner, core, runOff = null) {
+function blockedHit(inner, core, runOff = null) {
   const only = (b) => Object.assign([inner[0], inner[1], inner[2], inner[3]], { blocked: [b] });
   const k = Math.max(0, inner.blocked.findIndex((b) => (runOff ? !areaClear(only(b), runOff) : !quadOnAsphalt(only(b), core))));
-  return `${BLOCKED_NAMES[inner.blocked[k].kind]} ${k + 1}`;
+  return { name: `${BLOCKED_NAMES[inner.blocked[k].kind]} ${k + 1}`, margin: inner.blocked[k].m };
 }
 
 const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
@@ -196,11 +196,14 @@ export function routeLayout(layout) {
     if (!p.core.every((q) => inside(inner, q))) {
       report('off-site', edge > 0 ? `Элемент ${i + 1} ближе ${fmt(edge)} м к краю площадки — отодвиньте его от края` : `Элемент ${i + 1} выходит за площадку — отодвиньте его от края`, { elements: [id(i)] });
     } else if (!quadOnAsphalt(inner, p.core)) {
-      report('blocked', `Элемент ${i + 1} заходит на ${blockedName(inner, p.core)} или стоит ближе ${fmt(edge)} м к нему — отодвиньте элемент`, { elements: [id(i)] });
+      const hit = blockedHit(inner, p.core);
+      report('blocked', hit.margin > 0
+        ? `Элемент ${i + 1} заходит на ${hit.name} или стоит ближе ${fmt(hit.margin)} м к нему — отодвиньте элемент`
+        : `Элемент ${i + 1} заходит на ${hit.name} — отодвиньте элемент`, { elements: [id(i)] });
     } else if (p.runOffPoly && !p.runOffPoly.every((q) => inside(site, q))) {
       report('run-off-site', `Зоне выката элемента ${i + 1} не хватает ${fmt(p.tpl.margins.runOff)} м асфальта у края площадки — отодвиньте его от края или уменьшите выкат`, { elements: [id(i)] });
     } else if (p.runOff && !areaClear(inner, p.runOff)) {
-      report('run-off-blocked', `Зона выката элемента ${i + 1} заходит на ${blockedName(inner, null, p.runOff)}: вокруг разворота нужно ${fmt(p.tpl.margins.runOff)} м асфальта — отодвиньте элемент или уменьшите выкат`, { elements: [id(i)] });
+      report('run-off-blocked', `Зона выката элемента ${i + 1} заходит на ${blockedHit(inner, null, p.runOff).name}: вокруг разворота нужно ${fmt(p.tpl.margins.runOff)} м асфальта — отодвиньте элемент или уменьшите выкат`, { elements: [id(i)] });
     }
   });
   for (let i = 0; i < n; i++) {
@@ -637,7 +640,8 @@ const clampTo = (v, lo, hi) => Math.min(Math.max(Math.round(v), lo), hi);
 function onSite(b, recipe) {
   const w = clampTo(b.w, 1, recipe.width);
   const h = clampTo(b.h, 1, recipe.length);
-  return { kind: b.kind, x: clampTo(b.x, 0, recipe.width - w), y: clampTo(b.y, 0, recipe.length - h), w, h };
+  const at = { kind: b.kind, x: clampTo(b.x, 0, recipe.width - w), y: clampTo(b.y, 0, recipe.length - h), w, h };
+  return b.margin === undefined ? at : { ...at, margin: b.margin };
 }
 
 /** Default size of a new blocked area: a parked car, or a 6 × 6 m cutout. */
@@ -683,6 +687,30 @@ export function resizeBlockedSide(layout, k, from, sx, sy, dx, dy) {
   if (sy < 0) y0 = clampTo(y0 + dy, 0, y1 - 1);
   if (sy > 0) y1 = clampTo(y1 + dy, y0 + 1, recipe.length);
   return withBlocked(layout, recipe.blocked.map((b, i) => (i === k ? onSite({ ...b, x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, recipe) : b)));
+}
+
+/**
+ * Gives blocked area k its own margin, metres on the lot edge margin's steps
+ * (clamped and snapped to them); null drops it, so the area keeps the lot edge
+ * margin again (ADR 0021).
+ */
+export function setBlockedMargin(layout, k, margin) {
+  const { recipe } = layout;
+  const o = BLOCKED_MARGIN;
+  return withBlocked(layout, recipe.blocked.map((b, i) => {
+    if (i !== k) return b;
+    const { margin: _, ...bare } = b;
+    if (margin === null || margin === undefined) return bare;
+    const v = Math.min(Math.max(o.min + Math.round((margin - o.min) / o.step) * o.step, o.min), o.max);
+    return { ...bare, margin: v };
+  }));
+}
+
+/** Blocked area k's margin as the editor shows it: the value, whether the area sets it itself, the lot edge margin. */
+export function blockedMarginOf(layout, k) {
+  const own = layout.recipe.blocked[k].margin;
+  const edge = safetyOf(layout.recipe).edge;
+  return { value: own ?? edge, own: own !== undefined, edge, option: BLOCKED_MARGIN };
 }
 
 /** Removes blocked area k; the numbers of those after it move up by one. */

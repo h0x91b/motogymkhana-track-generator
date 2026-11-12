@@ -5,14 +5,14 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  addBlocked, generateCourse, layoutOf, moveBlocked, parseLayout, parseRecipe, removeBlocked, resizeBlocked, routeLayout,
+  addBlocked, blockedMarginOf, canonicalJSON, generateCourse, layoutOf, moveBlocked, parseLayout, parseRecipe, removeBlocked, resizeBlocked, routeLayout, setBlockedMargin,
 } from '../src/generator/index.js';
+import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { freeRects, blockedAreas } from '../src/generator/generate.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { coneXY, densify, insidePolygon } from './helpers/course-geometry.js';
 import { slowTest, sweep } from './helpers/slow.js';
 
-const MARGIN = 1;
 // Anton's П-shaped lot: 40 × 38 m with a 12 × 22 m bite out of one long side.
 const P_CUTOUT = { kind: 'cutout', x: 14, y: 0, w: 12, h: 22 };
 const P_LOT = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', blocked: [P_CUTOUT] };
@@ -37,6 +37,8 @@ function blockedFaults(course) {
   const blocked = course.recipe.blocked;
   const cones = new Map(course.cones.map((c) => [c.id, c]));
   for (const b of blocked) {
+    // Its own margin (ADR 0021), else the lot edge margin.
+    const MARGIN = b.margin ?? course.recipe.safety?.edge ?? 1;
     for (const c of course.cones) {
       if (toRect(coneXY(c), b) < MARGIN - 1e-6) faults.push(`cone ${c.id} ${toRect(coneXY(c), b).toFixed(2)} m from ${b.kind}`);
     }
@@ -61,6 +63,21 @@ describe('the recipe', () => {
     const r = parseRecipe({ ...P_LOT, blocked: [{ kind: 'obstacle', x: '3', y: '30', w: '2', h: '5' }] });
     expect(r.ok).toBe(true);
     expect(r.recipe.blocked).toEqual([{ kind: 'obstacle', x: 3, y: 30, w: 2, h: 5 }]);
+  });
+
+  test('an area may keep its own margin, 0 to 3 m in 0,5 m steps; without one it has none in the recipe', () => {
+    const r = parseRecipe({ ...P_LOT, blocked: [{ ...P_CUTOUT, margin: '2,5' }, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5, margin: 0 }, { kind: 'obstacle', x: 3, y: 10, w: 1, h: 1, margin: '' }] });
+    expect(r.ok).toBe(true);
+    expect(r.recipe.blocked).toEqual([{ ...P_CUTOUT, margin: 2.5 }, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5, margin: 0 }, { kind: 'obstacle', x: 3, y: 10, w: 1, h: 1 }]);
+    // The canonical recipe round-trips, and an area without a margin has no `margin` key in it.
+    const json = canonicalJSON(r.recipe);
+    expect(canonicalJSON(parseRecipe(JSON.parse(json)).recipe)).toBe(json);
+    expect(canonicalJSON(parseRecipe(P_LOT).recipe)).not.toContain('margin');
+    for (const margin of [-0.5, 3.5, 0.25, 'много']) {
+      const bad = parseRecipe({ ...P_LOT, blocked: [{ ...P_CUTOUT, margin }] });
+      expect(bad.ok).toBe(false);
+      expect(bad.errors.blocked).toBe('Вырез 1: отступ от 0 до 3 м с шагом 0,5 м');
+    }
   });
 
   test('a recipe without them has none', () => {
@@ -126,6 +143,22 @@ describe('generation', () => {
       }
     }, 60_000);
   }
+
+  test('each area keeps its own margin: 3 m round one obstacle, none round the other', () => {
+    const wide = { kind: 'obstacle', x: 17, y: 27, w: 6, h: 6, margin: 3 };
+    const tight = { kind: 'obstacle', x: 8, y: 10, w: 2, h: 2, margin: 0 };
+    const recipe = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', blocked: [wide, tight] };
+    let near = Infinity;
+    for (let seed = 1; seed <= 20; seed++) {
+      const r = generateCourse(recipe, seed);
+      expect(r.ok).toBe(true);
+      expect({ seed, faults: blockedFaults(r.course) }).toEqual({ seed, faults: [] });
+      const points = [...r.course.cones.map(coneXY), ...r.course.elements.flatMap((e) => e.path), ...r.course.route.legs.flatMap((l) => l.path ?? [])];
+      for (const p of points) near = Math.min(near, toRect(p, tight));
+    }
+    // The 0 m one is no wall of 1 m: something of some course stands closer than the edge margin.
+    expect(near).toBeLessThan(1);
+  }, 60_000);
 
   slowTest('a П-shaped lot fits more than the biggest rectangle inside it', () => {
     const mean = (recipe) => {
@@ -199,6 +232,42 @@ describe('«Правка»', () => {
     expect(JSON.stringify(layout)).toBe(before);
   });
 
+  test('an element within an obstacle\'s own margin is a problem that names the obstacle and its margin', () => {
+    const el = layout.elements[0];
+    const placed = routeLayout(layout).course.elements[0];
+    const xs = placed.path.map((p) => p[0]);
+    const ys = placed.path.map((p) => p[1]);
+    // A 1 × 1 m obstacle 2 m right of the element's line: clear at the edge margin of 1 m, not at its own 3 m.
+    const x = Math.ceil(Math.max(...xs)) + 2;
+    const y = Math.round((Math.min(...ys) + Math.max(...ys)) / 2);
+    const lot = { ...layout, recipe: { ...layout.recipe, blocked: [{ kind: 'obstacle', x, y, w: 1, h: 1 }] } };
+    expect(routeLayout(lot).problems.filter((p) => p.code === 'blocked' && p.elements.includes(`e${1}`))).toEqual([]);
+    const { problems } = routeLayout(setBlockedMargin(lot, 0, 3));
+    const p = problems.find((q) => q.code === 'blocked' && q.elements.includes('e1'));
+    expect(p.text.replace(/\u00a0/g, ' ')).toBe('Элемент 1 заходит на препятствие 1 или стоит ближе 3 м к нему — отодвиньте элемент');
+    expect(el).toBe(layout.elements[0]);
+  });
+
+  test('an area\'s own margin survives moving and resizing it, and dropping it brings back the edge margin', () => {
+    const a = setBlockedMargin(addBlocked(layout, 'obstacle'), 0, 2.4);
+    expect(a.recipe.blocked[0].margin).toBe(2.5);
+    expect(moveBlocked(a, 0, 3, 4).recipe.blocked[0].margin).toBe(2.5);
+    expect(resizeBlocked(a, 0, 3, 3).recipe.blocked[0].margin).toBe(2.5);
+    expect(setBlockedMargin(a, 0, 9).recipe.blocked[0].margin).toBe(3);
+    expect(blockedMarginOf(a, 0)).toMatchObject({ value: 2.5, own: true, edge: 1 });
+    const back = setBlockedMargin(a, 0, null);
+    expect('margin' in back.recipe.blocked[0]).toBe(false);
+    expect(blockedMarginOf(back, 0)).toMatchObject({ value: 1, own: false });
+  });
+
+  test('a course file keeps an area\'s own margin', () => {
+    const a = setBlockedMargin(moveBlocked(addBlocked(layout, 'obstacle'), 0, 3, 4), 0, 0);
+    const read = readCourseFile(courseFileText(courseDocument(a, { edited: true })));
+    expect(read.ok).toBe(true);
+    expect(read.layout.recipe.blocked).toEqual([{ kind: 'obstacle', x: 3, y: 4, w: 2, h: 5, margin: 0 }]);
+    expect(canonicalJSON(routeLayout(read.layout).problems)).toBe(canonicalJSON(routeLayout(a).problems));
+  });
+
   test('a layout keeps its blocked areas through storage', () => {
     const a = moveBlocked(addBlocked(layout, 'obstacle'), 0, 3, 4);
     expect(parseLayout(JSON.parse(JSON.stringify(a))).recipe.blocked).toEqual([{ kind: 'obstacle', x: 3, y: 4, w: 2, h: 5 }]);
@@ -209,8 +278,16 @@ describe('the setup sheet', () => {
   test('measures each blocked area from corner A: its nearest corner, then its size', () => {
     const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [P_CUTOUT, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5 }] }, 7).course);
     expect(sheet.site.blocked.map((b) => b.label.replace(/\u00a0/g, ' '))).toEqual([
-      'Вырез 1: угол X 14 · Y 0 м, по X 12 м, по Y 22 м',
-      'Препятствие 2: угол X 3 · Y 30 м, по X 2 м, по Y 5 м',
+      'Вырез 1: угол X 14 · Y 0 м, по X 12 м, по Y 22 м; отступ 1 м, как от края площадки',
+      'Препятствие 2: угол X 3 · Y 30 м, по X 2 м, по Y 5 м; отступ 1 м, как от края площадки',
+    ]);
+  });
+
+  test('names an area\'s own margin in its line', () => {
+    const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [{ ...P_CUTOUT, margin: 2 }, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5, margin: 0 }] }, 7).course);
+    expect(sheet.site.blocked.map((b) => b.label.replace(/\u00a0/g, ' '))).toEqual([
+      'Вырез 1: угол X 14 · Y 0 м, по X 12 м, по Y 22 м; отступ 2 м',
+      'Препятствие 2: угол X 3 · Y 30 м, по X 2 м, по Y 5 м; отступ нет',
     ]);
   });
 });

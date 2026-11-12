@@ -192,11 +192,17 @@ function parseSafety(value) {
 // a cutout, where the lot is not asphalt at all (a П-shaped lot is a rectangle
 // with one), or an obstacle standing on it (a parked car, a pillar, a kerb
 // island). Whole metres from the reference corner: x, y of the corner nearest
-// to it, then the size along x and y. The generator keeps the site margin from
-// their edges as from the lot's.
+// to it, then the size along x and y. Each keeps its own margin (`margin`,
+// metres, ADR 0021): cones, element lines and connectors stay that far from its
+// edges; without one, the lot edge margin (`safety.edge`).
 export const BLOCKED_KINDS = ['cutout', 'obstacle'];
 export const BLOCKED_NAMES = { cutout: 'вырез', obstacle: 'препятствие' };
 export const BLOCKED_MAX = 8;
+// The values a blocked area's own margin takes: those of the lot edge margin.
+export const BLOCKED_MARGIN = SAFETY_OPTIONS.find((o) => o.key === 'edge');
+
+/** The margin blocked area `b` keeps: its own, or the recipe's lot edge margin. */
+export const blockedMargin = (recipe, b) => b.margin ?? safetyOf(recipe).edge;
 
 /**
  * @returns {{ok: true, blocked: object[]} | {ok: false, error: string}}
@@ -218,7 +224,14 @@ function parseBlocked(value, width, length) {
     if (w < 1 || h < 1) return { ok: false, error: `${name}: размеры не меньше 1 м` };
     if (width !== null && x + w > width) return { ok: false, error: `${name} выходит за площадку по X: X + ширина не больше ${width} м` };
     if (length !== null && y + h > length) return { ok: false, error: `${name} выходит за площадку по Y: Y + длина не больше ${length} м` };
-    blocked.push({ kind: raw.kind, x, y, w, h });
+    const area = { kind: raw.kind, x, y, w, h };
+    if (raw.margin !== undefined && raw.margin !== null && raw.margin !== '') {
+      const margin = parseSafetyValue(BLOCKED_MARGIN, raw.margin);
+      const o = BLOCKED_MARGIN;
+      if (margin === null) return { ok: false, error: `${name}: отступ от ${fmtMetres(o.min)} до ${fmtMetres(o.max)} м с шагом ${fmtMetres(o.step)} м` };
+      area.margin = margin;
+    }
+    blocked.push(area);
   }
   return { ok: true, blocked };
 }

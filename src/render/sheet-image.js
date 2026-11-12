@@ -126,8 +126,9 @@ function planBlock(course, sheet, maxHeight) {
   }
 
   /**
-   * Cutouts and obstacles, hatched, with the site margin round them dashed like
-   * the edge's and their name; their numbers are in the text under the plan.
+   * Cutouts and obstacles, hatched, with their margin round them dashed like an
+   * element's reserved zone and their name; their numbers are in the text under
+   * the plan.
    */
   function drawBlocked(ctx, X, Y, oy) {
     const list = blockedOutlines(course);
@@ -135,11 +136,13 @@ function planBlock(course, sheet, maxHeight) {
     ctx.beginPath();
     ctx.rect(ox, oy, pw, ph);
     ctx.clip();
+    const st = ZONE_STYLE.zone;
     for (const b of list) {
-      ctx.setLineDash([8, 8]);
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#9aa7ad';
-      ctx.strokeRect(X(b.margin[0][0]), Y(b.margin[2][1]), (b.w + 2 * course.site.margin) * s, (b.h + 2 * course.site.margin) * s);
+      if (!b.margin) continue;
+      ctx.setLineDash(st.dash);
+      ctx.lineWidth = st.width;
+      ctx.strokeStyle = st.stroke;
+      ctx.strokeRect(X(b.margin[0][0]), Y(b.margin[2][1]), (b.w + 2 * b.m) * s, (b.h + 2 * b.m) * s);
     }
     ctx.setLineDash([]);
     for (const b of list) {
@@ -715,7 +718,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const terminalsAndBlocked = blockedLines.length
     ? textBlock([
       ...terminals.lines,
-      { text: `Где трассы нет (штриховка, на плане В — вырез, Пр — препятствие), от опорного угла A; от их краёв тот же отступ ${fmt(course.site.margin)} м, что от края площадки:`, size: 22, weight: 600 },
+      { text: 'Где трассы нет (штриховка, на плане В — вырез, Пр — препятствие), от опорного угла A; серый пунктир вокруг — их отступ, там ни конусов, ни линии езды:', size: 22, weight: 600 },
       ...blockedLines.map((b) => ({ text: b.label, size: 22 })),
     ])
     : terminals;
