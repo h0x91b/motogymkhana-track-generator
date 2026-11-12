@@ -10,8 +10,8 @@
 import { BIKE_TURN_RADIUS, chooseParams, instantiate, isBig, minimalParams, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap,
-  PI, pointsBounds, polylineHitsObb, polylineLength, round2, wrapPi,
+  AXIS_STEPS, axisVector, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
+  PI, pointsBounds, polylineHitsShape, polylineLength, round2, shapeOf, shapesOverlap, shiftShape, wrapPi,
 } from './geometry.js';
 import { createStream } from './prng.js';
 import { safetyOf, TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
@@ -59,6 +59,18 @@ export const U_TURN_CONE_CLEARANCE = 1.5;
 // Two arcs the same way with a straight no longer than this between them are
 // ridden as one turn: its cone stands midway between their centres.
 const U_TURN_JOIN = 1;
+
+// An exit chains straight into the next entry, with no connector to speak of,
+// when both face the same way (within CHAIN_ANGLE) and the entry lies at most
+// CHAIN_REACH ahead of the exit, its bearing within CHAIN_ANGLE of the way the
+// rider goes. The two are joined by a straight instead of a Dubins path.
+export const CHAIN_REACH = 0.5;
+export const CHAIN_ANGLE = 10;
+const CHAIN_RAD = (CHAIN_ANGLE * PI) / 180;
+// Every CHAIN_EVERY-th candidate of an element after the first is drawn
+// chained: entered along the exit of the element before, as close past it as
+// an anchor on whole metres allows.
+const CHAIN_EVERY = 3;
 
 // «Паровозик», a column of riders: the route never crosses itself or comes
 // back within 1.5 m of itself, or two riders of the column could meet. Checked
@@ -197,11 +209,27 @@ export const elementMargins = (recipe) => {
   return { pad, runOff };
 };
 
+// Templates are pure functions of their inputs: shared by every search, so a
+// template's footprints are worked out once however many courses use it.
+const TEMPLATES = new Map();
+
+// The least clearance a footprint keeps when the pad is switched off, metres.
+export const MIN_PAD = 0.05;
+
 function templateFor(plan, diagonal, mirrored) {
   const key = `${diagonal ? 1 : 0}${mirrored ? 1 : 0}`;
   if (!(key in plan.templates)) {
     const params = diagonal ? plan.params.diagonal : plan.params.side;
-    plan.templates[key] = params ? instantiate(plan.type, params, diagonal, mirrored, plan.margins) : null;
+    let tpl = null;
+    if (params) {
+      const id = `${plan.type}|${key}|${JSON.stringify(params)}|${plan.margins.pad}|${plan.margins.runOff}`;
+      if (!TEMPLATES.has(id)) {
+        if (TEMPLATES.size > 2000) TEMPLATES.clear();
+        TEMPLATES.set(id, instantiate(plan.type, params, diagonal, mirrored, plan.margins));
+      }
+      tpl = TEMPLATES.get(id);
+    }
+    plan.templates[key] = tpl;
   }
   return plan.templates[key];
 }
@@ -226,6 +254,38 @@ function facingAxis(plan, mirrored, from, to) {
   return best;
 }
 
+const SHAPES = new WeakMap();
+
+/**
+ * Footprint of a template on an axis, anchored at (0, 0): a disc of the
+ * element's pad (ZONE_PAD unless the recipe or the element sets its own)
+ * round every cone, a band as wide round every wall and chalk line and round
+ * the line ridden inside the element (without the run-in and run-out). And the
+ * run-off polygon, if the type has one. A pad of 0 still keeps MIN_PAD, so the
+ * cones and lines of two elements never touch or cross.
+ */
+function originShapes(tpl, axis) {
+  let byAxis = SHAPES.get(tpl);
+  if (!byAxis) SHAPES.set(tpl, (byAxis = []));
+  if (!byAxis[axis]) {
+    const [dx, dy] = AXIS_STEPS[axis];
+    const toM = (a, b) => [(a * dx - b * dy) / 2, (a * dy + b * dx) / 2];
+    const cones = tpl.cones.map((c) => toM(c.a, c.b));
+    const pad = Math.max(tpl.margins?.pad ?? ZONE_PAD, MIN_PAD);
+    const parts = [];
+    const line = tpl.path.slice(1, -1).map(([a, b]) => toM(a, b));
+    for (let i = 1; i < line.length; i++) parts.push(part([line[i - 1], line[i]], pad));
+    if (line.length === 1) parts.push(part([line[0]], pad));
+    for (const l of tpl.lines) {
+      for (let i = 1; i < l.cones.length; i++) parts.push(part([cones[l.cones[i - 1]], cones[l.cones[i]]], pad));
+    }
+    for (const c of cones) parts.push(part([c], pad));
+    const runOffPoly = tpl.runOffPoly && tpl.runOffPoly.map(([a, b]) => toM(a, b));
+    byAxis[axis] = { footprint: shapeOf(parts), runOffPoly, runOff: runOffPoly && shapeOf([part(runOffPoly)]) };
+  }
+  return byAxis[axis];
+}
+
 /** Places a local template: axis 0..7, anchor on whole metres. */
 export function placeTemplate(tpl, axis, ax, ay) {
   const [dx, dy] = AXIS_STEPS[axis];
@@ -240,7 +300,10 @@ export function placeTemplate(tpl, axis, ax, ay) {
     hv: ((z[3] - z[1]) / 2) * tpl.unit,
   });
   const zone = obb(tpl.zone);
-  const runOff = tpl.runOff && obb(tpl.runOff);
+  const shapes = originShapes(tpl, axis);
+  const footprint = shiftShape(shapes.footprint, ax, ay);
+  const runOffPoly = shapes.runOffPoly && shapes.runOffPoly.map(([x, y]) => [x + ax, y + ay]);
+  const runOff = shapes.runOff && shiftShape(shapes.runOff, ax, ay);
   const k = tpl.core;
   const core = [toM(k[0], k[1]), toM(k[2], k[1]), toM(k[2], k[3]), toM(k[0], k[3])];
   const entryDir = (localDirIndex(tpl.entryDir) + axis) % 8;
@@ -248,8 +311,12 @@ export function placeTemplate(tpl, axis, ax, ay) {
   const entry = toM(...tpl.path[0]);
   const exit = toM(...tpl.path[tpl.path.length - 1]);
   const path = tpl.path.map(([a, b]) => toM(a, b));
+  // The run-in from the entry and the run-out to the exit are ridden like a
+  // connector: they belong to the route, not to the footprint.
+  const end = (points) => ({ points, bounds: pointsBounds(points) });
+  const ends = [end(path.slice(0, 2)), end(path.slice(-2))];
   return {
-    tpl, axis, ax, ay, zone, zoneBounds: obbBounds(zone), runOff, runOffBounds: runOff && obbBounds(runOff), core, entry, exit, entryDir, exitDir, path,
+    tpl, axis, ax, ay, zone, footprint, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path,
     center: zone.c,
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
@@ -262,6 +329,66 @@ export function placeTemplate(tpl, axis, ax, ay) {
       }),
     }),
   };
+}
+
+/**
+ * The k-th placement, best first, of a plan entered off the exit of `prev`
+ * with the least connector there can be: straight on, its entry facing the
+ * way the exit does (a chain, CHAIN_REACH, or just far enough to the side for
+ * the shortest S of two arcs at `radius`), or round one arc of `radius`
+ * turning 45° or 90°. Anchors on whole metres, the core inside `inner` and the
+ * run-off zone on `site`. Null when there is no such placement.
+ */
+export function chainedPlacement(plan, mirrored, prev, radius, k, inner, site) {
+  const u = axisVector(prev.exitDir);
+  const v = axisVector(prev.exitDir + 2);
+  const spots = [];
+  for (const axis of plan.axes) {
+    const tpl = templateFor(plan, axis % 2 === 1, mirrored);
+    const turn = wrapPi(dirAngle((localDirIndex(tpl.entryDir) + axis) % 8) - dirAngle(prev.exitDir));
+    if (Math.abs(turn) > PI / 2 + 1e-9) continue;
+    const [dx, dy] = AXIS_STEPS[axis];
+    const toM = ([a, b]) => [(a * dx - b * dy) / 2, (a * dy + b * dx) / 2];
+    const e0 = toM(tpl.path[0]); // the entry, anchored at (0, 0)
+    const [a0, b0, a1, b1] = tpl.core;
+    const [x0, y0, x1, y1] = pointsBounds([toM([a0, b0]), toM([a1, b0]), toM([a1, b1]), toM([a0, b1])]);
+    const ro = tpl.runOffPoly && pointsBounds(tpl.runOffPoly.map(toM));
+    // Where the entry would be at the end of the turn, in the exit's frame.
+    const sign = turn >= 0 ? 1 : -1;
+    const ideal = [radius * Math.sin(Math.abs(turn)), sign * radius * (1 - Math.cos(Math.abs(turn)))];
+    const at = [prev.exit[0] + u[0] * ideal[0] + v[0] * ideal[1], prev.exit[1] + u[1] * ideal[0] + v[1] * ideal[1]];
+    const base = [Math.round(at[0] - e0[0]), Math.round(at[1] - e0[1])];
+    for (let x = -3; x <= 3; x++) {
+      for (let y = -3; y <= 3; y++) {
+        const ax = base[0] + x;
+        const ay = base[1] + y;
+        if (ax + x0 < inner[0] - 1e-9 || ay + y0 < inner[1] - 1e-9 || ax + x1 > inner[2] + 1e-9 || ay + y1 > inner[3] + 1e-9) continue;
+        if (ro && (ax + ro[0] < site[0] - 1e-9 || ay + ro[1] < site[1] - 1e-9 || ax + ro[2] > site[2] + 1e-9 || ay + ro[3] > site[3] + 1e-9)) continue;
+        const rx = ax + e0[0] - prev.exit[0];
+        const ry = ay + e0[1] - prev.exit[1];
+        const along = rx * u[0] + ry * u[1];
+        const across = rx * v[0] + ry * v[1];
+        let cost;
+        if (Math.abs(turn) < 1e-9) {
+          const side = Math.abs(across);
+          if (along < -1e-9) continue;
+          const need = side < 1e-6 ? 0 : side < CHAIN_REACH * Math.sin(CHAIN_RAD) ? side / Math.tan(CHAIN_RAD) : Math.sqrt(side * (4 * radius - side));
+          if (along < need - 1e-9) continue;
+          cost = along - need + side;
+        } else {
+          // Past the end of the arc, not short of it: the connector can only add straight.
+          if (along < ideal[0] - 1e-9 || sign * across < sign * ideal[1] - 1e-9) continue;
+          // A turn costs a quarter of its arc over going straight on.
+          cost = Math.hypot(along - ideal[0], across - ideal[1]) + (radius * Math.abs(turn)) / 4;
+        }
+        spots.push({ tpl, axis, ax, ay, cost, order: spots.length });
+      }
+    }
+  }
+  if (!spots.length) return null;
+  spots.sort((p, q) => p.cost - q.cost || p.order - q.order);
+  const spot = spots[k % spots.length];
+  return placeTemplate(spot.tpl, spot.axis, spot.ax, spot.ay);
 }
 
 /** A start or finish line two low cones wide, across `dir`, centred near `ideal`. */
@@ -281,7 +408,7 @@ function lineTerminal(ideal, dir, from, to) {
     c: [center[0] + u[0] * ((from + to) / 2), center[1] + u[1] * ((from + to) / 2)],
     u, v, hu: (to - from) / 2, hv: half + ZONE_PAD,
   };
-  return { cones: [c1, c2], center, dir, zone, zoneBounds: obbBounds(zone) };
+  return { cones: [c1, c2], center, dir, zone, zoneBounds: obbBounds(zone), footprint: obbShape(zone) };
 }
 
 export function startTerminal(first, closed) {
@@ -325,7 +452,7 @@ export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTur
 /**
  * Cones at the centres of a Dubins path's U-turns (an arc, or two arcs the
  * same way joined by a short straight), on the half-metre
- * lattice, each with a square keep-out that the search treats like a zone.
+ * lattice, each with a round keep-out that the search treats like a footprint.
  * The cone stays on the inside of the turn: blue (left) on a left turn.
  */
 export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
@@ -342,8 +469,8 @@ export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
     if (t.turn < U_TURN_RAD - 1e-9) continue;
     const hx = Math.round(2 * t.center[0]);
     const hy = Math.round(2 * t.center[1]);
-    const zone = { c: [hx / 2, hy / 2], u: [1, 0], v: [0, 1], hu: clearance, hv: clearance };
-    cones.push({ hx, hy, side: t.left ? 'left' : 'right', zone, zoneBounds: obbBounds(zone) });
+    const center = [hx / 2, hy / 2];
+    cones.push({ hx, hy, side: t.left ? 'left' : 'right', center, footprint: shapeOf([part([center], Math.max(clearance, MIN_PAD))]) });
   }
   return cones;
 }
@@ -355,14 +482,14 @@ export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
  */
 export function conesClear(cones, inner, zones, paths) {
   for (const cone of cones) {
-    if (!inside(inner, cone.zone.c)) return false;
+    if (!inside(inner, cone.center)) return false;
     for (const z of zones) {
-      if (boundsOverlap(cone.zoneBounds, z.zoneBounds) && obbOverlap(cone.zone, z.zone)) return false;
+      if (shapesOverlap(cone.footprint, z.footprint)) return false;
       // A U-turn cone is placed: it stays out of every run-off zone too.
-      if (z.runOff && boundsOverlap(cone.zoneBounds, z.runOffBounds) && obbOverlap(cone.zone, z.runOff)) return false;
+      if (z.runOff && shapesOverlap(cone.footprint, z.runOff)) return false;
     }
     for (const p of paths) {
-      if (boundsOverlap(cone.zoneBounds, p.bounds) && polylineHitsObb(p.points, cone.zone, EPS)) return false;
+      if (polylineHitsShape(p.points, p.bounds, cone.footprint, EPS)) return false;
     }
   }
   return true;
@@ -404,35 +531,54 @@ export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, 
     if (obbOverlap(t.zone, startT.zone) || !zoneClear(t, zones, paths)) continue;
     if (++tries > HOME_TRIES) break;
     const leg = closingLeg(fromPose, t, radius, inner, zones, paths, maxTurn, accept, coneGap);
-    if (leg && leg.cones.every((c) => !obbOverlap(c.zone, t.zone))) return { terminal: t, leg };
+    if (leg && leg.cones.every((c) => !shapesOverlap(c.footprint, t.footprint))) return { terminal: t, leg };
   }
   return null;
 }
 
 export function pathClear(points, bounds, zones) {
   for (const z of zones) {
-    if (!boundsOverlap(bounds, z.zoneBounds)) continue;
-    if (polylineHitsObb(points, z.zone, EPS)) return false;
+    if (polylineHitsShape(points, bounds, z.footprint, EPS)) return false;
   }
   return true;
 }
 
 /**
- * Zones disjoint, connectors out of the candidate's zone, and nothing placed in
- * a run-off zone: no other element's zone or terminal in the candidate's, the
- * candidate's zone in no other's. Run-off zones may overlap each other and
- * connectors may cross them: they are only free asphalt.
+ * Footprints disjoint, the route (connectors, run-ins and run-outs) out of the
+ * candidate's footprint and the candidate's own run-in and run-out out of every
+ * other footprint, and nothing placed in a run-off zone: no other element's
+ * footprint or terminal in the candidate's, the candidate's footprint in no
+ * other's. Run-off zones may overlap each other and the route may cross them:
+ * they are only free asphalt.
  */
-function zoneClear(candidate, zones, paths) {
+export function zoneClear(candidate, zones, paths) {
   for (const z of zones) {
-    if (boundsOverlap(candidate.zoneBounds, z.zoneBounds) && obbOverlap(candidate.zone, z.zone)) return false;
-    if (z.runOff && boundsOverlap(candidate.zoneBounds, z.runOffBounds) && obbOverlap(candidate.zone, z.runOff)) return false;
-    if (candidate.runOff && boundsOverlap(candidate.runOffBounds, z.zoneBounds) && obbOverlap(candidate.runOff, z.zone)) return false;
+    if (shapesOverlap(candidate.footprint, z.footprint)) return false;
+    if (z.runOff && shapesOverlap(candidate.footprint, z.runOff)) return false;
+    if (candidate.runOff && shapesOverlap(candidate.runOff, z.footprint)) return false;
+    if (candidate.ends && candidate.ends.some((e) => polylineHitsShape(e.points, e.bounds, z.footprint, EPS))) return false;
   }
   for (const p of paths) {
-    if (boundsOverlap(candidate.zoneBounds, p.bounds) && polylineHitsObb(p.points, candidate.zone, EPS)) return false;
+    if (polylineHitsShape(p.points, p.bounds, candidate.footprint, EPS)) return false;
   }
   return true;
+}
+
+/** The route laid so far: its legs, and the run-in and run-out of every element placed. */
+export const routePaths = (legs, placed) => [...legs, ...placed.flatMap((p) => p.ends)];
+
+/**
+ * The straight join of an exit to an entry that continues it (CHAIN_REACH,
+ * CHAIN_ANGLE), or null when they are not chained.
+ */
+export function chainLeg(prev, next) {
+  if (Math.abs(wrapPi(dirAngle(prev.exitDir) - dirAngle(next.entryDir))) > CHAIN_RAD + 1e-9) return null;
+  const dx = next.entry[0] - prev.exit[0];
+  const dy = next.entry[1] - prev.exit[1];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d > CHAIN_REACH + 1e-9) return null;
+  if (d > 0.01 && Math.abs(wrapPi(Math.atan2(dy, dx) - dirAngle(prev.exitDir))) > CHAIN_RAD + 1e-9) return null;
+  return straightLeg(prev.exit, next.entry);
 }
 
 /**
@@ -571,10 +717,21 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     const plan = planFor(i, type, placed.some((p) => isBig(p.tpl)));
     const target = targets[i];
     const out = [];
+    let chains = 0;
     for (let c = 0; c < CANDIDATES; c++) {
       if (++spent > roundEnd) throw new BudgetExhausted();
       const drawn = place.pick(plan.axes);
       const mirrored = place.int(0, 1) === 1;
+      if (i > 0 && c % CHAIN_EVERY === CHAIN_EVERY - 1) {
+        // Entered straight off the exit of the element before.
+        const cand = chainedPlacement(plan, mirrored, placed[i - 1], radius, chains++, inner, site);
+        place.range(0, 1);
+        place.range(0, 1);
+        if (!cand) continue;
+        const result = evaluate(i, cand);
+        if (result) out.push({ ...result, cand, order: c });
+        continue;
+      }
       // Every other candidate faces the connector that leads into it.
       const axis = i > 0 && c % 2 === 0 ? facingAxis(plan, mirrored, placed[i - 1].exit, target) : drawn;
       const reach = (0.03 + (0.3 * c) / CANDIDATES) * diagonal;
@@ -616,9 +773,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
 
   function evaluate(i, cand) {
     if (!cand.core.every((p) => inside(inner, p))) return null;
-    if (cand.runOff && !obbCorners(cand.runOff).every((p) => inside(site, p))) return null;
+    if (cand.runOffPoly && !cand.runOffPoly.every((p) => inside(site, p))) return null;
     const track = train ? trackBefore(i) : null;
-    const paths = [...legs];
+    const paths = routePaths(legs, placed);
     if (!zoneClear(cand, zones, paths)) return null;
     let entryLeg;
     let terminal = null;
@@ -631,14 +788,17 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         if (!inside(inner, [terminal.center[0] - u[0] * radius, terminal.center[1] - u[1] * radius])) return null;
       }
       if (!zoneClear(terminal, zones, paths)) return null;
-      if (obbOverlap(terminal.zone, cand.zone)) return null;
+      if (shapesOverlap(terminal.footprint, cand.footprint)) return null;
       entryLeg = straightLeg(terminal.center, cand.entry);
       if (track && !trainClear(track, [entryLeg.points, ridden(cand)])) return null;
     } else {
       const prev = placed[i - 1];
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
       const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
-      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept, coneGap);
+      // An entry that continues the exit is joined straight, with no connector to speak of.
+      entryLeg = chainLeg(prev, cand);
+      if (entryLeg && accept && !accept(entryLeg.points)) return null;
+      entryLeg = entryLeg || connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept, coneGap);
       if (!entryLeg) return null;
     }
     let exitLeg = null;
@@ -652,7 +812,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         // In «паровозик» it keeps clear of the whole route, and rides back into its start.
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts], true));
-        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, entryLeg], closingTurn, accept, coneGap);
+        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
         if (!exitLeg) return null;
       } else if (recipe.shape === 'return') {
         // Back to a finish line by the start; the start zone is an obstacle, and
@@ -660,7 +820,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts]));
-        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, entryLeg], closingTurn, accept, coneGap);
+        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
         if (!home) return null;
         finishTerminalCand = home.terminal;
         exitLeg = home.leg;
@@ -669,7 +829,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         if (!terminalInside(finishTerminalCand, inner, site)) return null;
         const others = i === 0 ? [startT] : [...zones, ...entryLeg.cones];
         if (!zoneClear(finishTerminalCand, others, [...paths, entryLeg])) return null;
-        if (obbOverlap(finishTerminalCand.zone, cand.zone)) return null;
+        if (shapesOverlap(finishTerminalCand.footprint, cand.footprint)) return null;
         exitLeg = straightLeg(cand.exit, finishTerminalCand.center);
         // The straight run to the finish keeps clear of every U-turn cone.
         if (!pathClear(exitLeg.points, exitLeg.bounds, others.filter((z) => z.side))) return null;
@@ -698,9 +858,13 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     // and never a second big element: a type that is big at any size is not
     // tried once one stands.
     const small = placed.some((p) => isBig(p.tpl));
-    const types = preferences[i]
+    const tried = preferences[i]
       .filter((t) => (usableTypes(recipe).length === 1 || t !== prev) && !(small && planFor(i, t, true).axes.length === 0))
       .slice(0, typeTries);
+    // Each round starts the course with the next of the first element's types,
+    // so a type whose subtree eats a whole round cannot starve the others.
+    const turn = i === 0 && tried.length ? round % tried.length : 0;
+    const types = [...tried.slice(turn), ...tried.slice(0, turn)];
     for (const type of types) {
       for (const option of candidates(i, type)) {
         const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;
@@ -735,7 +899,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   // Each round is a fresh depth-first search; the placement stream carries on,
   // so every round draws new candidates. A round that runs dry (search space
   // exhausted) hands its unused budget to the next one.
-  for (let round = 0; round < ROUNDS && spent < budget; round++) {
+  let round = 0;
+  for (; round < ROUNDS && spent < budget; round++) {
     roundEnd = round === ROUNDS - 1 ? budget : Math.min(budget, spent + Math.ceil(budget / ROUNDS));
     placed.length = 0;
     legs.length = 0;
@@ -814,7 +979,7 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
       exit: { x: round2(p.exit[0]), y: round2(p.exit[1]), dir: p.exitDir },
       path: world.path.map(rp),
       zone: zoneCorners(p.zone),
-      ...(p.runOff ? { runOff: zoneCorners(p.runOff) } : {}),
+      ...(p.runOffPoly ? { runOff: p.runOffPoly.map(rp) } : {}),
       // Margins this element sets for itself in «Правка», over the recipe's.
       ...(p.override ? { safety: p.override } : {}),
       ...(p.tpl.lines.length ? { lines: p.tpl.lines.map((l) => ({ kind: l.kind, cones: l.cones.map((k) => ids[k]) })) } : {}),

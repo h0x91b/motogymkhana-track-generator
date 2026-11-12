@@ -15,10 +15,10 @@
 import { BIKE_TURN_RADIUS, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  assemble, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeFinish, innerRect, inside,
+  assemble, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeFinish, innerRect, inside,
   MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
-import { axisVector, boundsOverlap, dirAngle, obbCorners, obbOverlap, pointsBounds, polylineLength, wrapPi } from './geometry.js';
+import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
   ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
@@ -114,7 +114,12 @@ export function parseLayout(raw) {
 
 // ---------------------------------------------------------------- routing
 
-const overlaps = (a, aBounds, b, bBounds) => boundsOverlap(aBounds, bBounds) && obbOverlap(a, b);
+/** Do a and b take the same asphalt: their footprints overlap, or a run-in or run-out of one goes through the other's footprint? */
+const clash = (a, b) => shapesOverlap(a.footprint, b.footprint)
+  || (a.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, b.footprint))
+  || (b.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, a.footprint));
+/** Is b (its footprint) in a's run-off zone? */
+const inRunOff = (a, b) => Boolean(a.runOff) && shapesOverlap(a.runOff, b.footprint);
 
 /**
  * The least bad Dubins connector when none keeps every rule: it stays on the
@@ -179,18 +184,18 @@ export function routeLayout(layout) {
   placed.forEach((p, i) => {
     if (!p.core.every((q) => inside(inner, q))) {
       report('off-site', edge > 0 ? `Элемент ${i + 1} ближе ${fmt(edge)} м к краю площадки — отодвиньте его от края` : `Элемент ${i + 1} выходит за площадку — отодвиньте его от края`, { elements: [id(i)] });
-    } else if (p.runOff && !obbCorners(p.runOff).every((q) => inside(site, q))) {
+    } else if (p.runOffPoly && !p.runOffPoly.every((q) => inside(site, q))) {
       report('run-off-site', `Зоне выката элемента ${i + 1} не хватает ${fmt(p.tpl.margins.runOff)} м асфальта у края площадки — отодвиньте его от края или уменьшите выкат`, { elements: [id(i)] });
     }
   });
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const [a, b] = [placed[i], placed[j]];
-      if (overlaps(a.zone, a.zoneBounds, b.zone, b.zoneBounds)) {
+      if (clash(a, b)) {
         report('overlap', `Элементы ${i + 1} и ${j + 1} накладываются — раздвиньте их`, { elements: [id(i), id(j)] });
-      } else if (a.runOff && overlaps(a.runOff, a.runOffBounds, b.zone, b.zoneBounds)) {
+      } else if (inRunOff(a, b)) {
         report('in-run-off', `Элемент ${j + 1} стоит в зоне выката элемента ${i + 1}: вокруг разворота нужно ${fmt(a.tpl.margins.runOff)} м — раздвиньте их или уменьшите выкат`, { elements: [id(i), id(j)] });
-      } else if (b.runOff && overlaps(b.runOff, b.runOffBounds, a.zone, a.zoneBounds)) {
+      } else if (inRunOff(b, a)) {
         report('in-run-off', `Элемент ${i + 1} стоит в зоне выката элемента ${j + 1}: вокруг разворота нужно ${fmt(b.tpl.margins.runOff)} м — раздвиньте их или уменьшите выкат`, { elements: [id(i), id(j)] });
       }
     }
@@ -205,9 +210,9 @@ export function routeLayout(layout) {
       return;
     }
     placed.forEach((p, i) => {
-      if (overlaps(t.zone, t.zoneBounds, p.zone, p.zoneBounds)) {
+      if (clash(t, p)) {
         report(`${code}-overlap`, `${name} накладывается на элемент ${i + 1} — раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`, { elements: [id(own), id(i)] });
-      } else if (i !== own && p.runOff && overlaps(t.zone, t.zoneBounds, p.runOff, p.runOffBounds)) {
+      } else if (i !== own && inRunOff(p, t)) {
         report(`${code}-overlap`, `${name} стоит в зоне выката элемента ${i + 1} — раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`, { elements: [id(own), id(i)] });
       }
     });
@@ -218,7 +223,7 @@ export function routeLayout(layout) {
   const finishAhead = () => {
     const line = finishTerminal(placed[n - 1]);
     terminalProblems(line, 'Финиш', n - 1, 'finish');
-    if (overlaps(line.zone, line.zoneBounds, start.zone, start.zoneBounds)) {
+    if (obbOverlap(line.zone, start.zone)) {
       report('finish-overlap', 'Финиш накладывается на старт — раздвиньте первый и последний элементы', { elements: [id(0), id(n - 1)] });
     }
     return line;
@@ -235,6 +240,9 @@ export function routeLayout(layout) {
     return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
   };
   const legs = [straightLeg(start.center, placed[0].entry)];
+  // The route a U-turn cone keeps clear of: the legs, and every element's run-in and run-out.
+  const ends = placed.flatMap((p) => p.ends);
+  const route = () => [...legs, ...ends];
   let track = recipe.train && trainGap > 0 ? emptyTrack(trainGap) : null;
   const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
   if (track) {
@@ -259,15 +267,17 @@ export function routeLayout(layout) {
     const from = pose(prev.exit, prev.exitDir);
     const to = pose(cur.entry, cur.entryDir);
     const accept = track && ((pts) => trainClear(track, [pts, ridden(cur)]));
-    let leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, accept, coneGap);
+    // An entry that continues the exit is joined straight, as the generator does.
+    const chained = chainLeg(prev, cur);
+    let leg = chained && (!accept || accept(chained.points)) ? chained : connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, accept, coneGap);
     if (!leg && track) {
       // The rules hold but for «паровозик»: is it the connector that meets the route, or the element it leads into?
-      leg = connect(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, null, coneGap);
+      leg = chained || connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, coneGap);
       if (leg && trainClear(track, [leg.points])) trainProblem(i);
       else if (leg) connectorProblem({ code: 'connector-train' }, i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
     }
     if (!leg) {
-      const loose = looseConnector(from, to, radius, inner, zones, legs, MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])), [], coneGap);
+      const loose = looseConnector(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])), [], coneGap);
       leg = loose.leg;
       connectorProblem(loose.faults[0], i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
     }
@@ -282,11 +292,11 @@ export function routeLayout(layout) {
     const from = pose(last.exit, last.exitDir);
     const accept = track && ((pts) => trainClear(track, [pts], true));
     let leg = null;
-    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, legs, limit, accept, coneGap);
+    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, route(), limit, accept, coneGap);
     if (!leg) {
       const u = axisVector(start.dir);
       const approach = [start.center[0] - u[0] * radius, start.center[1] - u[1] * radius];
-      const loose = looseConnector(from, pose(approach, start.dir), radius, inner, zones, legs, CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
+      const loose = looseConnector(from, pose(approach, start.dir), radius, inner, zones, route(), CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
       leg = loose.leg;
       connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → старт`, [id(n - 1), id(0)]);
     }
@@ -297,7 +307,7 @@ export function routeLayout(layout) {
       const from = pose(last.exit, last.exitDir);
       const accept = track && ((pts) => trainClear(track, [pts]));
       let home = null;
-      for (const limit of CLOSING_TURN_LIMITS) home = home || homeFinish(from, start, radius, inner, site, zones, legs, limit, accept, coneGap);
+      for (const limit of CLOSING_TURN_LIMITS) home = home || homeFinish(from, start, radius, inner, site, zones, route(), limit, accept, coneGap);
       if (home) {
         finish = home.terminal;
         legs.push(home.leg);
@@ -533,15 +543,12 @@ export function insertElement(layout, at, type) {
     const range = slack(origin, recipe, true).map(([lo, hi]) => [Math.ceil(lo - 1e-9), Math.floor(hi + 1e-9)]);
     for (let x = range[0][0]; x <= range[0][1]; x += SPOT_STEP) {
       for (let y = range[1][0]; y <= range[1][1]; y += SPOT_STEP) {
-        const moved = (o) => ({ ...o, c: [o.c[0] + x, o.c[1] + y] });
-        const shifted = (b) => [b[0] + x, b[1] + y, b[2] + x, b[3] + y];
-        const zone = moved(origin.zone);
-        const zoneBounds = shifted(origin.zoneBounds);
-        const runOff = origin.runOff && moved(origin.runOff);
-        const runOffBounds = origin.runOff && shifted(origin.runOffBounds);
-        const free = others.every((o) => !overlaps(zone, zoneBounds, o.zone, o.zoneBounds)
-          && !(o.runOff && overlaps(zone, zoneBounds, o.runOff, o.runOffBounds))
-          && !(runOff && overlaps(runOff, runOffBounds, o.zone, o.zoneBounds)));
+        const at = {
+          footprint: shiftShape(origin.footprint, x, y),
+          runOff: origin.runOff && shiftShape(origin.runOff, x, y),
+          ends: origin.ends.map((e) => ({ points: e.points.map(([px, py]) => [px + x, py + y]), bounds: [e.bounds[0] + x, e.bounds[1] + y, e.bounds[2] + x, e.bounds[3] + y] })),
+        };
+        const free = others.every((o) => !clash(at, o) && !inRunOff(o, at) && !inRunOff(at, o));
         const entry = [origin.entry[0] + x, origin.entry[1] + y];
         const exit = [origin.exit[0] + x, origin.exit[1] + y];
         const centre = [origin.center[0] + x, origin.center[1] + y];

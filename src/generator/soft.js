@@ -6,7 +6,7 @@ import { TAU } from './geometry.js';
 export const WEIGHTS = {
   target: 1.0, // stay near this element's layout target (spreads the course)
   spread: 0.6, // keep away from the elements already placed
-  connector: 0.5, // short connectors
+  connector: 1.5, // short connectors: an exit led straight into the next entry, not a ride round empty asphalt
   balance: 0.8, // equal left and right turning
   winding: 0.3, // connectors that turn more than a U-turn
 };

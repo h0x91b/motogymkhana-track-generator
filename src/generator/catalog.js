@@ -12,7 +12,7 @@
 // the hand-set sizes at the end of the file; everything else here is private
 // to the catalog.
 
-import { arcPoints, ellipsePoints, latticeUnit, PI, smoothPath, turning } from './geometry.js';
+import { arcPoints, clipConvex, convexHull, ellipsePoints, latticeUnit, PI, smoothPath, turning } from './geometry.js';
 
 /**
  * Starting sizes per difficulty (SPEC «Начальные размеры по сложности»).
@@ -961,9 +961,20 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
   const exit = boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true);
   const path = [entry, ...g.path, exit];
   let runOff = null;
+  let runOffPoly = null;
   if (RUN_OFF_TYPES[type] && runOffDistance > 0) {
     const r = Math.max(runOffDistance, zonePad) / unit;
     runOff = [a0 - r, b0 - r, a1 + r, b1 + r];
+    // RUN_OFF from the cones and the line: their convex hull grown by a
+    // 16-gon whose sides touch the RUN_OFF circle, flats along the axes and
+    // the diagonals, so it reaches exactly as far as the rectangle on those.
+    const hull = convexHull([...g.cones.map((c) => [c.a, c.b]), ...g.path]);
+    const ring = Array.from({ length: 16 }, (_, k) => {
+      const t = ((k + 0.5) * PI) / 8;
+      const R = r / Math.cos(PI / 16);
+      return [R * Math.cos(t), R * Math.sin(t)];
+    });
+    runOffPoly = convexHull(hull.flatMap(([a, b]) => ring.map(([x, y]) => [a + x, b + y])));
     if (RUN_OFF_TYPES[type] === 'turnaround') {
       // The entry side keeps only the zone's own clearance.
       const [da, db] = g.entryDir;
@@ -971,6 +982,9 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
       else if (da < 0) runOff[2] = zone[2];
       else if (db > 0) runOff[1] = zone[1];
       else runOff[3] = zone[3];
+      const n = [da, db];
+      const c = da > 0 ? zone[0] : da < 0 ? -zone[2] : db > 0 ? zone[1] : -zone[3];
+      runOffPoly = clipConvex(runOffPoly, n, c);
     }
   }
   const turn = turning(path);
@@ -990,6 +1004,7 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
     core,
     zone,
     runOff,
+    runOffPoly,
     margins: { pad: zonePad, runOff: runOff ? runOffDistance : 0 },
     turnLeft: turn.left,
     turnRight: turn.right,
