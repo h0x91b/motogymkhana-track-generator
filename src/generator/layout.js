@@ -668,6 +668,23 @@ export function resizeBlocked(layout, k, w, h) {
   return withBlocked(layout, recipe.blocked.map((b, i) => (i === k ? onSite({ ...b, w, h }, recipe) : b)));
 }
 
+/**
+ * Drags a side or a corner of blocked area k: `sx` says which x edge moves
+ * (-1 the one at x, +1 the one at x + w, 0 neither), `sy` the same along y,
+ * by (dx, dy) metres from the rectangle `from` the drag began with. The
+ * opposite side stays put; the moved one snaps to whole metres, keeps at least
+ * 1 m from the opposite one and stops at the edge of the lot.
+ */
+export function resizeBlockedSide(layout, k, from, sx, sy, dx, dy) {
+  const { recipe } = layout;
+  let [x0, x1, y0, y1] = [from.x, from.x + from.w, from.y, from.y + from.h];
+  if (sx < 0) x0 = clampTo(x0 + dx, 0, x1 - 1);
+  if (sx > 0) x1 = clampTo(x1 + dx, x0 + 1, recipe.width);
+  if (sy < 0) y0 = clampTo(y0 + dy, 0, y1 - 1);
+  if (sy > 0) y1 = clampTo(y1 + dy, y0 + 1, recipe.length);
+  return withBlocked(layout, recipe.blocked.map((b, i) => (i === k ? onSite({ ...b, x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, recipe) : b)));
+}
+
 /** Removes blocked area k; the numbers of those after it move up by one. */
 export function removeBlocked(layout, k) {
   return withBlocked(layout, layout.recipe.blocked.filter((_, i) => i !== k));

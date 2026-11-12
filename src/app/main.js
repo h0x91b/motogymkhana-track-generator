@@ -5,6 +5,7 @@ import {
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile, readCourseText, readCourseUpload } from '../file/course-file.js';
 import { buildSetupSheet, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
+import { hitHandle } from '../render/handles.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createEditor } from './editor.js';
@@ -729,8 +730,10 @@ canvas.addEventListener('pointerdown', (e) => {
   if (panButton) e.preventDefault();
   if (pointers.size === 1) {
     gesture = { kind: panButton ? 'pan' : 'one', x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, moved: false };
-    const id = !panButton && editor.active && state.view ? hitTest(state.hits, ...canvasPoint(e)) : null;
-    if (id && (e.pointerType === 'mouse' || id === state.selected)) Object.assign(gesture, { kind: 'drag', id, from: state.view.unproject(...canvasPoint(e)) });
+    // A handle of the selected blocked area resizes it; anywhere else on it moves it.
+    const handle = !panButton && editor.active && state.view ? hitHandle(state.hits, ...canvasPoint(e), e.pointerType === 'mouse' ? 'mouse' : 'touch') : null;
+    const id = handle ? handle.element : !panButton && editor.active && state.view ? hitTest(state.hits, ...canvasPoint(e)) : null;
+    if (id && (e.pointerType === 'mouse' || id === state.selected)) Object.assign(gesture, { kind: 'drag', id, handle, from: state.view.unproject(...canvasPoint(e)) });
   } else if (pointers.size === 2) {
     // A second finger turns a drag into a pinch: the element stays where it got to.
     if (gesture?.kind === 'drag' && gesture.moved) editor.dragEnd();
@@ -746,9 +749,9 @@ canvas.addEventListener('pointermove', (e) => {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const cam = state.camera;
   if (gesture.kind === 'drag') {
-    if (!gesture.moved && Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > DRAG_FROM) gesture.moved = editor.dragStart(gesture.id);
+    if (!gesture.moved && Math.hypot(e.clientX - gesture.ox, e.clientY - gesture.oy) > DRAG_FROM) gesture.moved = editor.dragStart(gesture.id, gesture.handle);
     if (!gesture.moved) return;
-    canvas.style.cursor = 'grabbing';
+    canvas.style.cursor = gesture.handle?.cursor ?? 'grabbing';
     // Whole metres from where the finger went down: the anchor stays on the metre grid.
     const [x, y] = state.view.unproject(...canvasPoint(e));
     editor.dragBy(Math.round(x - gesture.from[0]), Math.round(y - gesture.from[1]));
@@ -815,6 +818,8 @@ canvas.addEventListener('pointerleave', () => (canvas.style.cursor = ''));
 
 /** Under a mouse: a pointer over an element that a click would open, else a hand. */
 function updateCursor(e) {
+  const handle = editor.active && state.setupStep === null && hitHandle(state.hits, ...canvasPoint(e), 'mouse');
+  if (handle) return (canvas.style.cursor = handle.cursor);
   const clickable = state.course && state.setupStep === null && !state.ride?.playing && hitTest(state.hits, ...canvasPoint(e));
   canvas.style.cursor = clickable ? (editor.active ? 'move' : 'pointer') : 'grab';
 }
@@ -1772,6 +1777,14 @@ function start() {
   $('setup-next').addEventListener('click', setupNext);
   // Keyboard in «Правка»: arrows move the selected element, R turns it, Delete removes it, Ctrl+Z undoes.
   document.addEventListener('keydown', (e) => {
+    // Esc in the middle of a drag puts it back where it began; the pointer does nothing more until it is lifted.
+    if (e.key === 'Escape' && gesture?.kind === 'drag') {
+      e.preventDefault();
+      if (gesture.moved) editor.dragCancel();
+      gesture = { kind: 'cancelled' };
+      canvas.style.cursor = '';
+      return;
+    }
     if (e.defaultPrevented || !editor.active || modalOpen() || e.target.matches?.('input')) return;
     if (editor.key(e)) e.preventDefault();
   });
