@@ -4,6 +4,7 @@
 
 import { keepsFixedSize, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
 import { AXIS_STEPS } from '../generator/geometry.js';
+import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
 export const fmt = (v) => {
   const r = Math.round(v * 100) / 100;
@@ -234,6 +235,29 @@ function describe(element, cones, diagonal, turn, shift, dims) {
 
 const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };
 
+const marginLabel = (v) => (v > 0 ? metres(v) : 'нет');
+const SAFETY_SHORT = { runOff: 'выкат', pad: 'запас вокруг элемента', coneGap: 'у конуса разворота', trainGap: 'зазор паровозика', edge: 'отступ от края' };
+
+/**
+ * The safety margins of the course: every value (`values`, for the legend),
+ * and a line naming the ones off their field rule, or null when none is —
+ * whoever lays the course out must know the asphalt kept is not the usual.
+ */
+function safetySheet(recipe) {
+  const values = safetyOf(recipe);
+  const changed = SAFETY_OPTIONS.filter((o) => values[o.key] !== o.default && (o.key !== 'trainGap' || recipe.train));
+  const label = changed.length
+    ? `Безопасность не по умолчанию: ${changed.map((o) => `${SAFETY_SHORT[o.key]} ${marginLabel(values[o.key])} (обычно ${metres(o.default)})`).join(' · ')}`
+    : null;
+  return { values, label };
+}
+
+/** An element's own margins, set in «Правка», as card lines. */
+function ownSafety(e) {
+  if (!e.safety) return [];
+  return [`Своя безопасность: ${Object.entries(e.safety).map(([k, v]) => `${SAFETY_SHORT[k]} ${marginLabel(v)}`).join(' · ')}`];
+}
+
 /**
  * The sizes the recipe fixed for this element's type, and whether the bike
  * class raised one: they are part of what the organiser asked for. A size the
@@ -316,7 +340,8 @@ export function buildSetupSheet(course) {
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
       fixed,
-      notes: [...fixed.map((f) => f.label), ...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
+      ...(e.safety ? { safety: e.safety } : {}),
+      notes: [...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
       cones,
       dims,
       arcs,
@@ -376,6 +401,7 @@ export function buildSetupSheet(course) {
   }
   return {
     site: { width: course.site.width, length: course.site.length },
+    safety: safetySheet(course.recipe),
     bike: course.recipe.bike,
     shape: course.route.shape,
     requested: course.requested,

@@ -4,8 +4,8 @@
 // generator/layout.js; nothing here knows how a course is routed.
 
 import {
-  axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord, removeElement,
-  replaceElement, resizeElement, rotateElement, routeLayout, shiftElement, turnElementTo, typeAxes, TYPE_NAMES,
+  axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord,
+  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, shiftElement, turnElementTo, typeAxes, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -38,6 +38,16 @@ function sizeText(c) {
   if (c.kind === 'count') return String(c.value);
   if (c.kind === 'choice') return `${c.value}°`;
   return `${comma(c.value)}\u00a0м`;
+}
+
+/** A safety margin as the panel prints it: «нет» for a rule switched off. */
+const marginText = (v) => (v > 0 ? `${String(v).replace('.', ',')}\u00a0м` : 'нет');
+
+/** The values one step down and up from a margin's, or null at an end. */
+function marginSteps(m) {
+  const values = safetyValues(m.option);
+  const at = values.findIndex((v) => Math.abs(v - m.value) < 1e-9);
+  return { less: at > 0 ? values[at - 1] : null, more: at >= 0 && at < values.length - 1 ? values[at + 1] : null };
 }
 
 const elementsOf = (layout) => JSON.stringify(layout.elements);
@@ -186,6 +196,15 @@ export function createEditor(host) {
       const text = `Элемент ${selected + 1}, «${name(selected)}», удалён. Осталось элементов: ${layout.elements.length - 1}.`;
       commit(removeElement(layout, selected), null, text);
     },
+    margin: (arg) => {
+      const [key, dir] = arg.split(':');
+      const m = elementSafety(layout, selected).find((s) => s.key === key);
+      const value = dir === 'recipe' ? null : marginSteps(m)[dir];
+      if (value === undefined || (value === null && dir !== 'recipe')) return;
+      const next = setElementSafety(layout, selected, key, value);
+      const now = elementSafety(next, selected).find((s) => s.key === key);
+      commit(next, selected, `${now.name}: ${marginText(now.value)}${now.own ? '' : ', как в рецепте'}.`);
+    },
     replace: () => openPicker('replace'),
     add: () => openPicker('add'),
     // Back to the generated course; undo brings the edits back.
@@ -252,6 +271,19 @@ export function createEditor(host) {
         <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>
         <span class="angle-field"><input id="edit-angle" inputmode="numeric" autocomplete="off" enterkeyhint="done" value="${axisDegrees(el.axis)}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
       </div>`;
+    // The element's own margins: free asphalt round it, over the recipe's.
+    const margins = elementSafety(layout, i).map((m) => {
+      const { less, more } = marginSteps(m);
+      const note = m.own
+        ? `<button type="button" class="link margin-reset" data-act="margin" data-arg="${m.key}:recipe" aria-label="${esc(m.name)}: как в рецепте, ${esc(marginText(m.recipe))}">как в рецепте</button>`
+        : '<span class="margin-note muted">по рецепту</span>';
+      return `<div class="size-row margin-row${m.own ? ' own' : ''}" role="group" aria-label="${esc(m.name)}">
+        <span class="size-name">${esc(m.name)}${note}</span>
+        <button type="button" data-act="margin" data-arg="${m.key}:less" aria-label="${esc(m.name)}: меньше"${less === null ? ' disabled' : ''}>${icon('minus')}</button>
+        <span class="size-value">${esc(marginText(m.value))}</span>
+        <button type="button" data-act="margin" data-arg="${m.key}:more" aria-label="${esc(m.name)}: больше"${more === null ? ' disabled' : ''}>${icon('plus')}</button>
+      </div>`;
+    }).join('');
     const tool = (act, arg, label, glyph) => `<button type="button" data-act="${act}"${arg === null ? '' : ` data-arg="${arg}"`} aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
     const n = layout.elements.length;
     // Moving and the route actions first: they stay where they are from one
@@ -270,7 +302,8 @@ export function createEditor(host) {
         <button type="button" data-act="shift" data-arg="1" aria-label="Позже по маршруту"${i === n - 1 ? ' disabled' : ''}>Позже</button>
         <button type="button" class="danger" data-act="remove"${n === 1 ? ' disabled title="Последний элемент трассы не удаляется"' : ''}>Удалить</button>
       </div>
-      <div class="edit-sizes">${angle}${sizes}</div>`;
+      <div class="edit-sizes">${angle}${sizes}</div>
+      <div class="edit-sizes edit-margins" role="group" aria-label="Безопасность элемента">${margins}</div>`;
   }
 
   function render() {

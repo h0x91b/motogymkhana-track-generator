@@ -18,7 +18,7 @@
       <button type="button" data-view="angle" aria-pressed="false">3D</button>
     </div>
     <div class="zoom" role="group" aria-label="Масштаб и зоны">
-      <button type="button" id="zones" class="text" aria-pressed="true" title="Пунктир — место, которое генератор держит свободным: зона элемента, старт и финиш, квадрат 3 × 3 м у конуса разворота. Жёлтая тень — зона выката 5 м, она видна всегда.">Зоны</button>
+      <button type="button" id="zones" class="text" aria-pressed="true" title="Пунктир — место, которое генератор держит свободным: зона элемента, старт и финиш, квадрат у конуса разворота. Жёлтая тень — зона выката, она видна всегда. Сколько места — в «Рецепт» → «Безопасность».">Зоны</button>
       <button type="button" id="zoom-in" aria-label="Приблизить">+</button>
       <button type="button" id="zoom-out" aria-label="Отдалить">−</button>
       <button type="button" id="zoom-fit" class="text">Вся трасса</button>
@@ -133,6 +133,12 @@
         <div class="types" id="types" role="group" aria-label="Типы элементов" aria-describedby="err-types"></div>
         <p class="err" id="err-types" data-for="types"></p>
         <p class="err" id="err-sizes" data-for="sizes"></p>
+      </details>
+      <details id="safety-details">
+        <summary>Ещё: безопасность — свободное место вокруг</summary>
+        <p class="muted hint">Сколько свободного асфальта генератор держит вокруг элементов, конусов и маршрута. Меньше — влезет больше элементов, но тесно; 0 выключает правило. Каждому элементу выкат и запас можно поменять в «Правке».</p>
+        <div id="safety" role="group" aria-label="Безопасность" aria-describedby="err-safety"></div>
+        <p class="err" id="err-safety" data-for="safety"></p>
       </details>
       <section class="file-box" aria-labelledby="file-title" aria-describedby="file-hint">
         <h3 id="file-title">Файл трассы</h3>

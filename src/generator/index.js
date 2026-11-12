@@ -1,18 +1,20 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
-import { BIKE_TURN_RADIUS, instantiate, minimalParams, RUN_OFF, TYPE_NAMES, ZONE_PAD } from './catalog.js';
-import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, feasibleTypes, SITE_MARGIN, TYPE_TRY_LIMITS } from './generate.js';
-import { parseRecipe, parseSeed, usableTypes } from './recipe.js';
+import { BIKE_TURN_RADIUS, instantiate, minimalParams, TYPE_NAMES } from './catalog.js';
+import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, elementMargins, feasibleTypes, TYPE_TRY_LIMITS } from './generate.js';
+import { parseRecipe, parseSeed, safetyOf, usableTypes } from './recipe.js';
 
-export { parseRecipe, parseSeed, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS } from './recipe.js';
+export {
+  parseRecipe, parseSeed, ELEMENT_SAFETY_KEYS, SAFETY_DEFAULTS, SAFETY_OPTIONS, safetyOf, safetyValues, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES, TYPE_LEVELS,
+} from './recipe.js';
 export {
   BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues,
 } from './catalog.js';
 export { canonicalJSON } from './canonical.js';
-export { U_TURN_CONE_CLEARANCE } from './generate.js';
+export { SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
-  axisDegrees, ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord, removeElement, replaceElement,
-  resizeElement, rotateElement, routeLayout, shiftElement, turnElementTo,
+  axisDegrees, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
+  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, setElementSafety, shiftElement, turnElementTo,
 } from './layout.js';
 export { typeAxes } from './catalog.js';
 
@@ -26,11 +28,12 @@ const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
  * turning type its run-off zone on the site, whichever needs more asphalt.
  */
 function siteTooSmall(recipe) {
-  const usable = { width: recipe.width - 2 * SITE_MARGIN, length: recipe.length - 2 * SITE_MARGIN };
+  const { edge, runOff: runOffDistance, pad } = safetyOf(recipe);
+  const usable = { width: recipe.width - 2 * edge, length: recipe.length - 2 * edge };
   let smallest = null;
   for (const type of usableTypes(recipe)) {
     const p = minimalParams(type, recipe.difficulty, recipe.bike, recipe.sizes).side;
-    const tpl = instantiate(type, p, false, false);
+    const tpl = instantiate(type, p, false, false, elementMargins(recipe));
     const a = (tpl.core[2] - tpl.core[0]) * tpl.unit;
     const b = (tpl.core[3] - tpl.core[1]) * tpl.unit;
     const long = Math.max(a, b);
@@ -39,19 +42,19 @@ function siteTooSmall(recipe) {
     const rb = tpl.runOff ? (tpl.runOff[3] - tpl.runOff[1]) * tpl.unit : 0;
     const runOff = tpl.runOff ? { length: Math.max(ra, rb), width: Math.min(ra, rb) } : null;
     // Asphalt the element takes on the site: core + margins, or its run-off zone.
-    const need = Math.max(long + 2 * SITE_MARGIN, runOff ? runOff.length : 0) * Math.max(short + 2 * SITE_MARGIN, runOff ? runOff.width : 0);
+    const need = Math.max(long + 2 * edge, runOff ? runOff.length : 0) * Math.max(short + 2 * edge, runOff ? runOff.width : 0);
     if (!smallest || need < smallest.need) smallest = { type, name: TYPE_NAMES[type], long, short, runOff, need };
   }
   const radius = BIKE_TURN_RADIUS[recipe.bike];
   const fits = feasibleTypes(recipe).length > 0;
   const head = `Площадка ${recipe.width} × ${recipe.length} м мала для сложности «${DIFFICULTY_NAMES[recipe.difficulty]}» на мотоцикле «${BIKE_NAMES[recipe.bike]}»: `
-    + `с отступом ${SITE_MARGIN} м от края остаётся ${usable.width} × ${usable.length} м.`;
+    + `с отступом ${fmt(edge)} м от края остаётся ${usable.width} × ${usable.length} м.`;
   const tail = fits
     ? ` Элемент «${smallest.name}» (${fmt(smallest.long)} × ${fmt(smallest.short)} м) помещается, но не остаётся места `
       + `на старт, финиш и связки с радиусом поворота ${fmt(radius)} м.`
     : ` Самому компактному из разрешённых типов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м`
       + (smallest.runOff
-        ? ` и ещё по ${fmt(RUN_OFF)} м свободного асфальта вокруг на выкат: площадка не меньше ${fmt(smallest.runOff.length)} × ${fmt(smallest.runOff.width)} м.`
+        ? ` и ещё по ${fmt(runOffDistance)} м свободного асфальта вокруг на выкат: площадка не меньше ${fmt(smallest.runOff.length)} × ${fmt(smallest.runOff.width)} м.`
         : '.');
   return {
     code: 'site-too-small',
@@ -60,7 +63,7 @@ function siteTooSmall(recipe) {
     smallest: {
       type: smallest.type, length: smallest.long, width: smallest.short, ...(smallest.runOff ? { runOff: smallest.runOff } : {}),
     },
-    clearance: ZONE_PAD,
+    clearance: pad,
     turnRadius: radius,
     message: head + tail,
   };

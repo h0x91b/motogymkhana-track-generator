@@ -38,6 +38,8 @@ export function courseDocument(layout, { build = '', edited = false } = {}) {
       x: e.x,
       y: e.y,
       ...(e.pivot ? { pivot: e.pivot } : {}),
+      // Margins the element sets for itself in «Правка» (ADR 0014).
+      ...(e.safety ? { safety: { ...e.safety } } : {}),
     })),
   };
 }

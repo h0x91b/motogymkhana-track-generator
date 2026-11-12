@@ -14,10 +14,10 @@ import {
   PI, pointsBounds, polylineHitsObb, polylineLength, round2, wrapPi,
 } from './geometry.js';
 import { createStream } from './prng.js';
-import { TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
+import { safetyOf, TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
 import { layoutTargets, scorePlacement } from './soft.js';
 
-export const SITE_MARGIN = 1;
+export const SITE_MARGIN = 1; // the field rule; a recipe can set its own (`safety.edge`)
 const START_LEAD = 2; // start line → entry of the first element, metres
 const FINISH_LEAD = 2; // exit of the last element → finish line
 const BEHIND_START = 2; // open course: room to wait behind the start line
@@ -53,7 +53,8 @@ export const CLOSING_TURN_LIMITS = [MAX_CONNECTOR_TURN, 400];
 export const U_TURN_ANGLE = 160;
 const U_TURN_RAD = (U_TURN_ANGLE * PI) / 180;
 // Free asphalt kept round a U-turn cone: no zone and no other route leg comes
-// closer (a square keep-out, so a little more along the diagonals).
+// closer (a square keep-out, so a little more along the diagonals). The field
+// rule; a recipe can set its own (`safety.coneGap`).
 export const U_TURN_CONE_CLEARANCE = 1.5;
 // Two arcs the same way with a straight no longer than this between them are
 // ridden as one turn: its cone stands midway between their centres.
@@ -63,17 +64,20 @@ const U_TURN_JOIN = 1;
 // back within 1.5 m of itself, or two riders of the column could meet. Checked
 // on 0.5 m samples, with a margin for the sampling error; samples closer than
 // TRAIN_NEAR along the route are the same stretch. The passes of an exempt
-// element are not checked against each other (TRAIN_EXEMPT_TYPES).
-const TRAIN_CLEARANCE = 2;
+// element are not checked against each other (TRAIN_EXEMPT_TYPES). A recipe
+// can set its own clearance (`safety.trainGap`); the stretch counted as the
+// same then grows with it, so a wider clearance does not fail every turn.
+export const TRAIN_CLEARANCE = 2;
 const TRAIN_NEAR = 4;
 const TRAIN_STEP = 0.5;
 
 /**
  * The route ridden so far, as samples every TRAIN_STEP m with their distance
- * along, hashed into a grid of TRAIN_CLEARANCE cells.
+ * along, hashed into a grid of `gap` cells: the clearance kept from it.
  */
-export const EMPTY_TRACK = { grid: new Map(), length: 0, last: null };
-const trainCell = (x, y) => `${Math.floor(x / TRAIN_CLEARANCE)},${Math.floor(y / TRAIN_CLEARANCE)}`;
+export const emptyTrack = (gap = TRAIN_CLEARANCE) => ({ grid: new Map(), length: 0, last: null, gap, near: Math.max(TRAIN_NEAR, 2 * gap) });
+export const EMPTY_TRACK = emptyTrack();
+const trainCell = (x, y, gap) => `${Math.floor(x / gap)},${Math.floor(y / gap)}`;
 
 /**
  * The trajectory of a placed element as the train check rides it: an exempt
@@ -107,8 +111,8 @@ function continueTrack(track, polylines) {
   return { samples, length: s, last: prev };
 }
 
-function addToGrid(grid, p) {
-  const key = trainCell(p.x, p.y);
+function addToGrid(grid, p, gap) {
+  const key = trainCell(p.x, p.y, gap);
   if (!grid.has(key)) grid.set(key, []);
   grid.get(key).push(p);
 }
@@ -116,8 +120,8 @@ function addToGrid(grid, p) {
 export function extendTrack(track, polylines) {
   const { samples, length, last } = continueTrack(track, polylines);
   const grid = new Map([...track.grid].map(([key, cell]) => [key, [...cell]]));
-  for (const p of samples) addToGrid(grid, p);
-  return { grid, length, last };
+  for (const p of samples) addToGrid(grid, p, track.gap);
+  return { grid, length, last, gap: track.gap, near: track.near };
 }
 
 /**
@@ -127,6 +131,7 @@ export function extendTrack(track, polylines) {
  */
 export function trainClear(track, next, closes = false) {
   const { samples, length } = continueTrack(track, next);
+  const { gap: clearance, near } = track;
   const fresh = new Map();
   const meets = (p, cell) => {
     if (!cell) return false;
@@ -134,23 +139,23 @@ export function trainClear(track, next, closes = false) {
       if (p.owner && p.owner === q.owner) continue;
       const along = p.s - q.s;
       const gap = closes && length - along < along ? length - along : along;
-      if (gap < TRAIN_NEAR) continue;
+      if (gap < near) continue;
       const dx = p.x - q.x;
       const dy = p.y - q.y;
-      if (dx * dx + dy * dy < TRAIN_CLEARANCE * TRAIN_CLEARANCE) return true;
+      if (dx * dx + dy * dy < clearance * clearance) return true;
     }
     return false;
   };
   for (const p of samples) {
-    const cx = Math.floor(p.x / TRAIN_CLEARANCE);
-    const cy = Math.floor(p.y / TRAIN_CLEARANCE);
+    const cx = Math.floor(p.x / clearance);
+    const cy = Math.floor(p.y / clearance);
     for (let i = -1; i <= 1; i++) {
       for (let j = -1; j <= 1; j++) {
         const key = `${cx + i},${cy + j}`;
         if (meets(p, track.grid.get(key)) || meets(p, fresh.get(key))) return false;
       }
     }
-    addToGrid(fresh, p);
+    addToGrid(fresh, p, clearance);
   }
   return true;
 }
@@ -159,7 +164,8 @@ const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
 
 export function innerRect(recipe) {
-  return [SITE_MARGIN, SITE_MARGIN, recipe.width - SITE_MARGIN, recipe.length - SITE_MARGIN];
+  const m = safetyOf(recipe).edge;
+  return [m, m, recipe.width - m, recipe.length - m];
 }
 
 export const inside = (r, p) => p[0] >= r[0] - 1e-9 && p[0] <= r[2] + 1e-9 && p[1] >= r[1] - 1e-9 && p[1] <= r[3] + 1e-9;
@@ -179,17 +185,23 @@ function rectFits(tpl, rect, w, h) {
  * Does the template's core (cones + trajectory) fit the inner site, and its
  * run-off zone the whole site, in some orientation?
  */
-export function templateFits(tpl, inner) {
+export function templateFits(tpl, inner, site) {
   const fitsCore = rectFits(tpl, tpl.core, inner[2] - inner[0], inner[3] - inner[1]);
   if (!fitsCore || !tpl.runOff) return fitsCore;
-  return rectFits(tpl, tpl.runOff, inner[2] - inner[0] + 2 * SITE_MARGIN, inner[3] - inner[1] + 2 * SITE_MARGIN);
+  return rectFits(tpl, tpl.runOff, site[2] - site[0], site[3] - site[1]);
 }
+
+/** The element margins of a recipe, as `instantiate` takes them. */
+export const elementMargins = (recipe) => {
+  const { pad, runOff } = safetyOf(recipe);
+  return { pad, runOff };
+};
 
 function templateFor(plan, diagonal, mirrored) {
   const key = `${diagonal ? 1 : 0}${mirrored ? 1 : 0}`;
   if (!(key in plan.templates)) {
     const params = diagonal ? plan.params.diagonal : plan.params.side;
-    plan.templates[key] = params ? instantiate(plan.type, params, diagonal, mirrored) : null;
+    plan.templates[key] = params ? instantiate(plan.type, params, diagonal, mirrored, plan.margins) : null;
   }
   return plan.templates[key];
 }
@@ -298,13 +310,13 @@ export function terminalInside(t, inner, site) {
  * radius behind the start line, then straight across it, so the rider is lined
  * up when crossing the line.
  */
-export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, accept = null) {
+export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTurn, accept = null, coneGap = U_TURN_CONE_CLEARANCE) {
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
   if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
   const whole = accept && ((pts) => accept([...pts, startT.center]));
-  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, paths, maxTurn, whole);
+  const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, paths, maxTurn, whole, coneGap);
   if (!leg) return null;
   const points = [...leg.points, startT.center];
   return { ...leg, points, bounds: pointsBounds(points), length: leg.length + radius };
@@ -316,7 +328,7 @@ export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTur
  * lattice, each with a square keep-out that the search treats like a zone.
  * The cone stays on the inside of the turn: blue (left) on a left turn.
  */
-export function uTurnCones(arcs) {
+export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
   const turns = [];
   for (const arc of arcs) {
     const last = turns[turns.length - 1];
@@ -330,7 +342,7 @@ export function uTurnCones(arcs) {
     if (t.turn < U_TURN_RAD - 1e-9) continue;
     const hx = Math.round(2 * t.center[0]);
     const hy = Math.round(2 * t.center[1]);
-    const zone = { c: [hx / 2, hy / 2], u: [1, 0], v: [0, 1], hu: U_TURN_CONE_CLEARANCE, hv: U_TURN_CONE_CLEARANCE };
+    const zone = { c: [hx / 2, hy / 2], u: [1, 0], v: [0, 1], hu: clearance, hv: clearance };
     cones.push({ hx, hy, side: t.left ? 'left' : 'right', zone, zoneBounds: obbBounds(zone) });
   }
   return cones;
@@ -364,7 +376,7 @@ export function conesClear(cones, inner, zones, paths) {
  * connector reaches it lined up, like the closing connector of a closed course,
  * with its U-turn cones clear of the finish zone too.
  */
-export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept) {
+export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, maxTurn, accept, coneGap = U_TURN_CONE_CLEARANCE) {
   const u = axisVector(startT.dir);
   const v = axisVector(startT.dir + 2);
   const spots = [];
@@ -391,7 +403,7 @@ export function homeFinish(fromPose, startT, radius, inner, site, zones, paths, 
     if (!terminalInside(t, inner, site)) continue;
     if (obbOverlap(t.zone, startT.zone) || !zoneClear(t, zones, paths)) continue;
     if (++tries > HOME_TRIES) break;
-    const leg = closingLeg(fromPose, t, radius, inner, zones, paths, maxTurn, accept);
+    const leg = closingLeg(fromPose, t, radius, inner, zones, paths, maxTurn, accept, coneGap);
     if (leg && leg.cones.every((c) => !obbOverlap(c.zone, t.zone))) return { terminal: t, leg };
   }
   return null;
@@ -428,14 +440,14 @@ function zoneClear(candidate, zones, paths) {
  * when given, passes `accept`. Tried at the minimum turning radius first, then
  * at a wider one, which gives differently shaped detours around nearby zones.
  */
-export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CONNECTOR_TURN, accept = null) {
+export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn = MAX_CONNECTOR_TURN, accept = null, coneGap = U_TURN_CONE_CLEARANCE) {
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
       if (path.turnLeft + path.turnRight > maxTurn) continue;
       if (!path.points.every((p) => inside(inner, p))) continue;
       const bounds = pointsBounds(path.points);
       if (!pathClear(path.points, bounds, zones)) continue;
-      const cones = uTurnCones(path.arcs);
+      const cones = uTurnCones(path.arcs, coneGap);
       if (cones.length && !conesClear(cones, inner, zones, [...paths, { points: path.points, bounds }])) continue;
       if (accept && !accept(path.points)) continue;
       return { points: path.points, bounds, length: path.length, turnLeft: path.turnLeft, turnRight: path.turnRight, cones };
@@ -462,10 +474,12 @@ export function straightLeg(a, b) {
 /** Allowed types that fit the site at their most compact sizes, in canonical order. */
 export function feasibleTypes(recipe) {
   const inner = innerRect(recipe);
+  const site = [0, 0, recipe.width, recipe.length];
+  const margins = elementMargins(recipe);
   return usableTypes(recipe).filter((type) => {
     const p = minimalParams(type, recipe.difficulty, recipe.bike, recipe.sizes);
-    return [p.side && instantiate(type, p.side, false, false), p.diagonal && instantiate(type, p.diagonal, true, false)]
-      .some((tpl) => tpl && templateFits(tpl, inner));
+    return [p.side && instantiate(type, p.side, false, false, margins), p.diagonal && instantiate(type, p.diagonal, true, false, margins)]
+      .some((tpl) => tpl && templateFits(tpl, inner, site));
   });
 }
 
@@ -499,11 +513,13 @@ function typePreferences(seed, feasible, n) {
  * compacted if they do not fit — or, when `small`, if they make a big element.
  * A type that is big even at its most compact sizes gets no axes then.
  */
-function makePlan(recipe, seed, i, type, inner, small) {
-  const plan = { type, params: chooseParams(type, recipe.difficulty, recipe.bike, createStream(seed, `params:${i}:${type}`), recipe.sizes), templates: {} };
+function makePlan(recipe, seed, i, type, inner, site, small) {
+  const plan = {
+    type, params: chooseParams(type, recipe.difficulty, recipe.bike, createStream(seed, `params:${i}:${type}`), recipe.sizes), templates: {}, margins: elementMargins(recipe),
+  };
   const fitsAxis = (axis) => {
     const tpl = templateFor(plan, axis % 2 === 1, false);
-    return tpl && templateFits(tpl, inner) && !(small && isBig(tpl));
+    return tpl && templateFits(tpl, inner, site) && !(small && isBig(tpl));
   };
   if (![0, 1].some(fitsAxis)) {
     plan.params = minimalParams(type, recipe.difficulty, recipe.bike, recipe.sizes);
@@ -528,13 +544,16 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   // After a big element, every later one must be small.
   const planFor = (i, type, small) => {
     const key = `${i}:${type}:${small ? 1 : 0}`;
-    if (!plans.has(key)) plans.set(key, makePlan(recipe, seed, i, type, inner, small));
+    if (!plans.has(key)) plans.set(key, makePlan(recipe, seed, i, type, inner, site, small));
     return plans.get(key);
   };
   const closed = recipe.shape === 'closed';
   const targets = layoutTargets(inner, n, recipe.shape !== 'open', createStream(seed, 'layout'));
   const place = createStream(seed, 'place');
   const radius = BIKE_TURN_RADIUS[recipe.bike];
+  const { coneGap, trainGap } = safetyOf(recipe);
+  // A clearance of 0 switches the «паровозик» check off.
+  const train = recipe.train && trainGap > 0;
   const diagonal = Math.sqrt(recipe.width * recipe.width + recipe.length * recipe.length);
   const budget = BUDGET_BASE + BUDGET_PER_ELEMENT * n;
   let spent = 0;
@@ -587,7 +606,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   // In «паровозик», the route ridden before element i, kept per depth of the search.
   const tracks = [];
   function trackBefore(i) {
-    if (i === 0) return EMPTY_TRACK;
+    if (i === 0) return emptyTrack(trainGap);
     const kept = tracks[i];
     if (kept && kept.owner === placed[i - 1]) return kept.track;
     const track = extendTrack(trackBefore(i - 1), [legs[i - 1].points, ridden(placed[i - 1])]);
@@ -598,7 +617,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   function evaluate(i, cand) {
     if (!cand.core.every((p) => inside(inner, p))) return null;
     if (cand.runOff && !obbCorners(cand.runOff).every((p) => inside(site, p))) return null;
-    const track = recipe.train ? trackBefore(i) : null;
+    const track = train ? trackBefore(i) : null;
     const paths = [...legs];
     if (!zoneClear(cand, zones, paths)) return null;
     let entryLeg;
@@ -619,7 +638,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       const prev = placed[i - 1];
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
       const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
-      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept);
+      entryLeg = connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept, coneGap);
       if (!entryLeg) return null;
     }
     let exitLeg = null;
@@ -633,7 +652,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         // In «паровозик» it keeps clear of the whole route, and rides back into its start.
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts], true));
-        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, entryLeg], closingTurn, accept);
+        exitLeg = closingLeg(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, entryLeg], closingTurn, accept, coneGap);
         if (!exitLeg) return null;
       } else if (recipe.shape === 'return') {
         // Back to a finish line by the start; the start zone is an obstacle, and
@@ -641,7 +660,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
         const before = track && extendTrack(track, [entryLeg.points, ridden(cand)]);
         const accept = track && ((pts) => trainClear(before, [pts]));
-        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, entryLeg], closingTurn, accept);
+        const home = homeFinish(pose(cand.exit, cand.exitDir), startT, radius, inner, site, obstacles, [...paths, entryLeg], closingTurn, accept, coneGap);
         if (!home) return null;
         finishTerminalCand = home.terminal;
         exitLeg = home.leg;
@@ -796,6 +815,8 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
       path: world.path.map(rp),
       zone: zoneCorners(p.zone),
       ...(p.runOff ? { runOff: zoneCorners(p.runOff) } : {}),
+      // Margins this element sets for itself in «Правка», over the recipe's.
+      ...(p.override ? { safety: p.override } : {}),
       ...(p.tpl.lines.length ? { lines: p.tpl.lines.map((l) => ({ kind: l.kind, cones: l.cones.map((k) => ids[k]) })) } : {}),
       ...(world.guides.length
         ? {
@@ -819,7 +840,7 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
   return {
     recipe,
     seed,
-    site: { width: recipe.width, length: recipe.length, margin: SITE_MARGIN },
+    site: { width: recipe.width, length: recipe.length, margin: safetyOf(recipe).edge },
     cones,
     elements,
     passes,
