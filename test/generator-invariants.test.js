@@ -4,16 +4,17 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
-  uTurnRadius,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
+  U_TURN_CONE_CLEARANCE, uTurnRadius, ZONE_PAD,
 } from '../src/generator/index.js';
 
 // Types whose U-turns are sized by the bike class (the rest keep difficulty sizes).
 const CLASS_SIZED_TYPES = ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'figure-eight'];
 import {
-  coneXY, conesById, densify, distanceToPath, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround, turns,
+  coneXY, conesById, densify, distanceToFootprint, distanceToPath, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
+  turns,
 } from './helpers/course-geometry.js';
-import { slowTest, sweep } from './helpers/slow.js';
+import { SLOW, slowTest, sweep } from './helpers/slow.js';
 
 const RECIPES = [
   { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, 1) },
@@ -179,41 +180,76 @@ describe('placement', () => {
     });
   });
 
-  test('element zones do not overlap', () => {
+  // Footprints: the cones, walls, chalk lines and the line ridden of each
+  // element, each with ZONE_PAD of clearance. Measured on the published
+  // course, 1 cm rounding and 5 cm sampling included in the 0.03 m slack.
+  test('element footprints keep apart: cones, lines and the lines ridden of two elements at least twice the clearance', () => {
+    expect(ZONE_PAD).toBe(0.75);
+    let near = 0;
     each((c) => {
-      for (let i = 0; i < c.elements.length; i++) {
-        for (let j = i + 1; j < c.elements.length; j++) {
-          const a = c.elements[i].zone;
-          const b = c.elements[j].zone;
-          // Convex quads overlap iff a vertex or the centre of one lies inside the other.
-          const centre = (q) => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2];
-          const hit = [...a, centre(a)].some((p) => insidePolygon(b, p, 0.02))
-            || [...b, centre(b)].some((p) => insidePolygon(a, p, 0.02))
-            || polylineEnters([...a, a[0]], b, 0.02);
-          expect(hit, `${label(c)} ${c.elements[i].id} overlaps ${c.elements[j].id}`).toBe(false);
+      const fps = c.elements.map((e) => footprintOf(c, e));
+      for (let i = 0; i < fps.length; i++) {
+        for (let j = i + 1; j < fps.length; j++) {
+          const gap = footprintGap(fps[i], fps[j]);
+          expect(gap, `${label(c)} ${c.elements[i].id} and ${c.elements[j].id}`).toBeGreaterThan(2 * ZONE_PAD - 0.03);
+          if (gap < 2 * ZONE_PAD + 1) near++;
         }
       }
     });
+    // The point of footprints: elements stand closer than their zone rectangles
+    // allowed. A count over many courses: the slow suite only.
+    if (SLOW) expect(near).toBeGreaterThan(50);
   });
 
-  test('connectors never pass through an element zone', () => {
+  test('the route keeps the clearance from every element: connectors, run-ins and run-outs never cut into a footprint', () => {
     each((c) => {
-      for (const leg of c.route.legs) {
-        if (leg.kind !== 'connector') continue;
-        for (const e of c.elements) {
-          expect(polylineEnters(leg.path, e.zone), `${label(c)} connector ${leg.from}→${leg.to} enters ${e.id}`).toBe(false);
+      const fps = new Map(c.elements.map((e) => [e.id, footprintOf(c, e)]));
+      const pieces = [
+        ...c.route.legs.filter((l) => l.kind === 'connector').map((l) => ({ name: `connector ${l.from}→${l.to}`, path: l.path })),
+        ...c.elements.flatMap((e) => [
+          { name: `run-in of ${e.id}`, path: e.path.slice(0, 2), own: e.id },
+          { name: `run-out of ${e.id}`, path: e.path.slice(-2), own: e.id },
+        ]),
+      ];
+      for (const { name, path, own } of pieces) {
+        const xs = path.map((p) => p[0]);
+        const ys = path.map((p) => p[1]);
+        const near = [...fps].filter(([id, fp]) => id !== own && fp.bounds[0] - 1 < Math.max(...xs) && Math.min(...xs) < fp.bounds[2] + 1
+          && fp.bounds[1] - 1 < Math.max(...ys) && Math.min(...ys) < fp.bounds[3] + 1);
+        if (!near.length) continue;
+        for (const p of densify(path, 0.1)) {
+          for (const [id, fp] of near) {
+            expect(distanceToFootprint(fp, p), `${label(c)} ${name} cuts into ${id}`).toBeGreaterThan(ZONE_PAD - 0.03);
+          }
         }
       }
     });
+  }, 30_000);
+
+  test('an exit chained into the next entry is joined by a straight no longer than 0.5 m along the way the rider goes', () => {
+    expect([CHAIN_REACH, CHAIN_ANGLE]).toEqual([0.5, 10]);
+    let chains = 0;
+    each((c) => {
+      const byId = new Map(c.elements.map((e) => [e.id, e]));
+      for (const leg of c.route.legs) {
+        if (leg.kind !== 'connector' || leg.from === 'start' || leg.to === 'finish') continue;
+        const [from, to] = [byId.get(leg.from), byId.get(leg.to)];
+        const d = Math.hypot(to.entry.x - from.exit.x, to.entry.y - from.exit.y);
+        if (d > CHAIN_REACH + 0.02) continue;
+        chains++;
+        expect(leg.path.length, `${label(c)} ${leg.from}→${leg.to}`).toBe(2);
+        expect(from.exit.dir, `${label(c)} ${leg.from}→${leg.to}`).toBe(to.entry.dir);
+        if (d > 0.05) {
+          const off = Math.abs(Math.atan2(to.entry.y - from.exit.y, to.entry.x - from.exit.x) - (from.exit.dir * Math.PI) / 4);
+          expect(Math.min(off, 2 * Math.PI - off), `${label(c)} ${leg.from}→${leg.to}`).toBeLessThan(((CHAIN_ANGLE + 1) * Math.PI) / 180);
+        }
+      }
+    });
+    // Chains do happen (a count over many courses: the slow suite only).
+    if (SLOW) expect(chains).toBeGreaterThan(5);
   });
 
   test('turning elements keep a run-off zone of free asphalt inside the site', () => {
-    const overlaps = (a, b) => {
-      const centre = (q) => [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2];
-      return [...a, centre(a)].some((p) => insidePolygon(b, p, 0.02))
-        || [...b, centre(b)].some((p) => insidePolygon(a, p, 0.02))
-        || polylineEnters([...a, a[0]], b, 0.02);
-    };
     const toLine = (p, a, b) => Math.abs((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / Math.hypot(b[0] - a[0], b[1] - a[1]);
     let seen = 0;
     each((c) => {
@@ -227,12 +263,18 @@ describe('placement', () => {
         for (const [x, y] of e.runOff) {
           expect(x >= -0.011 && y >= -0.011 && x <= c.site.width + 0.011 && y <= c.site.length + 0.011, `${label(c)} ${e.id} run-off off the site`).toBe(true);
         }
-        // Every side lies RUN_OFF from the element's cones, but the entry side of a turnaround.
-        const own = e.cones.map((id) => coneXY(byId.get(id)));
-        const short = [0, 1, 2, 3].filter((k) => Math.min(...own.map((p) => toLine(p, e.runOff[k], e.runOff[(k + 1) % 4]))) < RUN_OFF - 0.02);
+        // Every side lies RUN_OFF from the element's cones and line, but the entry side of a turnaround.
+        const own = [...e.cones.map((id) => coneXY(byId.get(id))), ...e.path.slice(1, -1)];
+        const sides = e.runOff.map((p, k) => [p, e.runOff[(k + 1) % e.runOff.length]]).filter(([p, q]) => Math.hypot(q[0] - p[0], q[1] - p[1]) > 0.05);
+        const short = sides.filter(([p, q]) => Math.min(...own.map((o) => toLine(o, p, q))) < RUN_OFF - 0.03);
         expect(short.length, `${label(c)} ${e.id} ${e.type} sides short of ${RUN_OFF} m`).toBeLessThanOrEqual(RUN_OFF_TYPES[e.type] === 'loop' ? 0 : 1);
+        // And no other element's footprint in it: its cones and lines keep the clearance from it.
         for (const other of c.elements) {
-          if (other !== e) expect(overlaps(e.runOff, other.zone), `${label(c)} ${other.id} in the run-off of ${e.id}`).toBe(false);
+          if (other === e) continue;
+          const fp = footprintOf(c, other);
+          for (const p of [...fp.cones, ...fp.segments.flatMap((s) => densify(s, 0.1))]) {
+            expect(insidePolygon(e.runOff, p, -(ZONE_PAD - 0.03)), `${label(c)} ${other.id} in the run-off of ${e.id}`).toBe(false);
+          }
         }
         // Start and finish lines stay out, except the element's own.
         const lines = [...(i === 0 ? [] : start), ...(i === c.elements.length - 1 ? [] : finish)];
@@ -411,14 +453,21 @@ function circularTurns(path, minRadius) {
     // When the two fitted runs overlap, the short straight between them was
     // absorbed into both fits, so its length is unknown: the centres are then
     // at most the 1 m join limit apart.
-    const offset = t.lo > prev?.hi ? Math.abs(apart - gap) < 0.3 : apart <= 1.02;
-    if (prev && t.lo - prev.hi <= 1 && gap <= 1.02 && offset && Math.sign(prev.sweep) === Math.sign(t.sweep)) {
+    // A run can take in the first or last point of the straight, so the
+    // straight between the runs is no longer than the gap and may be shorter.
+    const offset = t.lo > prev?.hi ? apart < gap + 0.3 : apart <= 1.02;
+    // Two runs one sample apart round centres a little over the join limit
+    // apart can be two arcs whose shared circle swallowed the end of the
+    // first: from the samples alone it cannot be told whether they are one turn.
+    const near = prev && t.lo - prev.hi <= 2 && apart <= 1.3 && Math.sign(prev.sweep) === Math.sign(t.sweep);
+    const sure = prev && t.lo - prev.hi <= 1 && gap <= 1.02 && offset && Math.sign(prev.sweep) === Math.sign(t.sweep);
+    if (sure || near) {
       // Overlapping runs can also be one long arc split by rounding, centred
       // on either fit rather than between them: those centres count too.
       const alts = t.lo <= prev.hi ? [prev.last, t.centre] : [];
       // A straight within 2 cm of the limit cannot be told from 1 m in the
       // sampled path: the generator may have ridden it as two turns.
-      const unsure = prev.unsure || (t.lo > prev.hi && gap > 0.98);
+      const unsure = prev.unsure || !sure || (t.lo > prev.hi && gap > 0.98);
       joined[joined.length - 1] = {
         ...t, lo: prev.lo, sweep: prev.sweep + t.sweep, centre: [(prev.first[0] + t.centre[0]) / 2, (prev.first[1] + t.centre[1]) / 2], first: prev.first, last: t.centre, alts, unsure,
       };
@@ -473,16 +522,17 @@ describe('U-turn cones on connectors', () => {
     expect(turns160).toBeGreaterThan(sweep(100, 0));
   });
 
-  test('a U-turn cone keeps 1.5 m from every element zone and every other route leg', () => {
+  test('a U-turn cone keeps 1.5 m from every element footprint and every other route leg', () => {
+    expect(U_TURN_CONE_CLEARANCE).toBe(1.5);
     each((c) => {
       const byId = conesById(c);
       const elements = new Map(c.elements.map((e) => [e.id, e]));
+      const fps = c.elements.map((e) => ({ e, fp: footprintOf(c, e) }));
       for (const leg of c.route.legs.filter((l) => l.cones)) {
         for (const id of leg.cones) {
           const p = coneXY(byId.get(id));
-          for (const e of c.elements) {
-            const d = insidePolygon(e.zone, p) ? 0 : distanceToPath([...e.zone, e.zone[0]], p);
-            expect(d, `${label(c)} ${id} near ${e.id}`).toBeGreaterThan(1.45);
+          for (const { e, fp } of fps) {
+            expect(distanceToFootprint(fp, p), `${label(c)} ${id} near ${e.id}`).toBeGreaterThan(U_TURN_CONE_CLEARANCE + ZONE_PAD - 0.03);
           }
           for (const other of c.route.legs) {
             const path = other.kind === 'connector' ? other.path : elements.get(other.element).path;

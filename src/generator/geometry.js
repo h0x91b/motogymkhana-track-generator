@@ -202,3 +202,265 @@ export function pointsBounds(points) {
 }
 
 export const boundsOverlap = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+
+// ---------------------------------------------------------------------------
+// Shapes: what an element, a line or a cone really takes on the asphalt, as a
+// union of convex parts each grown by a radius. A part is a point (a disc), a
+// segment (a capsule) or a convex CCW polygon, with `r` in metres. Parts are
+// grouped so a far-away group is skipped on its bounds alone.
+
+const GROUP = 8;
+
+const partBounds = (pts, r) => {
+  const [x0, y0, x1, y1] = pointsBounds(pts);
+  return [x0 - r, y0 - r, x1 + r, y1 + r];
+};
+
+export const part = (pts, r = 0) => ({ pts, r, b: partBounds(pts, r) });
+
+/**
+ * A shape of parts, in groups of consecutive parts with their bounds. A shape
+ * carries an offset (dx, dy) to its parts, so moving it copies nothing.
+ */
+export function shapeOf(parts) {
+  const groups = [];
+  for (let i = 0; i < parts.length; i += GROUP) {
+    const ps = parts.slice(i, i + GROUP);
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of ps) {
+      b[0] = Math.min(b[0], p.b[0]);
+      b[1] = Math.min(b[1], p.b[1]);
+      b[2] = Math.max(b[2], p.b[2]);
+      b[3] = Math.max(b[3], p.b[3]);
+    }
+    groups.push({ b, parts: ps });
+  }
+  const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const g of groups) {
+    bounds[0] = Math.min(bounds[0], g.b[0]);
+    bounds[1] = Math.min(bounds[1], g.b[1]);
+    bounds[2] = Math.max(bounds[2], g.b[2]);
+    bounds[3] = Math.max(bounds[3], g.b[3]);
+  }
+  return { bounds, groups, dx: 0, dy: 0 };
+}
+
+/** The shape moved by (dx, dy). */
+export function shiftShape(s, dx, dy) {
+  const b = s.bounds;
+  return { bounds: [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy], groups: s.groups, dx: s.dx + dx, dy: s.dy + dy };
+}
+
+export const obbShape = (o) => shapeOf([part(obbCorners(o))]);
+
+/** Every part of a shape, flattened and moved where the shape is. */
+export const shapeParts = (s) => s.groups.flatMap((g) => g.parts.map((p) => ({ ...p, pts: p.pts.map(([x, y]) => [x + s.dx, y + s.dy]) })));
+
+function pointSegment2(p, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 1e-18 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const ex = a[0] + dx * t - p[0];
+  const ey = a[1] + dy * t - p[1];
+  return ex * ex + ey * ey;
+}
+
+const orient = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+
+function segmentsCross(a, b, c, d) {
+  const d1 = orient(c, d, a);
+  const d2 = orient(c, d, b);
+  const d3 = orient(a, b, c);
+  const d4 = orient(a, b, d);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+/** Squared distance between segments ab and cd (0 when they cross). */
+export function segmentDistance2(a, b, c, d) {
+  if (segmentsCross(a, b, c, d)) return 0;
+  return Math.min(pointSegment2(a, c, d), pointSegment2(b, c, d), pointSegment2(c, a, b), pointSegment2(d, a, b));
+}
+
+/** Point inside (or on) a convex CCW polygon. */
+function inConvex(poly, p) {
+  for (let i = 0; i < poly.length; i++) {
+    if (orient(poly[i], poly[(i + 1) % poly.length], p) < 0) return false;
+  }
+  return true;
+}
+
+function edges(pts) {
+  if (pts.length === 1) return [[pts[0], pts[0]]];
+  if (pts.length === 2) return [[pts[0], pts[1]]];
+  return pts.map((p, i) => [p, pts[(i + 1) % pts.length]]);
+}
+
+/** Squared distance between two convex parts, ignoring their radii (0 when they meet). */
+function partDistance2(p, q) {
+  if (p.pts.length >= 3 && q.pts.some((v) => inConvex(p.pts, v))) return 0;
+  if (q.pts.length >= 3 && p.pts.some((v) => inConvex(q.pts, v))) return 0;
+  let best = Infinity;
+  for (const [a, b] of edges(p.pts)) {
+    for (const [c, d] of edges(q.pts)) {
+      const d2 = segmentDistance2(a, b, c, d);
+      if (d2 < best) best = d2;
+      if (best === 0) return 0;
+    }
+  }
+  return best;
+}
+
+/** Interiors of two convex polygons overlap by more than eps (separating axes). */
+function polygonsOverlap(p, q, eps) {
+  for (const poly of [p, q]) {
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < 1e-12) continue;
+      const n = [(b[1] - a[1]) / len, -(b[0] - a[0]) / len];
+      let pMin = Infinity;
+      let pMax = -Infinity;
+      let qMin = Infinity;
+      let qMax = -Infinity;
+      for (const v of p) {
+        const s = v[0] * n[0] + v[1] * n[1];
+        if (s < pMin) pMin = s;
+        if (s > pMax) pMax = s;
+      }
+      for (const v of q) {
+        const s = v[0] * n[0] + v[1] * n[1];
+        if (s < qMin) qMin = s;
+        if (s > qMax) qMax = s;
+      }
+      if (pMax <= qMin + eps || qMax <= pMin + eps) return false;
+    }
+  }
+  return true;
+}
+
+/** Does segment a→b pass through the interior of a convex CCW polygon shrunk by eps? */
+function segmentEntersPolygon(a, b, poly, eps) {
+  let t0 = 0;
+  let t1 = 1;
+  const d = [b[0] - a[0], b[1] - a[1]];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len < 1e-12) continue;
+    // Inward normal of a CCW edge; inside means n·(x - p) > eps.
+    const n = [-(q[1] - p[1]) / len, (q[0] - p[0]) / len];
+    const s = n[0] * (a[0] - p[0]) + n[1] * (a[1] - p[1]) - eps;
+    const ds = n[0] * d[0] + n[1] * d[1];
+    if (Math.abs(ds) < 1e-12) {
+      if (s <= 0) return false;
+      continue;
+    }
+    const t = -s / ds;
+    if (ds > 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
+  }
+  return t1 - t0 > 1e-9;
+}
+
+const boxesMeet = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+const boxesMeetAt = (a, b, ox, oy) => a[0] < b[2] + ox && b[0] + ox < a[2] && a[1] < b[3] + oy && b[1] + oy < a[3];
+
+/** Do two parts overlap by more than eps (touching does not count)? q is moved by (ox, oy). */
+function partsOverlap(p, q, eps, ox = 0, oy = 0) {
+  if (!boxesMeetAt(p.b, q.b, ox, oy)) return false;
+  const r = p.r + q.r;
+  if (r > 0 && r <= eps) return false;
+  const qp = ox === 0 && oy === 0 ? q.pts : q.pts.map(([x, y]) => [x + ox, y + oy]);
+  if (r <= 0) {
+    if (p.pts.length >= 3 && qp.length >= 3) return polygonsOverlap(p.pts, qp, eps);
+    if (p.pts.length >= 3) return qp.length === 2 && segmentEntersPolygon(qp[0], qp[1], p.pts, eps);
+    if (qp.length >= 3) return p.pts.length === 2 && segmentEntersPolygon(p.pts[0], p.pts[1], qp, eps);
+    return false;
+  }
+  const lim = (r - eps) * (r - eps);
+  if (p.pts.length <= 2 && qp.length <= 2) {
+    return segmentDistance2(p.pts[0], p.pts[p.pts.length - 1], qp[0], qp[qp.length - 1]) < lim;
+  }
+  return partDistance2(p, { pts: qp }) < lim;
+}
+
+/** Do two shapes overlap by more than eps? */
+export function shapesOverlap(a, b, eps = 1e-6) {
+  if (!boxesMeet(a.bounds, b.bounds)) return false;
+  // b's parts seen from a's: moved by the difference of the offsets.
+  const ox = b.dx - a.dx;
+  const oy = b.dy - a.dy;
+  const ab = [a.bounds[0] - a.dx, a.bounds[1] - a.dy, a.bounds[2] - a.dx, a.bounds[3] - a.dy];
+  for (const h of b.groups) {
+    if (!boxesMeetAt(ab, h.b, ox, oy)) continue;
+    for (const g of a.groups) {
+      if (!boxesMeetAt(g.b, h.b, ox, oy)) continue;
+      for (const q of h.parts) {
+        if (!boxesMeetAt(g.b, q.b, ox, oy)) continue;
+        for (const p of g.parts) if (partsOverlap(p, q, eps, ox, oy)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Does a polyline (with its bounds) come into a shape deeper than eps? */
+export function polylineHitsShape(points, bounds, s, eps = 0.01) {
+  if (!boxesMeet(bounds, s.bounds)) return false;
+  const seg = { pts: [null, null], r: 0, b: [0, 0, 0, 0] };
+  for (let i = 1; i < points.length; i++) {
+    // The segment in the shape's own frame.
+    const a = [points[i - 1][0] - s.dx, points[i - 1][1] - s.dy];
+    const c = [points[i][0] - s.dx, points[i][1] - s.dy];
+    seg.pts[0] = a;
+    seg.pts[1] = c;
+    seg.b[0] = Math.min(a[0], c[0]);
+    seg.b[1] = Math.min(a[1], c[1]);
+    seg.b[2] = Math.max(a[0], c[0]);
+    seg.b[3] = Math.max(a[1], c[1]);
+    if (!boxesMeetAt(seg.b, s.bounds, -s.dx, -s.dy)) continue;
+    for (const g of s.groups) {
+      if (!boxesMeet(seg.b, g.b)) continue;
+      for (const p of g.parts) if (partsOverlap(seg, p, eps)) return true;
+    }
+  }
+  return false;
+}
+
+/** Convex hull, CCW, of a set of points (monotone chain). */
+export function convexHull(points) {
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return pts;
+  const half = (list) => {
+    const out = [];
+    for (const p of list) {
+      while (out.length >= 2 && orient(out[out.length - 2], out[out.length - 1], p) <= 1e-12) out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return [...half(pts), ...half([...pts].reverse())];
+}
+
+/** The part of a convex polygon where n·x ≥ c. */
+export function clipConvex(poly, n, c) {
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % poly.length];
+    const sp = n[0] * p[0] + n[1] * p[1] - c;
+    const sq = n[0] * q[0] + n[1] * q[1] - c;
+    if (sp >= 0) out.push(p);
+    if ((sp >= 0) !== (sq >= 0)) {
+      const t = sp / (sp - sq);
+      out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+    }
+  }
+  return out;
+}

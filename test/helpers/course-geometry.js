@@ -119,3 +119,60 @@ export function fullRoute(course) {
   }
   return out;
 }
+
+/**
+ * What an element really takes on the asphalt, from the published course: its
+ * cones, its walls and chalk lines (cone to cone) and the line ridden inside it
+ * (the path without the run-in from the entry and the run-out to the exit).
+ * Distances to it are from these; the footprint is everything within the
+ * clearance of them.
+ */
+export function footprintOf(course, e) {
+  const byId = conesById(course);
+  const cones = e.cones.map((id) => coneXY(byId.get(id)));
+  const segments = [];
+  for (const line of e.lines ?? []) {
+    for (let i = 1; i < line.cones.length; i++) segments.push([coneXY(byId.get(line.cones[i - 1])), coneXY(byId.get(line.cones[i]))]);
+  }
+  const ridden = e.path.slice(1, -1);
+  for (let i = 1; i < ridden.length; i++) segments.push([ridden[i - 1], ridden[i]]);
+  const all = [...cones, ...segments.flat()];
+  const bounds = [Math.min(...all.map((p) => p[0])), Math.min(...all.map((p) => p[1])), Math.max(...all.map((p) => p[0])), Math.max(...all.map((p) => p[1]))];
+  return { cones, segments, bounds };
+}
+
+function pointToSegment(p, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  const t = len2 < 1e-12 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2));
+  return Math.hypot(a[0] + dx * t - p[0], a[1] + dy * t - p[1]);
+}
+
+/** Distance from a point to the nearest cone, line or ridden line of a footprint. */
+export function distanceToFootprint(fp, p) {
+  let best = Infinity;
+  for (const c of fp.cones) best = Math.min(best, Math.hypot(c[0] - p[0], c[1] - p[1]));
+  for (const [a, b] of fp.segments) best = Math.min(best, pointToSegment(p, a, b));
+  return best;
+}
+
+/** Samples of a footprint's cones and lines, no two more than `step` apart along a line. */
+function footprintSamples(fp, step) {
+  return [...fp.cones, ...fp.segments.flatMap(([a, b]) => densify([a, b], step))];
+}
+
+/**
+ * Shortest distance between two footprints, brute force: samples of one every
+ * `step` m against the other, so it can overstate the true gap by step / 2 at most.
+ * Infinity when their bounds are further apart than `reach`.
+ */
+export function footprintGap(a, b, reach = 3, step = 0.1) {
+  if (a.bounds[0] > b.bounds[2] + reach || b.bounds[0] > a.bounds[2] + reach || a.bounds[1] > b.bounds[3] + reach || b.bounds[1] > a.bounds[3] + reach) return Infinity;
+  let best = Infinity;
+  for (const p of footprintSamples(a, step)) {
+    if (p[0] < b.bounds[0] - reach || p[0] > b.bounds[2] + reach || p[1] < b.bounds[1] - reach || p[1] > b.bounds[3] + reach) continue;
+    best = Math.min(best, distanceToFootprint(b, p));
+  }
+  return best;
+}
