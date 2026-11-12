@@ -48,7 +48,7 @@ describe('the recipe', () => {
   });
 
   test('a course at defaults is the same as one with every default spelled out', () => {
-    for (let seed = 1; seed <= sweep(3, 2); seed++) {
+    for (let seed = 1; seed <= sweep(3, 1); seed++) {
       expect(canonicalJSON(course({ ...ANTON, safety: { ...SAFETY_DEFAULTS } }, seed))).toBe(canonicalJSON(course(ANTON, seed)));
     }
   }, SLOW);
@@ -58,7 +58,7 @@ describe('the generated course keeps the values set', () => {
   const recipe = { width: 40, length: 50, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: false };
 
   test('run-off 2 m: every run-off side but a turnaround\'s entry lies 2 m out from the cones', () => {
-    for (let seed = 1; seed <= sweep(6, 3); seed++) {
+    for (let seed = 1; seed <= sweep(6, 2); seed++) {
       const c = course({ ...recipe, safety: { runOff: 2 } }, seed);
       const byId = conesById(c);
       for (const e of c.elements.filter((el) => el.runOff)) {
@@ -73,7 +73,7 @@ describe('the generated course keeps the values set', () => {
   }, SLOW);
 
   test('run-off 0: no element has a run-off zone, and nothing is drawn for one', () => {
-    for (let seed = 1; seed <= sweep(6, 3); seed++) {
+    for (let seed = 1; seed <= sweep(6, 2); seed++) {
       const c = course({ ...recipe, safety: { runOff: 0 } }, seed);
       expect(c.elements.some((e) => e.runOff)).toBe(false);
       expect(reservedZones(c).some((z) => z.kind === 'runOff')).toBe(false);

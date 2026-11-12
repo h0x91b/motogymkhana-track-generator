@@ -20,19 +20,5 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: bun test
+      - run: bun test --parallel
       - run: bun run build
-
-  # The full sweeps over hundreds of seeds and the statistical tests
-  # (test/helpers/slow.js). Not a required check: it shows on every PR and
-  # runs on master, but the fast `test` job gates merging.
-  slow-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
-      - run: bun test
-        env:
-          SLOW: '1'

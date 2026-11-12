@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test",
-    "test:slow": "SLOW=1 bun test",
+    "test": "bun test --parallel",
+    "test:slow": "SLOW=1 bun test --parallel",
     "build": "bun scripts/build.js",
     "dev": "bun scripts/dev.js"
   }
