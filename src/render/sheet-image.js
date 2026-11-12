@@ -7,7 +7,7 @@
 // (SPEC, «Картинка схемы»).
 
 import { SHAPE_NAMES } from '../generator/recipe.js';
-import { dist, fmt } from '../sheet/setup-sheet.js';
+import { anchorPoint, dist, fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -337,10 +337,26 @@ function planBlock(course, sheet, maxHeight) {
     }
 
     // Cones (anchors ringed).
-    const anchors = new Set(course.elements.map((e) => e.anchor));
+    // A ring element is anchored at its centre: ringed there, on its centre cone if it has one.
+    const points = course.elements.map((e) => anchorPoint(e, byId));
+    const anchors = new Set(points.map((p) => `${p.x * 2},${p.y * 2}`));
     const r = Math.max(8, Math.min(12, s * 0.45));
     for (const c of course.cones) {
-      coneGlyph(ctx, X(c.hx / 2), Y(c.hy / 2), { height: c.height, color: colorOf.get(c.id) ?? 'neutral' }, { anchor: anchors.has(c.id), r });
+      coneGlyph(ctx, X(c.hx / 2), Y(c.hy / 2), { height: c.height, color: colorOf.get(c.id) ?? 'neutral' }, { anchor: anchors.delete(`${c.hx},${c.hy}`), r });
+    }
+    // A centre with no cone on it (a small or fast circle): a cross in the anchor ring.
+    for (const key of anchors) {
+      const [hx, hy] = key.split(',').map(Number);
+      const [x, y] = [X(hx / 2), Y(hy / 2)];
+      ctx.beginPath();
+      ctx.arc(x, y, r + 6, 0, Math.PI * 2);
+      ctx.moveTo(x - r * 0.6, y);
+      ctx.lineTo(x + r * 0.6, y);
+      ctx.moveTo(x, y - r * 0.6);
+      ctx.lineTo(x, y + r * 0.6);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = ANCHOR;
+      ctx.stroke();
     }
 
     // Element numbers: the zone point nearest its centre that keeps clear of
@@ -460,14 +476,18 @@ function textBlock(lines) {
   };
 }
 
-// A card with more cones than this spans both columns, its cone table in three.
+// A card with more cones than this spans both columns, its cone table in three;
+// so does a card laid out from more arcs than this (the snail's six), for its lines.
 const WIDE_CONES = 16;
-const isWide = (card) => card.cones.length > WIDE_CONES;
+const WIDE_ARCS = 2;
+const isWide = (card) => (card.table ? card.cones.length > WIDE_CONES : card.arcs.length > WIDE_ARCS);
 
 function cardBlock(card, width) {
   const inner = width - 36;
-  const tables = isWide(card) ? 3 : 1;
-  const rows = Math.ceil(card.cones.length / tables);
+  const tables = card.table && isWide(card) ? 3 : 1;
+  // An arc element has no cone table: its arcs are among the notes.
+  const rows = card.table ? Math.ceil(card.cones.length / tables) : 0;
+  const footnote = card.table && !card.axis.xy;
   const head = textBlock([
     { text: card.name, size: 28, weight: 700, gap: 4 },
     { text: `Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м`, size: 26, weight: 700, color: '#6b4c00', gap: card.fromPrevious ? 2 : 6 },
@@ -481,10 +501,10 @@ function cardBlock(card, width) {
   return {
     measure(ctx) {
       this.headH = head.measure(ctx, inner - 44);
-      this.height = 18 + this.headH + 14 + rowH * (rows + 1) + (card.axis.xy ? 0 : 30) + 18;
+      this.height = 18 + this.headH + (card.table ? 14 + rowH * (rows + 1) : 0) + (footnote ? 30 : 0) + 18;
       return this.height;
     },
-    wide: tables > 1,
+    wide: isWide(card),
     draw(ctx, x, y) {
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#b9c3c0';
@@ -495,6 +515,7 @@ function cardBlock(card, width) {
       ctx.stroke();
       badge(ctx, x + 36, y + 36, String(card.number), 20);
       head.draw(ctx, x + 66, y + 18);
+      if (!card.table) return;
       const top = y + 18 + this.headH + 14;
       // One table, or several side by side (the glyph alone tells high from low there).
       const tableW = (width - 32) / tables;
@@ -541,7 +562,7 @@ function cardBlock(card, width) {
         ctx.fillText(`${dist(b)} м`, colX[3], ty + rowH / 2);
       });
       const ty = top + rowH * (rows + 1);
-      if (!card.axis.xy) {
+      if (footnote) {
         font(ctx, 17);
         ctx.fillStyle = MUTED;
         ctx.textAlign = 'left';

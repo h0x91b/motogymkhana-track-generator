@@ -74,15 +74,17 @@ describe('setup sheet', () => {
     }
   });
 
-  test('anchors are whole metres and every distance inside an element is a multiple of 0.5 m', () => {
+  test('anchors are whole metres (a ring centre on the 0.5 m grid) and every distance inside an element is a multiple of 0.5 m', () => {
     for (const course of courses) {
       for (const card of buildSetupSheet(course).cards) {
-        expect(Number.isInteger(card.anchor.x) && Number.isInteger(card.anchor.y)).toBe(true);
+        const onGrid = card.anchorAtCentre ? isHalf : Number.isInteger;
+        expect(onGrid(card.anchor.x) && onGrid(card.anchor.y)).toBe(true);
         for (const cone of card.cones) {
           const values = card.axis.diagonal ? [cone.dx, cone.dy] : [cone.along, cone.across];
           for (const v of values) expect(isHalf(v), `seed ${course.seed} card ${card.number}`).toBe(true);
         }
-        // The anchor is the element's first listed cone, at zero offset.
+        // The anchor is the element's first listed cone, at zero offset; a ring's is its centre.
+        if (card.anchorAtCentre) continue;
         const first = card.cones[0];
         expect(card.axis.diagonal ? [first.dx, first.dy] : [first.along, first.across]).toEqual([0, 0]);
       }
@@ -208,7 +210,8 @@ describe('setup sheet', () => {
       for (const card of cards.slice(1)) {
         const step = card.fromPrevious;
         expect(step.from).toBe(card.number - 1);
-        expect(Number.isInteger(step.dx) && Number.isInteger(step.dy)).toBe(true);
+        expect(isHalf(step.dx) && isHalf(step.dy)).toBe(true);
+        if (!card.anchorAtCentre && !cards[card.number - 2].anchorAtCentre) expect(Number.isInteger(step.dx) && Number.isInteger(step.dy)).toBe(true);
         at = { x: at.x + step.dx, y: at.y + step.dy };
         expect(at, `seed ${course.seed} card ${card.number}`).toEqual(card.anchor);
         expect(step.label).toBe(`От якоря ${step.from}: X ${signed(step.dx)} м · Y ${signed(step.dy)} м`);
@@ -291,6 +294,84 @@ describe('setup sheet', () => {
     expect(sheet.site).toEqual({ width: 25, length: 30 });
     expect(sheet.requested).toBe(5);
     expect(sheet.placed).toBe(course.placed);
+  });
+
+  test('an element laid out from arcs gives each arc by centre, radius and cone count, not a cone table', () => {
+    const ARC_TYPES = ['circle', 'fast-circle', 'snail', 'keyhole', 'crescent'];
+    const seen = new Set();
+    for (const type of ARC_TYPES) {
+      for (let seed = 0; seed < 6 && !seen.has(type); seed++) {
+        const result = generateCourse({ width: 50, length: 70, elements: 3, difficulty: 'medium', shape: 'open', types: [type, 'gate'] }, seed);
+        if (!result.ok) continue;
+        const course = result.course;
+        const byId = new Map(course.cones.map((c) => [c.id, c]));
+        for (const card of buildSetupSheet(course).cards) {
+          if (card.type !== type) continue;
+          seen.add(type);
+          const e = course.elements.find((el) => el.id === card.element);
+          expect(card.table, type).toBe(false);
+          expect(card.arcs.length, type).toBeGreaterThan(0);
+          for (const arc of card.arcs) {
+            // Every cone listed on an arc is that far from its centre, give or take lattice snapping.
+            for (const n of arc.cones) {
+              const c = byId.get(e.cones[n - 1]);
+              expect(Math.abs(Math.hypot(c.hx / 2 - arc.center.x, c.hy / 2 - arc.center.y) - arc.radius), `${type} cone ${n}`).toBeLessThan(0.37);
+            }
+            expect(arc.count).toBe(arc.cones.length);
+            // The centre from the anchor is where the centre is.
+            expect([card.anchor.x + arc.fromAnchor.dx, card.anchor.y + arc.fromAnchor.dy]).toEqual([arc.center.x, arc.center.y]);
+            expect(card.notes.join(' ')).toContain(`радиус ${d1(arc.radius)} м`);
+            expect(card.notes.join(' ')).toContain(`${arc.count} конус`);
+            // Neighbours on a full ring are the ring's length shared out between them.
+            if (arc.full) expect(Math.abs(arc.step - (2 * Math.PI * arc.radius) / arc.count)).toBeLessThan(0.06);
+          }
+          // Every cone is on an arc or has its own line.
+          const loose = new Set(card.loose.map((l) => l.n));
+          for (const cone of card.cones) expect(cone.arc !== undefined || loose.has(cone.n), `${type} cone ${cone.n}`).toBe(true);
+          if (type === 'crescent') {
+            expect(card.arcs.map((a) => a.count)).toEqual([5]);
+            expect(card.loose.map((l) => l.n)).toEqual([6]);
+            expect(card.notes).toContain(card.loose[0].label);
+          }
+        }
+      }
+    }
+    expect([...seen].sort()).toEqual([...ARC_TYPES].sort());
+  });
+
+  test('straight elements keep their cone table and have no arcs', () => {
+    for (const course of courses) {
+      for (const card of buildSetupSheet(course).cards) {
+        if (LAID_FROM_CENTRES.includes(card.type)) continue;
+        expect(card.table, card.type).toBe(true);
+        expect(card.arcs).toEqual([]);
+      }
+    }
+  });
+
+  test('a ring is measured from its centre: a keyhole has a tall cone there, and the chain of anchors reaches it', () => {
+    let found = 0;
+    for (let seed = 0; seed < 8 && found < 2; seed++) {
+      const result = generateCourse({ width: 50, length: 70, elements: 3, difficulty: 'medium', shape: 'open', types: ['keyhole', 'circle', 'gate'] }, seed);
+      if (!result.ok) continue;
+      const course = result.course;
+      const byId = new Map(course.cones.map((c) => [c.id, c]));
+      for (const card of buildSetupSheet(course).cards) {
+        // A circle stretched into an oval is two half circles, not a ring.
+        if (card.type !== 'keyhole' && !(card.type === 'circle' && card.arcs.length === 1)) continue;
+        found++;
+        const e = course.elements.find((el) => el.id === card.element);
+        expect(card.anchorAtCentre).toBe(true);
+        expect([card.anchor.x, card.anchor.y]).toEqual([e.guides[0].x, e.guides[0].y]);
+        expect(card.arcs[0].fromAnchor).toEqual({ dx: 0, dy: 0 });
+        if (card.type === 'keyhole') {
+          const centre = e.cones.map((id) => byId.get(id)).filter((c) => c.hx / 2 === card.anchor.x && c.hy / 2 === card.anchor.y);
+          expect(centre.map((c) => c.height)).toEqual(['tall']);
+          expect(e.cones.filter((id) => byId.get(id).height === 'low').length).toBe(12);
+        }
+      }
+    }
+    expect(found).toBeGreaterThan(0);
   });
 });
 

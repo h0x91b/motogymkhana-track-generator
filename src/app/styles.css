@@ -282,6 +282,23 @@ button:disabled:active { filter: none; scale: none; }
 .size-name { font-weight: 600; }
 .size-row button { display: inline-grid; place-items: center; padding: 0; }
 .size-value { text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A size in metres between − and +: typed, or stepped. */
+.size-field { position: relative; display: block; }
+.size-field input {
+  width: 100%;
+  min-width: 0;
+  max-width: 96px;
+  min-height: 44px;
+  padding: 8px 22px 8px 8px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.size-field > span { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--muted); pointer-events: none; }
 /* The element's own margins under its sizes: a quiet line says whose value it is. */
 .edit-margins { padding-top: 8px; border-top: 1px solid var(--edge); }
 .margin-row .size-name { display: grid; font-weight: 500; }

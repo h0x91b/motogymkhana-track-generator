@@ -3,7 +3,7 @@
 // metric scene. Draws only when asked (no animation loop).
 
 import { TYPE_NAMES } from '../generator/catalog.js';
-import { dist } from '../sheet/setup-sheet.js';
+import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -331,11 +331,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     }
   });
 
-  // Anchors: a ring on the ground around each element's anchor cone.
+  // Anchors: a ring on the ground around each element's anchor cone (a ring
+  // element's centre, as the setup sheet measures it).
   for (const e of course.elements) {
-    const c = byId.get(e.anchor);
+    const c = anchorPoint(e, byId);
     const ring = [];
-    for (let i = 0; i <= 40; i++) ring.push([c.hx / 2 + 0.55 * Math.cos((i * TAU) / 40), c.hy / 2 + 0.55 * Math.sin((i * TAU) / 40), 0.015]);
+    for (let i = 0; i <= 40; i++) ring.push([c.x + 0.55 * Math.cos((i * TAU) / 40), c.y + 0.55 * Math.sin((i * TAU) / 40), 0.015]);
     path(ring, PALETTE.anchor, e.id === selected ? 0.09 : 0.06);
   }
 
@@ -497,9 +498,10 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     labels.push([text, cx, cy, { size: 13, z: 0.05, ...tone, hit: e.id, top: sel }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
-      const a = byId.get(e.anchor);
-      const below = project(a.hx / 2, a.hy / 2, 0).y >= project(cx, cy, 0.05).y;
-      labels.push([`якорь X ${a.hx / 2} · Y ${a.hy / 2}`, a.hx / 2, a.hy / 2, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
+      const a = anchorPoint(e, byId);
+      const below = project(a.x, a.y, 0).y >= project(cx, cy, 0.05).y;
+      const m = (v) => String(v).replace('.', ',');
+      labels.push([`якорь X ${m(a.x)} · Y ${m(a.y)}`, a.x, a.y, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
     }
   }
   const coneRadius = Math.max(6, 0.35 * scale);

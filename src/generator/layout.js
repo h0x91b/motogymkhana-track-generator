@@ -442,6 +442,23 @@ export function resizeElement(layout, i, sizes) {
 }
 
 /**
+ * Gives element i a typed size in metres under `key` (a length or a radius, as
+ * the editor shows it): the nearest the type allows on its lattice, inside the
+ * range, never below the bike-class minimum. Its anchor stays; a count, a
+ * choice, an unknown key or a non-number leaves the layout as it was.
+ */
+export function setElementSize(layout, i, key, metres) {
+  const el = layout.elements[i];
+  const spec = SIZE_SPECS[el.type].find((s) => s.key === key);
+  if (!spec || (spec.kind !== 'length' && spec.kind !== 'radius') || !Number.isFinite(metres)) return layout;
+  const diagonal = el.axis % 2 === 1;
+  const asked = { ...el.sizes, [key]: Math.round((metres / (spec.shown ?? 1)) * 2) / 2 };
+  // Stored as the size the element is built with, so the layout never keeps a value it does not show.
+  const sizes = elementSizes(el.type, elementParams(el.type, asked, diagonal, layout.recipe.bike), diagonal);
+  return resizeElement(layout, i, sizes);
+}
+
+/**
  * Sets one of element i's own margins (`ELEMENT_SAFETY_KEYS`) to `value`
  * metres, or back to the recipe's with null; its anchor stays, slid only as
  * far as a wider run-off needs to stay on the site.
