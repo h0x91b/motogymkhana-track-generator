@@ -176,6 +176,7 @@ describe('cone list CSV', () => {
       expect(rows.filter((r) => r[3] === 'низкий' && r[4] === 'любой')).toHaveLength(coneList.low);
       expect(rows.filter((r) => r[3] === 'высокий' && r[4] === 'синий (слева)')).toHaveLength(coneList.tallBlue);
       expect(rows.filter((r) => r[3] === 'высокий' && r[4] === 'красный (справа)')).toHaveLength(coneList.tallRed);
+      expect(rows.filter((r) => r[3] === 'высокий' && r[4] === 'красный с жёлтой полосой (вращение)')).toHaveLength(coneList.tallStriped);
     }
   });
 

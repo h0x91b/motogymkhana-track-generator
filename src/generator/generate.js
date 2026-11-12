@@ -7,7 +7,7 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { BIKE_TURN_RADIUS, chooseParams, instantiate, isBig, minimalParams, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, chooseParams, FILLER_TYPES, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
@@ -40,6 +40,9 @@ export const CONNECTOR_RADII = [1, 1.5]; // × the minimum turning radius
 const BUDGET_BASE = 720; // evaluated placements per attempt…
 const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
 const ROUNDS = 3; // the budget is split into restarts so early choices get revisited
+// A search with gap fillers (ADR 0021) follows one that already found a course:
+// it gets this share of the budget, so a gap that cannot be filled costs little.
+export const FILLER_BUDGET = 1;
 const EPS = 0.01; // touching a zone edge is fine, entering it by more is not
 // Connectors may not turn more than this in total: beyond it the rider would
 // ride an unmarked loop.
@@ -358,10 +361,10 @@ export function templateFits(tpl, inner, site) {
   return rectFits(tpl, tpl.runOff, site[2] - site[0], site[3] - site[1]);
 }
 
-/** The element margins of a recipe, as `instantiate` takes them. */
-export const elementMargins = (recipe) => {
+/** The margins an element of the type keeps under a recipe, as `instantiate` takes them: a single-cone element a shorter run-off. */
+export const elementMargins = (recipe, type) => {
   const { pad, runOff } = safetyOf(recipe);
-  return { pad, runOff };
+  return { pad, runOff: runOffFor(type, runOff) };
 };
 
 // Templates are pure functions of their inputs: shared by every search, so a
@@ -918,8 +921,8 @@ export function straightLeg(a, b) {
 export function feasibleTypes(recipe) {
   const inner = innerRect(recipe);
   const site = [0, 0, recipe.width, recipe.length];
-  const margins = elementMargins(recipe);
   return usableTypes(recipe).filter((type) => {
+    const margins = elementMargins(recipe, type);
     const p = minimalParams(type, recipe.difficulty, recipe.bike, recipe.sizes);
     return [p.side && instantiate(type, p.side, false, false, margins), p.diagonal && instantiate(type, p.diagonal, true, false, margins)]
       .some((tpl) => tpl && templateFits(tpl, inner, site));
@@ -933,6 +936,24 @@ export function alwaysBig(type, difficulty, bike, sizes) {
     .filter(Boolean)
     .every(isBig);
 }
+
+/**
+ * The types dealt as a course's own elements: the usable ones without the
+ * gap fillers (FILLER_TYPES), or only fillers when nothing else is allowed.
+ */
+export function dealtTypes(types) {
+  const own = types.filter((t) => !FILLER_TYPES.includes(t));
+  return own.length ? own : types;
+}
+
+/** The single-cone types that may fill a gap among these: none when they are all the course has. */
+export function gapFillers(types) {
+  const own = dealtTypes(types);
+  return own.length === types.length && own.every((t) => FILLER_TYPES.includes(t)) ? [] : types.filter((t) => SINGLE_CONE_TYPES.includes(t));
+}
+
+/** At most this many of a course of n elements are gap fillers: a third, rounded up. */
+export const fillerLimit = (n) => Math.ceil(n / 3);
 
 /** Seeded order of preference over the feasible types, one list per element. */
 function typePreferences(seed, feasible, n) {
@@ -958,7 +979,7 @@ function typePreferences(seed, feasible, n) {
  */
 function makePlan(recipe, seed, i, type, inner, site, small) {
   const plan = {
-    type, params: chooseParams(type, recipe.difficulty, recipe.bike, createStream(seed, `params:${i}:${type}`), recipe.sizes), templates: {}, margins: elementMargins(recipe),
+    type, params: chooseParams(type, recipe.difficulty, recipe.bike, createStream(seed, `params:${i}:${type}`), recipe.sizes), templates: {}, margins: elementMargins(recipe, type),
   };
   const fitsAxis = (axis) => {
     const tpl = templateFor(plan, axis % 2 === 1, false);
@@ -977,12 +998,25 @@ class BudgetExhausted extends Error {}
 /**
  * @returns {{ok: true, course: object} | {ok: false}}
  */
-export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, typeTries = TYPE_TRY_LIMITS[0]) {
+export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, typeTries = TYPE_TRY_LIMITS[0], fillers = 0) {
   const inner = innerRect(recipe);
   const site = [0, 0, recipe.width, recipe.length];
-  const feasible = feasibleTypes(recipe);
+  const usable = feasibleTypes(recipe);
+  const feasible = dealtTypes(usable);
   if (!feasible.length) return { ok: false };
   const preferences = typePreferences(seed, feasible, n);
+  // Gap fillers (ADR 0021): up to `fillers` single-cone elements, each tried at
+  // a place only after every dealt type has failed there, in a seeded order of
+  // their own, so they never take the place of an element that fits.
+  const fillerPool = fillers > 0 ? gapFillers(usable) : [];
+  const fillerRng = createStream(seed, 'fillers');
+  const fillerOrder = Array.from({ length: n }, () => {
+    const pool = [...fillerPool];
+    const out = [];
+    while (pool.length) out.push(pool.splice(Math.floor(fillerRng.float() * pool.length), 1)[0]);
+    return out;
+  });
+  let fillersUsed = 0;
   const plans = new Map();
   // After a big element, every later one must be small.
   const planFor = (i, type, small) => {
@@ -998,7 +1032,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   // A clearance of 0 switches the «паровозик» check off.
   const train = recipe.train && trainGap > 0;
   const diagonal = Math.sqrt(recipe.width * recipe.width + recipe.length * recipe.length);
-  const budget = BUDGET_BASE + BUDGET_PER_ELEMENT * n;
+  const budget = Math.ceil((BUDGET_BASE + BUDGET_PER_ELEMENT * n) * (fillers > 0 ? FILLER_BUDGET : 1));
   let spent = 0;
   let roundEnd = 0;
 
@@ -1175,7 +1209,12 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     // so a type whose subtree eats a whole round cannot starve the others.
     const turn = i === 0 && tried.length ? round % tried.length : 0;
     const types = [...tried.slice(turn), ...tried.slice(0, turn)];
-    for (const type of types) {
+    const gap = fillersUsed < fillers ? fillerOrder[i].filter((t) => t !== prev && !types.includes(t) && !(small && planFor(i, t, true).axes.length === 0)) : [];
+    // Past the elements of its own the course was found with, a filler comes first.
+    const late = i >= n - fillers;
+    const order = late ? [...gap, ...types] : [...types, ...gap];
+    for (const type of order) {
+      const filler = gap.includes(type);
       for (const option of candidates(i, type)) {
         const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;
         const saved = { turnLeft, turnRight, start, finish, zones: zones.length, legs: legs.length };
@@ -1197,7 +1236,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         }
         turnLeft += entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);
         turnRight += entryLeg.turnRight + cand.tpl.turnRight + (exitLeg ? exitLeg.turnRight : 0);
+        if (filler) fillersUsed++;
         if (search(i + 1)) return true;
+        if (filler) fillersUsed--;
         placed.pop();
         zones.length = saved.zones;
         legs.length = saved.legs;
@@ -1220,6 +1261,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     finish = null;
     turnLeft = 0;
     turnRight = 0;
+    fillersUsed = 0;
     try {
       if (search(0)) return { ok: true, course: assemble(recipe, seed, placed, legs, start, finish) };
     } catch (e) {

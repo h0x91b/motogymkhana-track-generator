@@ -22,6 +22,7 @@ const RULE = '#d5dcda';
 const ROUTE = '#0f8b8d';
 const BLUE = '#2b72c4';
 const RED = '#cc4330';
+const STRIPE = '#f5c400'; // the yellow stripe of the pivot turn's red cone
 const ANCHOR = '#b07d00';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 // Reserved zones on white paper, in canvas px of the 1080 × 1920 frame.
@@ -31,7 +32,7 @@ const ZONE_STYLE = {
   terminal: { stroke: '#5b687080', width: 1.5, dash: [2, 4] },
   turnCone: { alpha: '80', width: 1.5, dash: [5, 4] },
 };
-const CONE_FILL = { blue: BLUE, red: RED };
+const CONE_FILL = { blue: BLUE, red: RED, striped: RED };
 const BIKE_LABELS = { sport: 'под спортбайк', cruiser: 'под крузер' };
 
 const font = (ctx, size, weight = 400) => {
@@ -62,6 +63,15 @@ function coneGlyph(ctx, x, y, cone, { anchor = false, r = 11 } = {}) {
     ctx.lineWidth = 2;
     ctx.strokeStyle = INK;
     ctx.stroke();
+    if (cone.color === 'striped') {
+      // Red with a yellow stripe: a band round the cone, no side letter.
+      ctx.lineWidth = Math.max(2, r * 0.36);
+      ctx.strokeStyle = STRIPE;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.58, 0, Math.PI * 2);
+      ctx.stroke();
+      return;
+    }
     font(ctx, Math.round(r * 1.25), 700);
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'center';
@@ -711,7 +721,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const pad = safe.pad > 0 ? ` с запасом ${fmt(safe.pad)} м` : '';
   const cone = safe.coneGap > 0 ? `, цветной пунктир — круг ${fmt(safe.coneGap)} м вокруг конуса разворота` : '';
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды' + pad + '), мелкие серые точки — старт и финиш с местом до и после линии' + cone + '; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Красный с жёлтым кольцом — конус вращения (на площадке красный с жёлтой полосой): полный оборот вокруг него. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды' + pad + '), мелкие серые точки — старт и финиш с местом до и после линии' + cone + '; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
     ...(safetyLabel ? [{ text: safetyLabel, size: 22, weight: 700, color: '#9a5b00' }] : []),
   ]);
   const blockedLines = sheet.site.blocked ?? [];
@@ -722,9 +732,10 @@ export function renderSheetImages(course, sheet, makeCanvas) {
       ...blockedLines.map((b) => ({ text: b.label, size: 22 })),
     ])
     : terminals;
-  const { tallBlue, tallRed, low } = sheet.coneList;
+  const { tallBlue, tallRed, tallStriped, low } = sheet.coneList;
+  const striped = tallStriped ? ` · красных с жёлтой полосой ${tallStriped}` : '';
   const list = textBlock([
-    { text: `Ведомость: высоких синих ${tallBlue} · высоких красных ${tallRed} · низких ${low} · всего ${tallBlue + tallRed + low}`, size: 26, weight: 700 },
+    { text: `Ведомость: высоких синих ${tallBlue} · высоких красных ${tallRed}${striped} · низких ${low} · всего ${tallBlue + tallRed + tallStriped + low}`, size: 26, weight: 700 },
   ]);
   const hIntro = intro.measure(probe, width - TAG_SPACE);
   const hTerm = terminalsAndBlocked.measure(probe, width);

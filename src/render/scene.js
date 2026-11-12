@@ -2,7 +2,7 @@
 // docs/reference. Plan view = tilt 0; the 3D view tilts and rotates the same
 // metric scene. Draws only when asked (no animation loop).
 
-import { TYPE_NAMES } from '../generator/catalog.js';
+import { passColor, TYPE_NAMES } from '../generator/catalog.js';
 import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
@@ -18,6 +18,9 @@ const RIDER_COLORS = ['#ff9f1c', '#ff5d8f', '#a3e635'];
 
 export const PALETTE = {
   red: '#ee624d',
+  // The pivot turn's cone: red with a yellow stripe (`passColor`).
+  striped: '#ee624d',
+  stripe: '#f5c400',
   blue: '#4e9fe7',
   low: '#c3c9c6',
   route: '#6ae0d3',
@@ -110,7 +113,7 @@ export function coneColors(course) {
     if (p.kind === 'gate') {
       colors.set(p.left, 'blue');
       colors.set(p.right, 'red');
-    } else if (p.kind === 'cone') colors.set(p.cone, p.side === 'left' ? 'blue' : 'red');
+    } else if (p.kind === 'cone') colors.set(p.cone, passColor(p));
   }
   return colors;
 }
@@ -466,6 +469,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const x = cone.hx / 2;
     const y = cone.hy / 2;
     const tall = cone.height === 'tall';
+    // A tall cone's light band; yellow on the striped one, which needs no side letter.
+    const striped = tall && colors.get(cone.id) === 'striped';
+    const band = striped ? PALETTE.stripe : '#f0f0df';
     const h = (tall ? 0.45 : 0.25) * k;
     const r = (tall ? 0.13 : 0.11) * k;
     const base = (tall ? 0.17 : 0.14) * k;
@@ -478,9 +484,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
         path(pts, null, 0, fill, true);
       };
       disc(r, color);
-      if (tall) disc(r * 0.62, '#f0f0df');
+      if (tall) disc(r * 0.62, band);
       disc(r * (tall ? 0.42 : 0.4), shade(color, 1.08));
-      if (tall && r * scale >= 7) {
+      if (tall && !striped && r * scale >= 7) {
         const side = colors.get(cone.id) === 'blue' ? 'Л' : 'П';
         plate(side, x, y, { size: Math.min(13, r * scale * 0.9), bg: null, fill: '#17232a' });
       }
@@ -501,7 +507,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
           [x + Math.cos(a0) * rings[j + 1][1], y + Math.sin(a0) * rings[j + 1][1], rings[j + 1][0]],
         ];
         const lit = 0.69 + 0.29 * (0.5 + 0.5 * Math.cos(a0 - 3.5));
-        faces.push({ p, c: shade(j === 1 && tall ? '#f0f0df' : color, lit) });
+        faces.push({ p, c: shade(j === 1 && tall ? band : color, lit) });
       }
     }
     for (const f of faces) f.d = f.p.reduce((s, p) => s + project(...p).d, 0) / f.p.length;

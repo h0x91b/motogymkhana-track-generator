@@ -1,14 +1,14 @@
 // Public API of the generator: generateCourse(recipe, seed).
 
 import { BIKE_TURN_RADIUS, instantiate, minimalParams, TYPE_NAMES } from './catalog.js';
-import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, elementMargins, feasibleTypes, TYPE_TRY_LIMITS } from './generate.js';
+import { alwaysBig, buildCourse, CLOSING_TURN_LIMITS, dealtTypes, elementMargins, feasibleTypes, fillerLimit, gapFillers, TYPE_TRY_LIMITS } from './generate.js';
 import { parseRecipe, parseSeed, safetyOf, usableTypes } from './recipe.js';
 
 export {
   parseRecipe, parseSeed, BLOCKED_KINDS, BLOCKED_MARGIN, BLOCKED_MAX, blockedMargin, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, SAFETY_DEFAULTS, SAFETY_OPTIONS, safetyOf, safetyValues, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES,
 } from './recipe.js';
 export {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, ZONE_PAD,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, FILLER_TYPES, mirrorType, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_RUN_OFF, SINGLE_CONE_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, ZONE_PAD,
 } from './catalog.js';
 export { canonicalJSON } from './canonical.js';
 export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
@@ -29,12 +29,13 @@ const fmt = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
  * turning type its run-off zone on the site, whichever needs more asphalt.
  */
 function siteTooSmall(recipe) {
-  const { edge, runOff: runOffDistance, pad } = safetyOf(recipe);
+  const { edge, pad } = safetyOf(recipe);
   const usable = { width: recipe.width - 2 * edge, length: recipe.length - 2 * edge };
   let smallest = null;
-  for (const type of usableTypes(recipe)) {
+  // The course's own types: a gap filler alone is no course.
+  for (const type of dealtTypes(usableTypes(recipe))) {
     const p = minimalParams(type, recipe.difficulty, recipe.bike, recipe.sizes).side;
-    const tpl = instantiate(type, p, false, false, elementMargins(recipe));
+    const tpl = instantiate(type, p, false, false, elementMargins(recipe, type));
     const a = (tpl.core[2] - tpl.core[0]) * tpl.unit;
     const b = (tpl.core[3] - tpl.core[1]) * tpl.unit;
     const long = Math.max(a, b);
@@ -44,10 +45,11 @@ function siteTooSmall(recipe) {
     const runOff = tpl.runOff ? { length: Math.max(ra, rb), width: Math.min(ra, rb) } : null;
     // Asphalt the element takes on the site: core + margins, or its run-off zone.
     const need = Math.max(long + 2 * edge, runOff ? runOff.length : 0) * Math.max(short + 2 * edge, runOff ? runOff.width : 0);
-    if (!smallest || need < smallest.need) smallest = { type, name: TYPE_NAMES[type], long, short, runOff, need };
+    if (!smallest || need < smallest.need) smallest = { type, name: TYPE_NAMES[type], long, short, runOff, reach: tpl.margins.runOff, need };
   }
   const radius = BIKE_TURN_RADIUS[recipe.bike];
-  const fits = feasibleTypes(recipe).length > 0;
+  const own = dealtTypes(usableTypes(recipe));
+  const fits = feasibleTypes(recipe).some((t) => own.includes(t));
   const head = `Площадка ${recipe.width} × ${recipe.length} м мала для сложности «${DIFFICULTY_NAMES[recipe.difficulty]}» на мотоцикле «${BIKE_NAMES[recipe.bike]}»: `
     + `с отступом ${fmt(edge)} м от края остаётся ${usable.width} × ${usable.length} м.`;
   const tail = fits
@@ -55,7 +57,7 @@ function siteTooSmall(recipe) {
       + `на старт, финиш и связки с радиусом поворота ${fmt(radius)} м.`
     : ` Самому компактному из разрешённых типов («${smallest.name}») нужно ${fmt(smallest.long)} × ${fmt(smallest.short)} м`
       + (smallest.runOff
-        ? ` и ещё по ${fmt(runOffDistance)} м свободного асфальта вокруг на выкат: площадка не меньше ${fmt(smallest.runOff.length)} × ${fmt(smallest.runOff.width)} м.`
+        ? ` и ещё по ${fmt(smallest.reach)} м свободного асфальта вокруг на выкат: площадка не меньше ${fmt(smallest.runOff.length)} × ${fmt(smallest.runOff.width)} м.`
         : '.');
   return {
     code: 'site-too-small',
@@ -97,16 +99,27 @@ export function generateCourse(recipeInput, seedInput) {
   }
   const recipe = parsed.recipe;
   const limits = recipe.shape !== 'open' ? CLOSING_TURN_LIMITS : CLOSING_TURN_LIMITS.slice(0, 1);
-  const onlyBig = usableTypes(recipe).every((t) => alwaysBig(t, recipe.difficulty, recipe.bike, recipe.sizes));
+  const onlyBig = dealtTypes(usableTypes(recipe)).every((t) => alwaysBig(t, recipe.difficulty, recipe.bike, recipe.sizes));
   const most = onlyBig ? 1 : recipe.elements;
+  const fills = gapFillers(usableTypes(recipe)).length > 0;
   const limitedBy = onlyBig && recipe.elements > 1 ? { limitedBy: 'big-elements' } : {};
   for (const typeTries of TYPE_TRY_LIMITS) {
     for (const closingTurn of limits) {
       for (let k = most; k >= 1; k--) {
         const result = buildCourse(recipe, seed.seed, k, closingTurn, typeTries);
-        if (result.ok) {
-          return { ok: true, course: { ...result.course, requested: recipe.elements, placed: k, ...limitedBy } };
+        if (!result.ok) continue;
+        const done = (r, m) => ({ ok: true, course: { ...r.course, requested: recipe.elements, placed: m, ...(m < recipe.elements ? limitedBy : {}) } });
+        // Gaps left: the same search with up to m − k single-cone fillers
+        // (ADR 0021), m from the order down; k elements of its own stay the
+        // floor, so a filled course never has fewer than the plain one.
+        if (fills) {
+          for (let m = recipe.elements; m > k; m--) {
+            if (m - k > fillerLimit(m)) continue;
+            const filled = buildCourse(recipe, seed.seed, m, closingTurn, typeTries, m - k);
+            if (filled.ok) return done(filled, m);
+          }
         }
+        return done(result, k);
       }
     }
   }

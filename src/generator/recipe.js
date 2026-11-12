@@ -25,11 +25,15 @@ export const ELEMENT_TYPES = [
   'keyhole',
   'crescent',
   'swerve',
+  'pass-left',
+  'pass-right',
+  'small-turn',
 ];
 
 // Types whose trajectory passes the same spot twice a few metres of route
-// apart: in «паровозик», a column of riders, they would meet there.
-export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'fast-circle', 'gate-turn', 'box-eight', 'keyhole'];
+// apart, or rides back alongside itself: in «паровозик», a column of riders,
+// they would meet there.
+export const LOOPED_TYPES = ['pivot-turn', 'figure-eight', 'box', 'circle', 'fast-circle', 'gate-turn', 'box-eight', 'keyhole', 'small-turn'];
 
 // Types a column rides although their line comes back close to or across
 // itself, so in «паровозик» their own passes are not checked against each

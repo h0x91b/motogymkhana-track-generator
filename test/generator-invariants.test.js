@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, DIFFICULTY_TABLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, DIFFICULTY_TABLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, runOffFor, TRAIN_EXEMPT_TYPES,
   U_TURN_CONE_CLEARANCE, uTurnRadius, ZONE_PAD,
 } from '../src/generator/index.js';
 
@@ -264,11 +264,13 @@ describe('placement', () => {
         for (const [x, y] of e.runOff) {
           expect(x >= -0.011 && y >= -0.011 && x <= c.site.width + 0.011 && y <= c.site.length + 0.011, `${label(c)} ${e.id} run-off off the site`).toBe(true);
         }
-        // Every side lies RUN_OFF from the element's cones and line, but the entry side of a turnaround.
+        // Every side lies its run-off from the element's cones and line, but the entry side of a turnaround.
         const own = [...e.cones.map((id) => coneXY(byId.get(id))), ...e.path.slice(1, -1)];
         const sides = e.runOff.map((p, k) => [p, e.runOff[(k + 1) % e.runOff.length]]).filter(([p, q]) => Math.hypot(q[0] - p[0], q[1] - p[1]) > 0.05);
-        const short = sides.filter(([p, q]) => Math.min(...own.map((o) => toLine(o, p, q))) < RUN_OFF - 0.03);
-        expect(short.length, `${label(c)} ${e.id} ${e.type} sides short of ${RUN_OFF} m`).toBeLessThanOrEqual(RUN_OFF_TYPES[e.type] === 'loop' ? 0 : 1);
+        // A single-cone element keeps a shorter one (ADR 0021).
+        const reach = runOffFor(e.type, RUN_OFF);
+        const short = sides.filter(([p, q]) => Math.min(...own.map((o) => toLine(o, p, q))) < reach - 0.03);
+        expect(short.length, `${label(c)} ${e.id} ${e.type} sides short of ${reach} m`).toBeLessThanOrEqual(RUN_OFF_TYPES[e.type] === 'loop' ? 0 : 1);
         // And no other element's footprint in it: its cones and lines keep the clearance from it.
         for (const other of c.elements) {
           if (other === e) continue;
