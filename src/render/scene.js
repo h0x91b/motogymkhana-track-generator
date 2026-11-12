@@ -5,7 +5,7 @@
 import { TYPE_NAMES } from '../generator/catalog.js';
 import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
-import { reservedZones } from './reserved.js';
+import { blockedOutlines, reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 import { boxArrows, terminalPlates } from './terminals.js';
 
@@ -26,7 +26,11 @@ export const PALETTE = {
   anchor: '#ffd166',
   select: '#d8f7ee',
   problem: '#ff8272',
+  cutout: '#1e272d',
+  obstacle: '#5c4b31',
 };
+
+const OBSTACLE_HEIGHT = 0.9; // metres an obstacle rises in 3D: a schematic block, not a measured height
 
 // Reserved zones on the dark slab: thin and low-contrast, told apart by dash
 // pattern (metres) and tone. Run-off: amber dots and tint; element zone: pale
@@ -180,6 +184,58 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     ctx.restore();
   };
 
+  /** Clips to a ground polygon (metres) for `draw`. */
+  const clipped = (poly, draw) => {
+    ctx.save();
+    ctx.beginPath();
+    poly.forEach(([x, y], i) => {
+      const q = project(x, y, 0);
+      if (i) ctx.lineTo(q.x, q.y);
+      else ctx.moveTo(q.x, q.y);
+    });
+    ctx.closePath();
+    ctx.clip();
+    draw();
+    ctx.restore();
+  };
+  /**
+   * Cutouts and obstacles: hatched, so they read as «not here» at a glance. A
+   * cutout is a hole in the slab, darker than the asphalt; an obstacle stands
+   * on it, and in 3D rises as a low block. The site margin round each is the
+   * edge's dashed line, kept on the slab.
+   */
+  function drawBlocked(list) {
+    const slab = [[0, 0], [SW, 0], [SW, SL], [0, SL]];
+    for (const b of list) {
+      clipped(slab, () => path(b.margin.map(([x, y]) => [x, y, 0.004]), '#bac7c355', 0.06, null, true, [0.4, 0.4]));
+    }
+    for (const b of list) {
+      const cut = b.kind === 'cutout';
+      const z = cut ? 0.001 : 0.006;
+      path(b.poly.map(([x, y]) => [x, y, z]), null, 0, cut ? PALETTE.cutout : PALETTE.obstacle, true);
+      clipped(b.poly, () => {
+        const step = 0.8;
+        for (let t = -b.h; t < b.w + b.h; t += step) path([[b.x + t, b.y, z], [b.x + t + b.h, b.y + b.h, z]], cut ? '#ffffff1f' : '#f6c16a55', 0.07);
+      });
+      path(b.poly.map(([x, y]) => [x, y, z]), cut ? '#ffffff38' : '#f6c16acc', 0.08, null, true);
+      if (tilted && !cut) {
+        // A low block in 3D: the obstacle is something standing there.
+        const H3 = OBSTACLE_HEIGHT;
+        const top = b.poly.map(([x, y]) => [x, y, H3]);
+        const faces = b.poly.map((p, i) => {
+          const q = b.poly[(i + 1) % 4];
+          return [[p[0], p[1], 0], [q[0], q[1], 0], [q[0], q[1], H3], [p[0], p[1], H3]];
+        });
+        const depth = (f) => f.reduce((a, p) => a + project(...p).d, 0);
+        faces.sort((a, c) => depth(a) - depth(c)).forEach((f) => path(f, '#f6c16a88', 0.04, '#6b5534ee', true));
+        path(top, '#f6c16acc', 0.05, '#7d6640f2', true);
+      }
+      if (editing) hits.push({ kind: 'blocked', element: `b${b.n}`, poly: b.poly.map(([x, y]) => project(x, y, 0)) });
+      const sel = editing && selected === `b${b.n}`;
+      if (sel) path(b.poly.map(([x, y]) => [x, y, z + 0.002]), PALETTE.select, 0.14, null, true);
+    }
+  }
+
   ctx.clearRect(0, 0, W, H);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -202,6 +258,8 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (let y = GRID_STEP; y < SL; y += GRID_STEP) path([[0, y, 0.002], [SW, y, 0.002]], '#ffffff24', 0.05);
   const m = course ? course.site.margin : 1;
   path([[m, m, 0.004], [SW - m, m, 0.004], [SW - m, SL - m, 0.004], [m, SL - m, 0.004]], '#bac7c355', 0.06, null, true, [0.4, 0.4]);
+  const blocked = course ? blockedOutlines(course) : [];
+  drawBlocked(blocked);
   onGround('h0x91B', SW - 2.2, SL - 0.55, 0.42, '#98a9aa');
 
   // Reference corner A (0,0) with its axes, and the site size.
@@ -486,6 +544,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     return [p.x - w / 2 - 7, p.y + dy - size / 2 - 5, p.x + w / 2 + 7, p.y + dy + size / 2 + 5];
   };
   const labels = [];
+  // Cutouts and obstacles by name; the selected one in «Правка» with its measurements from A (0,0).
+  for (const b of blocked) {
+    const sel = editing && selected === `b${b.n}`;
+    const text = sel ? `${b.name}: X ${b.x} · Y ${b.y}, ${b.w} × ${b.h} м` : b.name;
+    labels.push([text, b.x + b.w / 2, b.y + b.h / 2, { size: 11, z: tilted && b.kind === 'obstacle' ? OBSTACLE_HEIGHT : 0.02, bg: '#3d3220', fill: '#f6d9a4', hit: editing ? `b${b.n}` : null, top: sel }]);
+  }
   for (const e of course.elements) {
     const [cx, cy] = zoneCentre(e.zone);
     const wide = cam.zoom >= 1.6 || e.id === selected || W >= 700;
@@ -536,8 +600,8 @@ export function hitTest(hits, x, y) {
     const h = hits[i];
     if (h.kind === 'label' && Math.abs(h.x - x) <= h.w / 2 && Math.abs(h.y - y) <= h.h / 2) return h.element;
   }
-  for (const h of hits) {
-    if (h.kind !== 'zone') continue;
+  for (const kind of ['zone', 'blocked']) for (const h of hits) {
+    if (h.kind !== kind) continue;
     let inside = false;
     const p = h.poly;
     for (let i = 0, j = p.length - 1; i < p.length; j = i++) {

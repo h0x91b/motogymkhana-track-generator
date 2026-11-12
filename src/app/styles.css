@@ -249,6 +249,12 @@ button:disabled:active { filter: none; scale: none; }
   font-weight: 800;
   line-height: 1;
 }
+/* Cutouts and obstacles: a second list under the route, each row with the plan's hatching. */
+.blocked-head { margin-top: 4px; flex-wrap: wrap; }
+.edit-blocked-add { display: inline-flex; gap: 12px; }
+.blocked-row .el-head { grid-template-columns: minmax(0, 1fr); }
+.hatch { flex: 0 0 auto; width: 18px; height: 18px; border-radius: 3px; border: 1px solid currentColor; background: repeating-linear-gradient(135deg, transparent 0 3px, currentColor 3px 4px); opacity: 0.7; }
+.hatch.obstacle { color: #b8862f; opacity: 1; }
 .edit-hint { margin: 0; text-wrap: pretty; }
 /* Problems sit under the controls, never among them: one appearing must not
    push a button from under a finger. A phone shows one at a time, as short as
@@ -387,6 +393,28 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .file-actions > * { padding-inline: 6px; }
 .file-actions .span2 { grid-column: 1 / -1; }
 #file-status { margin-top: 6px; }
+.blocked { border: 0; padding: 0; margin: 14px 0 0; min-width: 0; }
+.blocked legend { font-weight: 600; padding: 0; margin-bottom: 2px; }
+.blocked .hint { margin: 0 0 6px; }
+.blocked-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.blocked-list li {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 44px;
+  grid-template-areas: "name name name name name" "x y w h del";
+  gap: 4px 6px;
+  align-items: end;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  /* The plan's hatching, in a corner of the row: which one is which on the plan. */
+  background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in oklch, var(--muted) 14%, transparent) 7px 9px) right top / 44px 30px no-repeat;
+}
+.blocked-name { grid-area: name; font-weight: 600; font-size: 14px; }
+.blocked-list label { margin: 0 !important; font-weight: 500 !important; font-size: 13px; color: var(--muted); }
+.blocked-list input { margin-top: 2px !important; padding: 8px 6px !important; text-align: center; font-variant-numeric: tabular-nums; }
+.blocked-remove { grid-area: del; min-height: 44px; }
+.blocked-add { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.blocked-add button { flex: 1 1 auto; min-height: 44px; }
 .toast {
   position: fixed;
   /* Over the top of the plan, clear of the view toggle, the zoom and «Проезд». */

@@ -183,6 +183,41 @@ function parseSafety(value) {
   return { ok: true, safety };
 }
 
+// Blocked areas (`recipe.blocked`): rectangles of the lot nothing may use —
+// a cutout, where the lot is not asphalt at all (a П-shaped lot is a rectangle
+// with one), or an obstacle standing on it (a parked car, a pillar, a kerb
+// island). Whole metres from the reference corner: x, y of the corner nearest
+// to it, then the size along x and y. The generator keeps the site margin from
+// their edges as from the lot's.
+export const BLOCKED_KINDS = ['cutout', 'obstacle'];
+export const BLOCKED_NAMES = { cutout: 'вырез', obstacle: 'препятствие' };
+export const BLOCKED_MAX = 8;
+
+/**
+ * @returns {{ok: true, blocked: object[]} | {ok: false, error: string}}
+ */
+function parseBlocked(value, width, length) {
+  if (value === undefined || value === null) return { ok: true, blocked: [] };
+  if (!Array.isArray(value)) return { ok: false, error: 'Вырезы и препятствия заданы неверно' };
+  if (value.length > BLOCKED_MAX) return { ok: false, error: `Не больше ${BLOCKED_MAX} вырезов и препятствий` };
+  const blocked = [];
+  for (const [i, raw] of value.entries()) {
+    const n = i + 1;
+    if (!raw || typeof raw !== 'object' || !BLOCKED_KINDS.includes(raw.kind)) return { ok: false, error: `Вырез или препятствие ${n} задан неверно` };
+    const name = raw.kind === 'cutout' ? `Вырез ${n}` : `Препятствие ${n}`;
+    const x = parseInteger(raw.x);
+    const y = parseInteger(raw.y);
+    const w = parseInteger(raw.w);
+    const h = parseInteger(raw.h);
+    if ([x, y, w, h].includes(null)) return { ok: false, error: `${name}: X, Y и размеры — целые метры` };
+    if (w < 1 || h < 1) return { ok: false, error: `${name}: размеры не меньше 1 м` };
+    if (width !== null && x + w > width) return { ok: false, error: `${name} выходит за площадку по X: X + ширина не больше ${width} м` };
+    if (length !== null && y + h > length) return { ok: false, error: `${name} выходит за площадку по Y: Y + длина не больше ${length} м` };
+    blocked.push({ kind: raw.kind, x, y, w, h });
+  }
+  return { ok: true, blocked };
+}
+
 function parseBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -244,10 +279,12 @@ export function parseRecipe(input) {
 
   const safety = parseSafety(src.safety);
   if (!safety.ok) errors.safety = safety.error;
+  const blocked = parseBlocked(src.blocked, width, length);
+  if (!blocked.ok) errors.blocked = blocked.error;
 
   if (Object.keys(errors).length) return { ok: false, errors };
   return {
     ok: true,
-    recipe: { width, length, elements, types, difficulty, bike, shape, train, sizes: sizes.sizes, safety: safety.safety },
+    recipe: { width, length, elements, types, difficulty, bike, shape, train, sizes: sizes.sizes, safety: safety.safety, blocked: blocked.blocked },
   };
 }

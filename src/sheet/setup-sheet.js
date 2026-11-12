@@ -602,8 +602,16 @@ export function buildSetupSheet(course) {
     start.box = { size: Math.hypot(b.x - a.x, b.y - a.y) };
     finish.entry = boxEntrySide(start.dir, finish.dir);
   }
+  // Cutouts and obstacles, measured from corner A like everything else: the corner nearest it, then the size.
+  const blocked = (course.site.blocked ?? []).map((b, i) => {
+    const name = `${b.kind === 'cutout' ? 'Вырез' : 'Препятствие'} ${i + 1}`;
+    return {
+      n: i + 1, kind: b.kind, name, x: b.x, y: b.y, w: b.w, h: b.h,
+      label: `${name}: угол X ${fmt(b.x)} · Y ${fmt(b.y)} м, по X ${fmt(b.w)} м, по Y ${fmt(b.h)} м`,
+    };
+  });
   return {
-    site: { width: course.site.width, length: course.site.length },
+    site: { width: course.site.width, length: course.site.length, blocked },
     safety: safetySheet(course.recipe),
     bike: course.recipe.bike,
     shape: course.route.shape,

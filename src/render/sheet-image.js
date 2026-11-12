@@ -9,7 +9,7 @@
 import { SHAPE_NAMES } from '../generator/recipe.js';
 import { anchorPoint, BOX_ENTRY_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
-import { reservedZones } from './reserved.js';
+import { blockedOutlines, reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 import { boxArrows, terminalPlates } from './terminals.js';
 
@@ -125,6 +125,59 @@ function planBlock(course, sheet, maxHeight) {
     for (const t of card.turnCones) colorOf.set(t.cone, t.color);
   }
 
+  /**
+   * Cutouts and obstacles, hatched, with the site margin round them dashed like
+   * the edge's and their name; their numbers are in the text under the plan.
+   */
+  function drawBlocked(ctx, X, Y, oy) {
+    const list = blockedOutlines(course);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, pw, ph);
+    ctx.clip();
+    for (const b of list) {
+      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#9aa7ad';
+      ctx.strokeRect(X(b.margin[0][0]), Y(b.margin[2][1]), (b.w + 2 * course.site.margin) * s, (b.h + 2 * course.site.margin) * s);
+    }
+    ctx.setLineDash([]);
+    for (const b of list) {
+      const cut = b.kind === 'cutout';
+      const [x0, y0, w, h] = [X(b.x), Y(b.y + b.h), b.w * s, b.h * s];
+      ctx.fillStyle = cut ? '#cfd5d2' : '#f1e2c4';
+      ctx.fillRect(x0, y0, w, h);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, y0, w, h);
+      ctx.clip();
+      ctx.strokeStyle = cut ? '#7d8a90' : '#a87a2c';
+      ctx.lineWidth = 2;
+      const step = 14;
+      for (let t = -h; t < w + h; t += step) {
+        ctx.beginPath();
+        ctx.moveTo(x0 + t, y0 + h);
+        ctx.lineTo(x0 + t + h, y0);
+        ctx.stroke();
+      }
+      ctx.restore();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = cut ? '#5d6a70' : '#8a5f1c';
+      ctx.strokeRect(x0, y0, w, h);
+      // The name on a white tag, so it reads over the hatching.
+      font(ctx, 18, 700);
+      const text = cut ? `В${b.n}` : `Пр${b.n}`;
+      const tw = ctx.measureText(text).width + 12;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x0 + w / 2 - tw / 2, y0 + h / 2 - 13, tw, 26);
+      ctx.fillStyle = INK;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x0 + w / 2, y0 + h / 2 + 1);
+    }
+    ctx.restore();
+  }
+
   function draw(ctx, top) {
     const oy = top + 20;
     const X = (x) => ox + x * s;
@@ -184,6 +237,7 @@ function planBlock(course, sheet, maxHeight) {
     ctx.strokeStyle = '#9aa7ad';
     const m = course.site.margin;
     ctx.strokeRect(X(m), Y(course.site.length - m), (course.site.width - 2 * m) * s, (course.site.length - 2 * m) * s);
+    drawBlocked(ctx, X, Y, oy);
     ctx.setLineDash([]);
     ctx.lineWidth = 3;
     ctx.strokeStyle = INK;
@@ -448,6 +502,7 @@ function planBlock(course, sheet, maxHeight) {
 function textBlock(lines) {
   // lines: [{text, size, weight, color}]
   return {
+    lines,
     measure(ctx, width) {
       let h = 0;
       this.rows = [];
@@ -656,12 +711,20 @@ export function renderSheetImages(course, sheet, makeCanvas) {
     { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды' + pad + '), мелкие серые точки — старт и финиш с местом до и после линии' + cone + '; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
     ...(safetyLabel ? [{ text: safetyLabel, size: 22, weight: 700, color: '#9a5b00' }] : []),
   ]);
+  const blockedLines = sheet.site.blocked ?? [];
+  const terminalsAndBlocked = blockedLines.length
+    ? textBlock([
+      ...terminals.lines,
+      { text: `Где трассы нет (штриховка, на плане В — вырез, Пр — препятствие), от опорного угла A; от их краёв тот же отступ ${fmt(course.site.margin)} м, что от края площадки:`, size: 22, weight: 600 },
+      ...blockedLines.map((b) => ({ text: b.label, size: 22 })),
+    ])
+    : terminals;
   const { tallBlue, tallRed, low } = sheet.coneList;
   const list = textBlock([
     { text: `Ведомость: высоких синих ${tallBlue} · высоких красных ${tallRed} · низких ${low} · всего ${tallBlue + tallRed + low}`, size: 26, weight: 700 },
   ]);
   const hIntro = intro.measure(probe, width - TAG_SPACE);
-  const hTerm = terminals.measure(probe, width);
+  const hTerm = terminalsAndBlocked.measure(probe, width);
   const hLegend = legend.measure(probe, width);
   const hList = list.measure(probe, width);
   // The plan takes whatever height the first frame has left.
@@ -686,7 +749,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   y += plan.height + 16;
   legend.draw(first.ctx, PAD, y);
   y += hLegend + 20;
-  terminals.draw(first.ctx, PAD, y);
+  terminalsAndBlocked.draw(first.ctx, PAD, y);
   y += hTerm + 20;
   list.draw(first.ctx, PAD, y);
   const canvases = [first.canvas];

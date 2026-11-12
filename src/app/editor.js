@@ -4,8 +4,8 @@
 // generator/layout.js; nothing here knows how a course is routed.
 
 import {
-  axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord,
-  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
+  addBlocked, axisDegrees, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
+  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -60,9 +60,13 @@ function marginSteps(m) {
   return { less: at > 0 ? values[at - 1] : null, more: at >= 0 && at < values.length - 1 ? values[at + 1] : null };
 }
 
-const elementsOf = (layout) => JSON.stringify(layout.elements);
-/** The elements without the pivots turning leaves behind: two layouts with the same ones give the same course. */
-const courseOf = (layout) => JSON.stringify(layout.elements.map(({ pivot, ...e }) => e));
+const elementsOf = (layout) => JSON.stringify([layout.elements, layout.recipe.blocked]);
+/** The elements without the pivots turning leaves behind, and the blocked areas: two layouts with the same ones give the same course. */
+const courseOf = (layout) => JSON.stringify([layout.elements.map(({ pivot, ...e }) => e), layout.recipe.blocked]);
+
+const capital = (s) => s[0].toUpperCase() + s.slice(1);
+/** «Вырез 1», «Препятствие 2»: blocked areas are numbered in the recipe's list. */
+const blockedTitle = (layout, k) => `${capital(BLOCKED_NAMES[layout.recipe.blocked[k].kind])} ${k + 1}`;
 
 // Arrow keys and the move buttons: one metre across the plan.
 const NUDGES = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
@@ -73,7 +77,8 @@ const NUDGES = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowD
  *   reveal(id) — an element was picked in the panel: bring it into view on the plan;
  *   leave() — «Готово»;
  *   facts(id) — {head, tail}: HTML of what the element's row says and cannot change (anchor, axis; notes, cone table);
- *   modal(open) — the type picker opened or closed: everything behind it goes inert.
+ *   modal(open) — the type picker opened or closed: everything behind it goes inert;
+ *   blocked(recipe) — the layout's blocked areas changed (an edit, undo or redo): the recipe now has these.
  */
 export function createEditor(host) {
   const body = $('edit-body');
@@ -82,6 +87,7 @@ export function createEditor(host) {
   let layout = null;
   let routed = null; // { course, problems } of `layout`
   let selected = null; // index of the selected element
+  let block = null; // index of the selected blocked area; never both at once
   let undo = []; // { layout, selected }: what an undo goes back to, with the element that was being edited
   let redo = [];
   let drag = null; // { from, i, x, y }: the layout and the anchor an element is dragged from
@@ -101,8 +107,12 @@ export function createEditor(host) {
   $('edit-keys').textContent = tied(`Стрелки — сдвинуть на 1\u00a0м, с\u00a0Shift — на 5\u00a0м · R — повернуть · Delete — удалить · ${mod}Z — отменить`);
 
   const idOf = (i) => (i === null ? null : `e${i + 1}`);
+  const blockOf = (id) => {
+    const k = typeof id === 'string' && id[0] === 'b' ? Number(id.slice(1)) - 1 : NaN;
+    return Number.isInteger(k) && layout && k >= 0 && k < layout.recipe.blocked.length ? k : null;
+  };
   const indexOf = (id) => {
-    const i = id ? Number(id.slice(1)) - 1 : NaN;
+    const i = id && id[0] === 'e' ? Number(id.slice(1)) - 1 : NaN;
     return Number.isInteger(i) && layout && i >= 0 && i < layout.elements.length ? i : null;
   };
   const name = (i) => TYPE_NAMES[layout.elements[i].type];
@@ -118,17 +128,19 @@ export function createEditor(host) {
 
   function show(dragging = false) {
     host.show(routed.course, routed.problems, { dragging });
+    if (!dragging) host.blocked(layout.recipe);
   }
 
   /** Makes `next` the layout, with the old one to undo back to. */
-  function commit(next, sel, text) {
+  function commit(next, sel, text, nextBlock = null) {
     if (elementsOf(next) === elementsOf(layout)) return false;
     const before = routed.problems.length;
-    undo.push({ layout, selected });
+    undo.push({ layout, selected, block });
     if (undo.length > UNDO_MAX) undo.shift();
     redo = [];
     layout = next;
     selected = sel;
+    block = nextBlock;
     routed = routeLayout(layout);
     show();
     render();
@@ -139,22 +151,30 @@ export function createEditor(host) {
   function step(from, to, text) {
     if (!from.length || drag) return;
     const before = routed.problems.length;
-    to.push({ layout, selected });
-    ({ layout, selected } = from.pop());
+    to.push({ layout, selected, block });
+    ({ layout, selected, block = null } = from.pop());
     routed = routeLayout(layout);
     show();
     render();
     say(text + problemsNote(before));
   }
 
-  function select(i) {
-    if (i === selected) return;
+  function select(i, k = null) {
+    if (i === selected && k === block) return;
     selected = i;
+    block = i === null ? k : null;
     show();
     render();
   }
 
   function nudge(dx, dy) {
+    if (block !== null) {
+      const b = layout.recipe.blocked[block];
+      const next = moveBlocked(layout, block, b.x + dx, b.y + dy);
+      const to = next.recipe.blocked[block];
+      if (!commit(next, null, `${blockedTitle(layout, block)}: X ${to.x}, Y ${to.y}\u00a0м.`, block)) say('Дальше край площадки: осталось на месте.');
+      return;
+    }
     if (selected === null) return;
     const el = layout.elements[selected];
     const next = moveElement(layout, selected, el.x + dx, el.y + dy);
@@ -225,6 +245,10 @@ export function createEditor(host) {
       commit(shiftElement(layout, selected, Number(arg)), to, `«${name(selected)}» теперь ${to + 1}-й по маршруту.`);
     },
     remove: () => {
+      if (block !== null) {
+        commit(removeBlocked(layout, block), null, `${blockedTitle(layout, block)} убран.`);
+        return;
+      }
       if (layout.elements.length <= 1) return;
       const text = `Элемент ${selected + 1}, «${name(selected)}», удалён. Осталось элементов: ${layout.elements.length - 1}.`;
       commit(removeElement(layout, selected), null, text);
@@ -241,6 +265,18 @@ export function createEditor(host) {
     replace: () => openPicker('replace'),
     // A new element under the selected one («＋» in its row), or before it («Вставить первым»).
     insert: (arg) => openPicker('insert', selected + (arg === 'after' ? 1 : 0), 'insert', arg),
+    addBlocked: (kind) => {
+      const next = addBlocked(layout, kind);
+      const k = next.recipe.blocked.length - 1;
+      commit(next, null, `${blockedTitle(next, k)} добавлен: перетащите его на место.`, k);
+    },
+    blockedSize: (arg) => {
+      const [key, d] = arg.split(':');
+      const b = layout.recipe.blocked[block];
+      const next = resizeBlocked(layout, block, b.w + (key === 'w' ? Number(d) : 0), b.h + (key === 'h' ? Number(d) : 0));
+      const to = next.recipe.blocked[block];
+      commit(next, null, `${blockedTitle(layout, block)}: ${to.w} × ${to.h}\u00a0м.`, block);
+    },
     // Back to the generated course; undo brings the edits back.
     reset: () => commit(base, null, 'Правки сброшены: трасса снова как от генератора.'),
   };
@@ -310,6 +346,47 @@ export function createEditor(host) {
     return `<div class="list-head"><span class="muted">${n} ${plural(n, 'элемент', 'элемента', 'элементов')} по порядку</span>${first}</div><ol class="edit-list" aria-label="Элементы по порядку маршрута">${rows}</ol>`;
   }
 
+  /**
+   * The lot's cutouts and obstacles, under the route: one row each, opened by
+   * a tap into what can be changed (`blockedHtml`), and the buttons to add one.
+   */
+  function blockedListHtml() {
+    const list = layout.recipe.blocked;
+    const full = list.length >= BLOCKED_MAX;
+    const add = (kind, label) => `<button type="button" class="link insert-first" data-act="addBlocked" data-arg="${kind}"${full ? ` disabled title="Не больше ${BLOCKED_MAX}"` : ''}>${icon('plus')}${label}</button>`;
+    const rows = list.map((b, k) => {
+      const open = k === block;
+      const title = esc(blockedTitle(layout, k));
+      return `<li class="el-row blocked-row${open ? ' open' : ''}">
+        <div class="el-head">
+          <button type="button" class="el-pick" data-act="selectBlocked" data-arg="${k}" aria-expanded="${open}" aria-label="${title}, ${b.w} на ${b.h} метров">`
+        + `<span class="hatch ${b.kind}" aria-hidden="true"></span><span class="el-text"><span class="el-name">${title}</span><span class="el-sum">X ${b.x} · Y ${b.y} · ${b.w} × ${b.h}\u00a0м</span></span></button>
+        </div>${open ? `<div class="el-detail">${blockedHtml()}</div>` : ''}
+      </li>`;
+    }).join('');
+    return `<div class="list-head blocked-head"><span class="muted">Вырезы и препятствия</span><span class="edit-blocked-add">${add('cutout', 'Вырез')}${add('obstacle', 'Препятствие')}</span></div>`
+      + (rows ? `<ol class="edit-list" aria-label="Вырезы и препятствия">${rows}</ol>` : '');
+  }
+
+  function blockedHtml() {
+    const b = layout.recipe.blocked[block];
+    const tool = (act, arg, label, glyph) => `<button type="button" data-act="${act}" data-arg="${arg}" aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
+    const size = (key, name, value) => `<div class="size-row" role="group" aria-label="${name}">
+        <span class="size-name">${name}</span>
+        <button type="button" data-act="blockedSize" data-arg="${key}:-1" aria-label="${name}: меньше"${value <= 1 ? ' disabled' : ''}>${icon('minus')}</button>
+        <span class="size-value">${value}\u00a0м</span>
+        <button type="button" data-act="blockedSize" data-arg="${key}:1" aria-label="${name}: больше">${icon('plus')}</button>
+      </div>`;
+    return `<p class="edit-hint muted">Угол у «A (0,0)»: X ${b.x}, Y ${b.y}\u00a0м. Перетащите на плане или сдвиньте стрелками; от его краёв держится тот же отступ, что от края площадки.</p>
+      <div class="edit-tools">
+        <span class="tool-group" role="group" aria-label="Сдвинуть">
+          ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
+        </span>
+      </div>
+      <div class="edit-actions"><button type="button" class="danger" data-act="remove">Убрать</button></div>
+      <div class="edit-sizes">${size('w', 'По X', b.w)}${size('h', 'По Y', b.h)}</div>`;
+  }
+
   function elementHtml() {
     const i = selected;
     const el = layout.elements[i];
@@ -372,10 +449,11 @@ export function createEditor(host) {
     const scroll = body.scrollTop;
     // About the whole course, so it is offered with no element selected.
     const reset = courseOf(layout) === courseOf(base) ? '' : '<button type="button" class="link" data-act="reset">Сбросить все правки</button>';
-    const hint = selected === null ? '<p class="edit-hint muted">Нажмите на строку или на элемент на плане, чтобы править его. Выбранный элемент перетаскивается по плану.</p>' : '';
-    body.innerHTML = `${listHtml()}${hint}${reset}`;
+    if (block !== null && block >= layout.recipe.blocked.length) block = null;
+    const hint = selected === null && block === null ? '<p class="edit-hint muted">Нажмите на строку или на элемент на плане, чтобы править его. Выбранный элемент перетаскивается по плану.</p>' : '';
+    body.innerHTML = `${listHtml()}${blockedListHtml()}${hint}${reset}`;
     renderProblems();
-    $('edit-title').textContent = selected === null ? 'Правка трассы' : `${selected + 1}. ${name(selected)}`;
+    $('edit-title').textContent = selected !== null ? `${selected + 1}. ${name(selected)}` : block !== null ? blockedTitle(layout, block) : 'Правка трассы';
     $('edit-undo').disabled = !undo.length;
     $('edit-redo').disabled = !redo.length;
     body.scrollTop = scroll;
@@ -571,7 +649,7 @@ export function createEditor(host) {
     /** The course differs from the generated one. */
     get edited() { return !!layout && courseOf(layout) !== courseOf(base); },
     get problems() { return routed?.problems ?? []; },
-    get selectedId() { return idOf(selected); },
+    get selectedId() { return block !== null ? `b${block + 1}` : idOf(selected); },
     get dragging() { return !!drag; },
     get pickerOpen() { return !!picker; },
 
@@ -587,6 +665,7 @@ export function createEditor(host) {
       undo = [];
       redo = [];
       selected = null;
+      block = null;
       drag = null;
       routed = { course, problems: [] };
       if (edited && courseOf(edited) !== courseOf(base)) {
@@ -601,6 +680,7 @@ export function createEditor(host) {
     enter(id = null) {
       active = true;
       selected = indexOf(id);
+      block = null;
       shownSelected = null;
       say('');
       show();
@@ -610,16 +690,27 @@ export function createEditor(host) {
     leave() {
       active = false;
       selected = null;
+      block = null;
       drag = null;
     },
 
     /** A tap on the plan: the element under it, or nothing. */
     select(id) {
-      select(indexOf(id));
+      select(indexOf(id), blockOf(id));
     },
 
     /** A finger went down on an element and moved: it is selected and follows the finger until `dragEnd`. */
     dragStart(id) {
+      const k = blockOf(id);
+      if (k !== null) {
+        if (block !== k || selected !== null) {
+          selected = null;
+          block = k;
+          render();
+        }
+        drag = { from: layout, block: k, x: layout.recipe.blocked[k].x, y: layout.recipe.blocked[k].y };
+        return true;
+      }
       const i = indexOf(id);
       if (i === null) return false;
       if (selected !== i) {
@@ -633,7 +724,9 @@ export function createEditor(host) {
     /** The dragged element, (dx, dy) metres from where the drag began. */
     dragBy(dx, dy) {
       if (!drag) return;
-      const next = moveElement(drag.from, drag.i, drag.x + dx, drag.y + dy);
+      const next = drag.block !== undefined
+        ? moveBlocked(drag.from, drag.block, drag.x + dx, drag.y + dy)
+        : moveElement(drag.from, drag.i, drag.x + dx, drag.y + dy);
       if (elementsOf(next) === elementsOf(layout)) return;
       layout = next;
       routed = routeLayout(layout);
@@ -643,14 +736,20 @@ export function createEditor(host) {
 
     dragEnd() {
       if (!drag) return;
-      const { from, i } = drag;
+      const { from, i, block: k } = drag;
       drag = null;
       if (elementsOf(from) !== elementsOf(layout)) {
-        undo.push({ layout: from, selected: i });
+        undo.push(k !== undefined ? { layout: from, selected: null, block: k } : { layout: from, selected: i, block: null });
         if (undo.length > UNDO_MAX) undo.shift();
         redo = [];
-        const el = layout.elements[i];
-        say(`Элемент ${i + 1}: якорь X ${el.x}, Y ${el.y} м.${problemsNote(routeLayout(from).problems.length)}`);
+        const before = routeLayout(from).problems.length;
+        if (k !== undefined) {
+          const b = layout.recipe.blocked[k];
+          say(`${blockedTitle(layout, k)}: X ${b.x}, Y ${b.y} м.${problemsNote(before)}`);
+        } else {
+          const el = layout.elements[i];
+          say(`Элемент ${i + 1}: якорь X ${el.x}, Y ${el.y} м.${problemsNote(before)}`);
+        }
       }
       show();
       render();
@@ -671,9 +770,21 @@ export function createEditor(host) {
       }
       if (mod || e.altKey || drag) return false;
       if (k === 'Escape') {
-        if (selected !== null) select(null);
+        if (selected !== null || block !== null) select(null);
         else host.leave();
         return true;
+      }
+      if (block !== null) {
+        if (NUDGES[k]) {
+          const [dx, dy] = NUDGES[k];
+          nudge(dx * (e.shiftKey ? 5 : 1), dy * (e.shiftKey ? 5 : 1));
+          return true;
+        }
+        if (k === 'Delete' || k === 'Backspace') {
+          ACTIONS.remove();
+          return true;
+        }
+        return false;
       }
       if (selected === null) return false;
       if (NUDGES[k]) {

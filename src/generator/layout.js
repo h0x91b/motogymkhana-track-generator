@@ -15,12 +15,12 @@
 import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  assemble, boxEntries, boxFinish, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
-  MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
+  areaClear, assemble, boxEntries, boxFinish, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
+  lineOnAsphalt, MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, quadOnAsphalt, ridden, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
-  ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
+  BLOCKED_KINDS, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
 
 export { ELEMENTS_MAX };
@@ -134,7 +134,7 @@ function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, 
       const bounds = pointsBounds(points);
       const cones = uTurnCones(path.arcs, coneGap);
       const faults = [];
-      if (!points.every((p) => inside(inner, p))) faults.push({ code: 'connector-off-site', weight: 16 });
+      if (!lineOnAsphalt(inner, points, bounds)) faults.push({ code: 'connector-off-site', weight: 16 });
       const hit = zones.filter((z) => !pathClear(points, bounds, [z]));
       if (hit.length) faults.push({ code: 'connector-zone', weight: 8, hit });
       if (path.turnLeft + path.turnRight > maxTurn) faults.push({ code: 'connector-loop', weight: 4 });
@@ -151,6 +151,17 @@ function looseConnector(from, to, radius, inner, zones, paths, maxTurn, accept, 
 }
 
 const fmt = (v) => String(Math.round(v * 100) / 100).replace('.', ',');
+
+/**
+ * «вырез 1» or «препятствие 2», numbered in the recipe's list: the first
+ * blocked area an element's core comes within the margin of, or, given, that
+ * its run-off zone (a shape) enters.
+ */
+function blockedName(inner, core, runOff = null) {
+  const only = (b) => Object.assign([inner[0], inner[1], inner[2], inner[3]], { blocked: [b] });
+  const k = Math.max(0, inner.blocked.findIndex((b) => (runOff ? !areaClear(only(b), runOff) : !quadOnAsphalt(only(b), core))));
+  return `${BLOCKED_NAMES[inner.blocked[k].kind]} ${k + 1}`;
+}
 
 const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
 
@@ -184,8 +195,12 @@ export function routeLayout(layout) {
   placed.forEach((p, i) => {
     if (!p.core.every((q) => inside(inner, q))) {
       report('off-site', edge > 0 ? `Элемент ${i + 1} ближе ${fmt(edge)} м к краю площадки — отодвиньте его от края` : `Элемент ${i + 1} выходит за площадку — отодвиньте его от края`, { elements: [id(i)] });
+    } else if (!quadOnAsphalt(inner, p.core)) {
+      report('blocked', `Элемент ${i + 1} заходит на ${blockedName(inner, p.core)} или стоит ближе ${fmt(edge)} м к нему — отодвиньте элемент`, { elements: [id(i)] });
     } else if (p.runOffPoly && !p.runOffPoly.every((q) => inside(site, q))) {
       report('run-off-site', `Зоне выката элемента ${i + 1} не хватает ${fmt(p.tpl.margins.runOff)} м асфальта у края площадки — отодвиньте его от края или уменьшите выкат`, { elements: [id(i)] });
+    } else if (p.runOff && !areaClear(inner, p.runOff)) {
+      report('run-off-blocked', `Зона выката элемента ${i + 1} заходит на ${blockedName(inner, null, p.runOff)}: вокруг разворота нужно ${fmt(p.tpl.margins.runOff)} м асфальта — отодвиньте элемент или уменьшите выкат`, { elements: [id(i)] });
     }
   });
   for (let i = 0; i < n; i++) {
@@ -563,6 +578,7 @@ export function insertElement(layout, at, type) {
   const el = { type, sizes: startingSizes(type, recipe), axis: 0, mirrored: false, x: 0, y: 0 };
   const turn = (a, b) => Math.abs(wrapPi(a - b));
   const bearing = (from, to) => Math.atan2(to[1] - from[1], to[0] - from[0]);
+  const inner = innerRect(recipe);
   const spots = [];
   for (const axis of typeAxes(type)) {
     const origin = place({ ...el, axis }, recipe);
@@ -574,7 +590,8 @@ export function insertElement(layout, at, type) {
           runOff: origin.runOff && shiftShape(origin.runOff, x, y),
           ends: origin.ends.map((e) => ({ points: e.points.map(([px, py]) => [px + x, py + y]), bounds: [e.bounds[0] + x, e.bounds[1] + y, e.bounds[2] + x, e.bounds[3] + y] })),
         };
-        const free = others.every((o) => !clash(at, o) && !inRunOff(o, at) && !inRunOff(at, o));
+        const core = origin.core.map(([cx, cy]) => [cx + x, cy + y]);
+        const free = quadOnAsphalt(inner, core) && (!at.runOff || areaClear(inner, at.runOff)) && others.every((o) => !clash(at, o) && !inRunOff(o, at) && !inRunOff(at, o));
         const entry = [origin.entry[0] + x, origin.entry[1] + y];
         const exit = [origin.exit[0] + x, origin.exit[1] + y];
         const centre = [origin.center[0] + x, origin.center[1] + y];
@@ -602,6 +619,51 @@ export function insertElement(layout, at, type) {
     if (!best || count < best.count) best = { count, candidate };
   }
   return best.candidate;
+}
+
+// ---------------------------------------------------------------- blocked areas
+
+const withBlocked = (layout, blocked) => ({ ...layout, recipe: { ...layout.recipe, blocked } });
+const clampTo = (v, lo, hi) => Math.min(Math.max(Math.round(v), lo), hi);
+
+/** Blocked area k kept on the site: whole metres, at least 1 × 1 m, inside the lot's rectangle. */
+function onSite(b, recipe) {
+  const w = clampTo(b.w, 1, recipe.width);
+  const h = clampTo(b.h, 1, recipe.length);
+  return { kind: b.kind, x: clampTo(b.x, 0, recipe.width - w), y: clampTo(b.y, 0, recipe.length - h), w, h };
+}
+
+/** Default size of a new blocked area: a parked car, or a 6 × 6 m cutout. */
+export const BLOCKED_DEFAULT = { obstacle: { w: 2, h: 5 }, cutout: { w: 6, h: 6 } };
+
+/**
+ * Adds a blocked area of `kind`: an obstacle in the middle of the lot, a cutout
+ * at its lower left corner (cutouts are usually bites out of an edge). Its
+ * number is its place in the list, so it is the last one.
+ */
+export function addBlocked(layout, kind) {
+  const { recipe } = layout;
+  if (!BLOCKED_KINDS.includes(kind) || recipe.blocked.length >= BLOCKED_MAX) return layout;
+  const { w, h } = BLOCKED_DEFAULT[kind];
+  const b = kind === 'cutout' ? { kind, x: 0, y: 0, w, h } : { kind, x: recipe.width / 2 - w / 2, y: recipe.length / 2 - h / 2, w, h };
+  return withBlocked(layout, [...recipe.blocked, onSite(b, recipe)]);
+}
+
+/** Moves blocked area k so its corner nearest the reference corner is at (x, y), whole metres, on the site. */
+export function moveBlocked(layout, k, x, y) {
+  const { recipe } = layout;
+  return withBlocked(layout, recipe.blocked.map((b, i) => (i === k ? onSite({ ...b, x, y }, recipe) : b)));
+}
+
+/** Gives blocked area k a new size along x and y, whole metres; its corner nearest the reference corner stays where the site lets it. */
+export function resizeBlocked(layout, k, w, h) {
+  const { recipe } = layout;
+  return withBlocked(layout, recipe.blocked.map((b, i) => (i === k ? onSite({ ...b, w, h }, recipe) : b)));
+}
+
+/** Removes blocked area k; the numbers of those after it move up by one. */
+export function removeBlocked(layout, k) {
+  return withBlocked(layout, layout.recipe.blocked.filter((_, i) => i !== k));
 }
 
 /** The sizes of element i as the editor shows them, with the steps down and up (`sizeControls`). */
