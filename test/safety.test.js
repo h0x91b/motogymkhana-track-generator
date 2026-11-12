@@ -10,6 +10,7 @@ import { elementSafety, layoutOf, moveElement, parseLayout, routeLayout, setElem
 import { reservedZones } from '../src/render/reserved.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { coneXY, conesById, insidePolygon } from './helpers/course-geometry.js';
+import { slowTest, sweep } from './helpers/slow.js';
 
 const SLOW = 30000;
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: true };
@@ -47,7 +48,7 @@ describe('the recipe', () => {
   });
 
   test('a course at defaults is the same as one with every default spelled out', () => {
-    for (let seed = 1; seed <= 3; seed++) {
+    for (let seed = 1; seed <= sweep(3, 2); seed++) {
       expect(canonicalJSON(course({ ...ANTON, safety: { ...SAFETY_DEFAULTS } }, seed))).toBe(canonicalJSON(course(ANTON, seed)));
     }
   }, SLOW);
@@ -57,7 +58,7 @@ describe('the generated course keeps the values set', () => {
   const recipe = { width: 40, length: 50, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: false };
 
   test('run-off 2 m: every run-off side but a turnaround\'s entry lies 2 m out from the cones', () => {
-    for (let seed = 1; seed <= 6; seed++) {
+    for (let seed = 1; seed <= sweep(6, 3); seed++) {
       const c = course({ ...recipe, safety: { runOff: 2 } }, seed);
       const byId = conesById(c);
       for (const e of c.elements.filter((el) => el.runOff)) {
@@ -72,7 +73,7 @@ describe('the generated course keeps the values set', () => {
   }, SLOW);
 
   test('run-off 0: no element has a run-off zone, and nothing is drawn for one', () => {
-    for (let seed = 1; seed <= 6; seed++) {
+    for (let seed = 1; seed <= sweep(6, 3); seed++) {
       const c = course({ ...recipe, safety: { runOff: 0 } }, seed);
       expect(c.elements.some((e) => e.runOff)).toBe(false);
       expect(reservedZones(c).some((z) => z.kind === 'runOff')).toBe(false);
@@ -93,7 +94,7 @@ describe('the generated course keeps the values set', () => {
 
   test('lot edge: every cone keeps the margin set, and the course says which', () => {
     for (const edge of [0, 3]) {
-      for (let seed = 1; seed <= 4; seed++) {
+      for (let seed = 1; seed <= sweep(4, 2); seed++) {
         const c = course({ ...recipe, safety: { edge } }, seed);
         expect(c.site.margin).toBe(edge);
         for (const cone of c.cones) {
@@ -106,7 +107,7 @@ describe('the generated course keeps the values set', () => {
 
   test('U-turn cone keep-out: the square drawn is the one kept, and none at 0', () => {
     let seen = 0;
-    for (let seed = 1; seed <= 8; seed++) {
+    for (let seed = 1; seed <= sweep(8, 4); seed++) {
       for (const coneGap of [0, 2.5]) {
         const c = course({ ...recipe, safety: { coneGap } }, seed);
         const squares = reservedZones(c).filter((z) => z.kind === 'turnCone');
@@ -124,7 +125,8 @@ describe('the generated course keeps the values set', () => {
     expect(seen).toBeGreaterThan(0);
   }, SLOW);
 
-  test('«паровозик» clearance: a wider one never places more, 0 switches the check off', () => {
+  // Means over 15 seeds: statistics, run in the slow suite only.
+  slowTest('«паровозик» clearance: a wider one never places more, 0 switches the check off', () => {
     const wide = placedMean({ ...ANTON, safety: { trainGap: 3 } }, 15);
     const normal = placedMean(ANTON, 15);
     const off = placedMean({ ...ANTON, safety: { trainGap: 0 } }, 15);
@@ -132,7 +134,7 @@ describe('the generated course keeps the values set', () => {
     expect(off).toBeGreaterThanOrEqual(normal - 0.2);
   }, SLOW * 4);
 
-  test('a tight lot packs more with the margins narrowed', () => {
+  slowTest('a tight lot packs more with the margins narrowed', () => {
     const tight = { ...ANTON, train: false };
     expect(placedMean({ ...tight, safety: { runOff: 0, pad: 0.25 } }, 15)).toBeGreaterThan(placedMean(tight, 15));
   }, SLOW * 4);

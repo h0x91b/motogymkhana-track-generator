@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ELEMENT_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
 import { DIFFICULTIES } from '../src/generator/recipe.js';
 import { instantiate, isBig, minimalParams } from '../src/generator/catalog.js';
+import { sweep } from './helpers/slow.js';
 
 const baseRecipe = {
   width: 40,
@@ -125,7 +126,7 @@ const geometry = (c) => JSON.stringify({ cones: c.cones, elements: c.elements, p
 
 describe('determinism', () => {
   test('the same recipe and seed give byte-identical courses', () => {
-    for (const seed of [0, 1, 99, 123456789, 4294967295]) {
+    for (const seed of sweep([0, 1, 99, 123456789, 4294967295], [0, 4294967295])) {
       const a = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
       const b = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
       expect(JSON.stringify(a)).toBe(JSON.stringify(b));
@@ -134,17 +135,19 @@ describe('determinism', () => {
 
   test('different seeds give different courses', () => {
     const seen = new Set();
-    for (let seed = 0; seed < 20; seed++) seen.add(geometry(generateCourse(baseRecipe, seed).course));
-    expect(seen.size).toBe(20);
+    const n = sweep(20, 8);
+    for (let seed = 0; seed < n; seed++) seen.add(geometry(generateCourse(baseRecipe, seed).course));
+    expect(seen.size).toBe(n);
   });
 });
 
 describe('simplification', () => {
+  const SIMPLIFY_SEEDS = sweep(40, 6);
   const tight = { width: 30, length: 40, elements: 6, difficulty: 'easy', closed: true };
 
   test('a course simplified from N to K elements is exactly the course ordered with K', () => {
     let simplified = 0;
-    for (let seed = 0; seed < 40; seed++) {
+    for (let seed = 0; seed < SIMPLIFY_SEEDS; seed++) {
       const full = generateCourse(tight, seed).course;
       expect(full.requested).toBe(6);
       if (full.placed === 6) continue;
@@ -153,20 +156,20 @@ describe('simplification', () => {
       expect(direct.placed).toBe(full.placed);
       expect(geometry(full)).toBe(geometry(direct));
     }
-    expect(simplified).toBeGreaterThan(5);
+    expect(simplified).toBeGreaterThan(sweep(5, 1));
   }, 30_000);
 
   test('the same holds for a course finishing by the start', () => {
     const home = { ...tight, shape: 'return' };
     let simplified = 0;
-    for (let seed = 0; seed < 40; seed++) {
+    for (let seed = 0; seed < SIMPLIFY_SEEDS; seed++) {
       const full = generateCourse(home, seed).course;
       if (full.placed === 6) continue;
       simplified++;
       const direct = generateCourse({ ...home, elements: full.placed }, seed).course;
       expect(geometry(full)).toBe(geometry(direct));
     }
-    expect(simplified).toBeGreaterThan(5);
+    expect(simplified).toBeGreaterThan(sweep(5, 1));
   }, 30_000);
 
   test('a site too small for any allowed element is an error with the computed numbers, not an empty course', () => {

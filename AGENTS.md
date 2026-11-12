@@ -21,7 +21,8 @@ Mobile-first generator of motogymkhana training courses: form + seed → course 
 
 ## Commands
 
-- `bun test` — unit tests (the generator seam `generateCourse`, the setup-sheet seam `buildSetupSheet`, the editor seam `routeLayout` and the file seam `readCourseFile`/`conesCsv`): repeatability, invariants and statistics over many seeds.
+- `bun test` — unit tests (the generator seam `generateCourse`, the setup-sheet seam `buildSetupSheet`, the editor seam `routeLayout` and the file seam `readCourseFile`/`conesCsv`): repeatability and every invariant, on a few seeds per recipe.
+- `SLOW=1 bun test` (`bun run test:slow`) — the same suite with the full sweeps over hundreds of seeds and the statistical tests (means, ratios, counts over many courses); about two minutes. `bun test` alone checks every rule on a few seeds per recipe and must stay fast (it is the required PR check); the slow suite runs as the non-required `slow-tests` CI job. A new seed sweep or statistic goes through `sweep`/`slowTest` from `test/helpers/slow.js`.
 - `bun run build` — writes the single self-contained `dist/motogymkhana-constructor.html` (and `dist/index.html`), stamped with the build id (short commit hash + date) shown in the form.
 - `bun scripts/bench.mjs` — mean elements placed over seeds 1–100 for the field tester's lots and the default course.
 - `bun run dev` — dev server on `PORT`/`DEV3_PORT` (default 5173), bound to all interfaces for testing on a phone.
