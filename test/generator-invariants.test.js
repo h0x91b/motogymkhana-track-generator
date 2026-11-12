@@ -495,7 +495,11 @@ describe('U-turn cones on connectors', () => {
         const cones = (leg.cones ?? []).map((id) => byId.get(id));
         const used = new Set();
         const gentle = [];
-        for (const t of circularTurns(leg.path, radius)) {
+        // The way back of a finish by the start ends in a straight run-in across
+        // the line and on into the box (checked by its own test): only 3.5 m,
+        // short enough for the circle fit to bend its last turn into it.
+        const path = leg.to === 'finish' && c.route.shape === 'return' ? leg.path.slice(0, -2) : leg.path;
+        for (const t of circularTurns(path, radius)) {
           // The cone sits on the half-metre lattice: within 0.36 m of the true centre,
           // and a circle fitted to 1 cm-rounded samples can miss that centre by
           // up to about 0.15 m more.
@@ -823,11 +827,15 @@ describe('route', () => {
     });
   });
 
-  test('a course finishing by the start: one square box, left across its start line and entered again by its back or a side, never the front', () => {
+  test('a course finishing by the start: one square box, left across its start line and entered again across the same line, the other way', () => {
     const angleOf = (dir) => (dir * Math.PI) / 4;
     const off = (a, b) => Math.abs(((a - b + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+    // Proper crossing of segments ab and cd.
+    const cross = (a, b, c, d) => {
+      const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+      return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b) && o(a, b, c) !== 0 && o(a, b, d) !== 0;
+    };
     let n = 0;
-    const seen = new Set();
     each((c, recipe) => {
       if (recipe.shape !== 'return') return;
       n++;
@@ -838,24 +846,23 @@ describe('route', () => {
       const side = (i) => Math.hypot(box[(i + 1) % 4][0] - box[i][0], box[(i + 1) % 4][1] - box[i][1]);
       for (const i of [1, 2, 3]) expect(side(i), label(c)).toBeCloseTo(side(0), 6);
       expect(Math.hypot((box[0][0] + box[1][0]) / 2 - start.x, (box[0][1] + box[1][1]) / 2 - start.y), label(c)).toBeLessThan(0.02);
-      // The rider stops in the middle of the box, having entered by its back or a side.
-      const middle = [(box[0][0] + box[2][0]) / 2, (box[0][1] + box[2][1]) / 2];
-      expect(Math.hypot(finish.x - middle[0], finish.y - middle[1]), label(c)).toBeLessThan(0.02);
-      const turn = (finish.dir - start.dir + 8) % 8;
-      expect([0, 2, 6], label(c)).toContain(turn);
-      seen.add(turn);
-      expect(finish.zone).toEqual(start.zone);
-      // Lined up one turning radius before the box's zone, then straight in;
-      // only that last straight is inside the zone.
+      expect(finish.cones).toEqual(start.cones);
+      // Back the other way: square on or at 45°.
+      expect([3, 4, 5], label(c)).toContain((finish.dir - start.dir + 8) % 8);
+      // Lined up, then across the middle of the start line and on into the box, where the rider stops.
       const back = legs.at(-1);
       expect(back.to).toBe('finish');
       const [p, q, r] = back.path.slice(-3);
+      expect(Math.hypot(q[0] - start.x, q[1] - start.y), label(c)).toBeLessThan(0.02);
       for (const [a, b] of [[p, q], [q, r]]) expect(off(Math.atan2(b[1] - a[1], b[0] - a[0]), angleOf(finish.dir)), label(c)).toBeLessThan(1e-6);
-      expect(polylineEnters(back.path.slice(0, -1), start.zone), label(c)).toBe(false);
+      expect(insidePolygon(box, [finish.x, finish.y], 0.2), label(c)).toBe(true);
+      // The way back gets into the box only across the start line: never across its back or sides.
+      for (let k = 1; k < back.path.length; k++) {
+        for (const s of [1, 2, 3]) expect(cross(back.path[k - 1], back.path[k], box[s], box[(s + 1) % 4]), label(c)).toBe(false);
+      }
+      expect(polylineEnters(back.path.slice(0, -2), box), label(c)).toBe(false);
     });
     expect(n).toBeGreaterThan(0);
-    // Not only through the back: the sides are used too.
-    expect(seen.size).toBeGreaterThan(1);
   });
 
   test('only allowed types are used, never the same type twice in a row', () => {
@@ -934,22 +941,29 @@ describe('паровозик', () => {
         const byId = new Map(c.elements.map((e) => [e.id, e]));
         const pts = [];
         const owner = [];
-        for (const leg of c.route.legs) {
+        // A finish by the start comes back across the start line: by then the
+        // whole column has ridden the start and the first element, so the way
+        // back is not checked against them.
+        const stretch = [];
+        const { legs } = c.route;
+        legs.forEach((leg, k) => {
           const e = leg.kind === 'connector' ? null : byId.get(leg.element);
           const dense = densify(e ? e.path : leg.path, 0.25);
           pts.push(...dense);
           owner.push(...dense.map(() => (e && TRAIN_EXEMPT_TYPES.includes(e.type) ? e.id : null)));
-        }
+          const part = c.route.shape !== 'return' ? null : k <= 1 ? 'head' : k === legs.length - 1 ? 'back' : null;
+          stretch.push(...dense.map(() => part));
+        });
         const at = [0];
         for (let i = 1; i < pts.length; i++) at.push(at[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
         const total = at[at.length - 1];
         for (let i = 0; i < pts.length; i++) {
           for (let j = i + 1; j < pts.length; j++) {
             const along = at[j] - at[i];
-            // A closed course is ridden round and round, and a finish by the start
-            // ends in the box it left: count the way through the finish too.
-            const gap = c.route.shape !== 'open' ? Math.min(along, total - along) : along;
+            // A closed course is ridden round and round: count the way through the finish too.
+            const gap = c.route.shape === 'closed' ? Math.min(along, total - along) : along;
             if (gap < TRAIN_NEAR || (owner[i] !== null && owner[i] === owner[j])) continue;
+            if (stretch[i] === 'head' && stretch[j] === 'back') continue;
             const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1]);
             if (d < TRAIN_CLEARANCE) throw new Error(`${name} seed ${c.seed}: ${d.toFixed(2)} m apart after ${gap.toFixed(1)} m of route at (${pts[i].map((v) => v.toFixed(1))})`);
           }

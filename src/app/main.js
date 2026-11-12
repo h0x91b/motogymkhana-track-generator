@@ -3,7 +3,7 @@ import {
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
-import { BOX_ENTRY_LABELS, buildSetupSheet, dist, fmt } from '../sheet/setup-sheet.js';
+import { buildSetupSheet, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
@@ -220,7 +220,7 @@ function syncTypes() {
 const SHAPE_HINTS = {
   open: 'Старт и финиш генератор ставит где угодно на площадке.',
   closed: 'Одна линия — и старт, и финиш: последняя связка ведёт обратно на старт, трассу можно ехать по кругу.',
-  return: 'Одна коробка — и старт, и финиш: гонщик выезжает из неё через линию старта и в конце заезжает обратно в неё же, сзади или сбоку.',
+  return: 'Одна коробка и одна линия с датчиком времени: гонщик выезжает из коробки через линию и в конце возвращается через неё же обратно в коробку.',
 };
 
 function syncShapeHint() {
@@ -918,7 +918,7 @@ function terminalHtml(t, title) {
   const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${dist(c.x)} м</td><td>Y ${dist(c.y)} м</td></tr>`).join('');
   const { finish } = state.sheet;
   const what = t.box
-    ? `Четыре низких конуса — коробка ${dist(t.box.size)} × ${dist(t.box.size)} м. Первые два — линия старта, выезд через неё (${esc(t.travel)}); финиш — заезд обратно в коробку ${esc(BOX_ENTRY_LABELS[finish.entry])} (${esc(finish.travel)}) и остановка в ней`
+    ? `Четыре низких конуса — коробка ${dist(t.box.size)} × ${dist(t.box.size)} м. Первые два — линия старта и финиша, на ней датчик времени: выезд через неё (${esc(t.travel)}), финиш — обратно через неё же ${esc(CROSSING_LABELS[finish.crossing])} (${esc(finish.travel)}) и остановка в коробке`
     : `Два низких конуса, линия поперёк проезда (${esc(t.travel)})`;
   return `<h3>${title}</h3><p class="muted">${what}</p>
     <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
