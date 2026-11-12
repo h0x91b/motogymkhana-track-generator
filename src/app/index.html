@@ -90,6 +90,16 @@
       </div>
       <p class="err" id="err-width" data-for="width"></p>
       <p class="err" id="err-length" data-for="length"></p>
+      <fieldset class="blocked" aria-describedby="blocked-hint err-blocked">
+        <legend>Вырезы и препятствия</legend>
+        <p class="muted hint" id="blocked-hint">Где трассу ставить нельзя: вырез — площадки там нет (П-образная площадка — прямоугольник с вырезом), препятствие — машина, столб, островок. X и Y — угол, ближний к «A (0,0)», затем размер по X и по Y; целые метры. От их краёв, как от края площадки, отступ 1 м.</p>
+        <ol class="blocked-list" id="blocked-list"></ol>
+        <div class="blocked-add">
+          <button type="button" data-add-blocked="cutout">+ Вырез</button>
+          <button type="button" data-add-blocked="obstacle">+ Препятствие</button>
+        </div>
+        <p class="err" id="err-blocked" data-for="blocked"></p>
+      </fieldset>
       <label>Элементов
         <span class="stepper">
           <button type="button" data-step="-1" aria-label="Меньше">−</button>

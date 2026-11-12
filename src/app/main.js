@@ -1,5 +1,5 @@
 import {
-  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
+  BIG_ELEMENT_AREA, BLOCKED_DEFAULT, BLOCKED_MAX, BLOCKED_NAMES, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
@@ -26,7 +26,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'return', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {}, safety: {},
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'return', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {}, safety: {}, blocked: [],
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -234,6 +234,64 @@ function savedShape(saved) {
   return DEFAULT_FORM.shape;
 }
 
+// ---------------------------------------------------------------- blocked areas
+
+const BLOCKED_FIELDS = [['x', 'X'], ['y', 'Y'], ['w', 'по X'], ['h', 'по Y']];
+const capital = (s) => s[0].toUpperCase() + s.slice(1);
+
+/** The rows of the blocked areas: what they are, X and Y of the corner nearest A (0,0), the size along x and y. */
+function writeBlocked(list) {
+  const ol = $('blocked-list');
+  ol.replaceChildren(...list.map((b, i) => {
+    const li = document.createElement('li');
+    li.dataset.kind = b.kind;
+    const title = `${capital(BLOCKED_NAMES[b.kind])} ${i + 1}`;
+    li.innerHTML = `<span class="blocked-name">${title}</span>`
+      + BLOCKED_FIELDS.map(([key, label]) => `<label>${label}<input data-blocked="${key}" inputmode="numeric" enterkeyhint="done" value="${String(b[key] ?? '').replace(/"/g, '')}" aria-label="${title}: ${key === 'x' || key === 'y' ? key.toUpperCase() : label}, м"></label>`).join('')
+      + `<button type="button" class="blocked-remove" data-remove-blocked="${i}" aria-label="Убрать: ${title.toLowerCase()}" title="Убрать">✕</button>`;
+    return li;
+  }));
+  for (const b of form.querySelectorAll('[data-add-blocked]')) b.disabled = list.length >= BLOCKED_MAX;
+}
+
+/** The blocked areas as typed, strings for the recipe to check. */
+function readBlocked() {
+  return [...$('blocked-list').children].map((li) => ({
+    kind: li.dataset.kind,
+    ...Object.fromEntries(BLOCKED_FIELDS.map(([key]) => [key, li.querySelector(`[data-blocked="${key}"]`).value])),
+  }));
+}
+
+/** A new blocked area: an obstacle the size of a parked car in the middle of the lot, a cutout at A (0,0). */
+function addBlockedRow(kind) {
+  const list = readBlocked();
+  if (list.length >= BLOCKED_MAX) return;
+  const { w, h } = BLOCKED_DEFAULT[kind];
+  const W = Number.parseInt(form.width.value, 10) || 40;
+  const L = Number.parseInt(form.length.value, 10) || 60;
+  const at = kind === 'cutout' ? { x: 0, y: 0 } : { x: Math.max(0, Math.round(W / 2 - w / 2)), y: Math.max(0, Math.round(L / 2 - h / 2)) };
+  writeBlocked([...list, { kind, ...at, w, h }].map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, String(v)]))));
+  $('blocked-list').lastElementChild.querySelector('input').focus({ preventScroll: true });
+  onFormChange(true);
+}
+
+/**
+ * Blocked areas changed in «Правка»: they describe the lot, so the form takes
+ * them over — without generating a new course, which the edits are on top of.
+ * The edited course now counts as made from this recipe.
+ */
+function adoptBlocked(recipe) {
+  const same = JSON.stringify(readBlocked().map((b) => [b.kind, ...['x', 'y', 'w', 'h'].map((k) => Number(b[k]))]))
+    === JSON.stringify(recipe.blocked.map((b) => [b.kind, b.x, b.y, b.w, b.h]));
+  if (same) return;
+  writeBlocked(recipe.blocked.map((b) => ({ kind: b.kind, x: String(b.x), y: String(b.y), w: String(b.w), h: String(b.h) })));
+  state.form = readForm();
+  saveForm({ ...state.form, knownTypes: ELEMENT_TYPES });
+  showErrors(validate(state.form).errors);
+  state.courseKey = canonicalJSON({ recipe, seed: state.course.seed });
+  state.courseForm = { ...state.form };
+}
+
 function writeForm(f) {
   form.width.value = f.width;
   form.length.value = f.length;
@@ -244,6 +302,7 @@ function writeForm(f) {
   syncShapeHint();
   form.train.checked = !!f.train;
   form.seed.value = f.seed;
+  writeBlocked(Array.isArray(f.blocked) ? f.blocked : []);
   for (const c of form.querySelectorAll('[name="types"]')) c.checked = f.types.includes(c.value);
   for (const [type, options] of Object.entries(SIZE_OPTIONS)) {
     for (const o of options) {
@@ -274,6 +333,7 @@ function readForm() {
     types: [...form.querySelectorAll('[name="types"]:checked')].map((c) => c.value),
     sizes: readSizes(),
     safety: readSafety(),
+    blocked: readBlocked(),
   };
 }
 
@@ -296,6 +356,7 @@ function showErrors(errors) {
   }
   if (errors.types || errors.sizes) form.querySelector('details').open = true;
   if (errors.safety) $('safety-details').open = true;
+  for (const input of form.querySelectorAll('[data-blocked]')) input.setAttribute('aria-invalid', errors.blocked ? 'true' : 'false');
 }
 
 function validate(raw) {
@@ -430,7 +491,7 @@ function setProblems(problems) {
 function shortfallText(course) {
   return course.limitedBy === 'big-elements'
     ? `Один элемент из ${course.requested}: отмеченные типы на этой сложности всегда большие (от ${BIG_ELEMENT_AREA} м²), а большой элемент на трассе может быть только один. Отметьте и другие типы`
-    : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку`;
+    : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку${course.recipe.blocked?.length ? ' или проверьте вырезы и препятствия' : ''}`;
 }
 
 function generate(recipe, seed) {
@@ -501,6 +562,14 @@ function sizesSummary(f) {
   return `${items.slice(0, SUMMARY_SIZES).join(' · ')} · ещё ${items.length - SUMMARY_SIZES} разм.`;
 }
 
+/** «вырез, 2 препятствия» for the summary line. */
+function blockedSummary(f) {
+  const count = (kind) => (f.blocked ?? []).filter((b) => b.kind === kind).length;
+  const word = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
+  const part = (n, one, few, many) => (n === 0 ? '' : n === 1 ? one : `${n} ${word(n, one, few, many)}`);
+  return [part(count('cutout'), 'вырез', 'выреза', 'вырезов'), part(count('obstacle'), 'препятствие', 'препятствия', 'препятствий')].filter(Boolean).join(', ');
+}
+
 function renderSummary() {
   const f = state.form;
   const c = state.course;
@@ -521,6 +590,7 @@ function renderSummary() {
   parts.push({ text: SHAPE_NAMES[f.shape] ?? '' });
   if (f.train) parts.push({ text: 'паровозик' });
   parts.push({ text: sizesSummary(f) });
+  parts.push({ text: blockedSummary(f) });
   parts.push({ text: `seed ${f.seed || '—'}` });
   const shown = parts.filter((part) => part.text);
   const summary = $('summary');
@@ -949,6 +1019,7 @@ const editor = createEditor({
   },
   leave: () => exitEdit(),
   facts: (id) => elementFacts(id),
+  blocked: (recipe) => adoptBlocked(recipe),
   /** The type picker is modal: what is behind it goes inert. */
   modal(open) {
     for (const id of BEHIND_PICKER) $(id).inert = open;
@@ -1510,6 +1581,16 @@ function start() {
     });
   }
   $('form-new-seed').addEventListener('click', newSeed);
+  form.addEventListener('click', (e) => {
+    const add = e.target.closest('[data-add-blocked]');
+    if (add && !add.disabled) addBlockedRow(add.dataset.addBlocked);
+    const remove = e.target.closest('[data-remove-blocked]');
+    if (!remove) return;
+    const list = readBlocked().filter((_, i) => i !== Number(remove.dataset.removeBlocked));
+    writeBlocked(list);
+    (form.querySelector('[data-remove-blocked]') ?? form.querySelector('[data-add-blocked]')).focus({ preventScroll: true });
+    onFormChange(true);
+  });
   $('close-form').addEventListener('click', submitForm);
   $('backdrop').addEventListener('click', () => {
     if (editor.pickerOpen) editor.closePicker();

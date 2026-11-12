@@ -10,8 +10,8 @@
 import { BIKE_TURN_RADIUS, chooseParams, instantiate, isBig, minimalParams, ZONE_PAD } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  AXIS_STEPS, axisVector, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
-  PI, pointsBounds, polylineHitsShape, polylineLength, round2, shapeOf, shapesOverlap, shiftShape, wrapPi,
+  AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
+  PI, pointsBounds, polylineHitsObb, polylineHitsShape, polylineLength, round2, shapeOf, shapesOverlap, shiftShape, wrapPi,
 } from './geometry.js';
 import { createStream } from './prng.js';
 import { safetyOf, TRAIN_EXEMPT_TYPES, usableTypes } from './recipe.js';
@@ -172,12 +172,134 @@ export function trainClear(track, next, closes = false) {
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
 const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
 
+const TARGET_PUSH = 3; // a layout target in a blocked area moves this far past its margin
+
+/**
+ * A layout target out of the blocked areas: one inside an area's margin moves
+ * to the nearest point past one of its sides that is in no other, kept within
+ * the inner site. Without blocked areas, the target itself.
+ */
+function freeTarget(inner, t) {
+  const hit = inner.blocked.find((b) => within(b.keep, t, 0));
+  if (!hit) return t;
+  const [x0, y0, x1, y1] = hit.keepBounds;
+  const clamp = ([x, y]) => [Math.min(Math.max(x, inner[0]), inner[2]), Math.min(Math.max(y, inner[1]), inner[3])];
+  const options = [[x0 - TARGET_PUSH, t[1]], [x1 + TARGET_PUSH, t[1]], [t[0], y0 - TARGET_PUSH], [t[0], y1 + TARGET_PUSH]].map(clamp);
+  let best = null;
+  for (const p of options) {
+    if (inner.blocked.some((b) => within(b.keep, p, 0))) continue;
+    const d = (p[0] - t[0]) ** 2 + (p[1] - t[1]) ** 2;
+    if (!best || d < best.d) best = { p, d };
+  }
+  return best ? best.p : t;
+}
+
+const rectObb = (x0, y0, x1, y1) => ({ c: [(x0 + x1) / 2, (y0 + y1) / 2], u: [1, 0], v: [0, 1], hu: (x1 - x0) / 2, hv: (y1 - y0) / 2 });
+
+/**
+ * The blocked areas of a recipe (cutouts and obstacles) as the search tests
+ * them: the rectangle itself (`obb`, as a shape `shape`), which a run-off zone,
+ * a line's waiting area or a U-turn cone's keep-out may not enter, and the
+ * rectangle grown by the lot edge margin (`keep`, `safetyOf(recipe).edge`),
+ * which element cores, cones and connectors keep out of, as they do the edge.
+ */
+export function blockedAreas(recipe) {
+  const m = safetyOf(recipe).edge;
+  return (recipe.blocked ?? []).map((b) => {
+    const r = [b.x, b.y, b.x + b.w, b.y + b.h];
+    const obb = rectObb(...r);
+    const keep = rectObb(r[0] - m, r[1] - m, r[2] + m, r[3] + m);
+    return { ...b, rect: r, obb, shape: obbShape(obb), keep, keepBounds: obbBounds(keep) };
+  });
+}
+
+/**
+ * The site inside its margin, `[x0, y0, x1, y1]`, carrying the recipe's blocked
+ * areas as `blocked` (blockedAreas): every test against the inner rectangle
+ * (onAsphalt, lineOnAsphalt, quadOnAsphalt, areaClear) also keeps out of them.
+ * Without blocked areas they are the plain rectangle tests.
+ */
 export function innerRect(recipe) {
   const m = safetyOf(recipe).edge;
-  return [m, m, recipe.width - m, recipe.length - m];
+  const inner = [m, m, recipe.width - m, recipe.length - m];
+  inner.margin = m;
+  inner.blocked = blockedAreas(recipe);
+  if (inner.blocked.length) inner.free = freeRects(recipe.width, recipe.length, inner.blocked);
+  return inner;
+}
+
+/**
+ * The maximal rectangles of the site clear of every blocked area: no larger
+ * rectangle of free asphalt contains one of them. Their sides lie on the site
+ * edges and the sides of the blocked areas, so those few coordinates are all
+ * there is to try.
+ */
+export function freeRects(width, length, blocked) {
+  const xs = [...new Set([0, width, ...blocked.flatMap((b) => [b.rect[0], b.rect[2]])])].filter((v) => v >= 0 && v <= width).sort((a, b) => a - b);
+  const ys = [...new Set([0, length, ...blocked.flatMap((b) => [b.rect[1], b.rect[3]])])].filter((v) => v >= 0 && v <= length).sort((a, b) => a - b);
+  const clear = (r) => blocked.every((b) => !(r[0] < b.rect[2] && b.rect[0] < r[2] && r[1] < b.rect[3] && b.rect[1] < r[3]));
+  const found = [];
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = i + 1; j < xs.length; j++) {
+      for (let k = 0; k < ys.length; k++) {
+        for (let l = k + 1; l < ys.length; l++) {
+          const r = [xs[i], ys[k], xs[j], ys[l]];
+          if (clear(r)) found.push(r);
+        }
+      }
+    }
+  }
+  const contains = (a, b) => a[0] <= b[0] && a[1] <= b[1] && a[2] >= b[2] && a[3] >= b[3];
+  return found.filter((r, i) => !found.some((q, k) => k !== i && contains(q, r) && (q[0] !== r[0] || q[1] !== r[1] || q[2] !== r[2] || q[3] !== r[3])));
 }
 
 export const inside = (r, p) => p[0] >= r[0] - 1e-9 && p[0] <= r[2] + 1e-9 && p[1] >= r[1] - 1e-9 && p[1] <= r[3] + 1e-9;
+
+/** Strictly inside an axis-aligned box, by more than eps (touching its edge is fine). */
+const within = (o, p, eps) => Math.abs(p[0] - o.c[0]) < o.hu - eps && Math.abs(p[1] - o.c[1]) < o.hv - eps;
+
+/** A cone or a point of a line inside the margin, and outside the margin of every blocked area. */
+export const onAsphalt = (inner, p) => inside(inner, p) && !(inner.blocked?.length && inner.blocked.some((b) => within(b.keep, p, 1e-9)));
+
+/** A polyline inside the margin whose segments keep out of every blocked area's margin, not only its points. */
+export function lineOnAsphalt(inner, points, bounds = null) {
+  return points.every((p) => inside(inner, p)) && lineOffBlocked(inner, points, bounds);
+}
+
+/** A polyline that keeps out of every blocked area's margin; it may reach into the lot's own margin. */
+export function lineOffBlocked(inner, points, bounds = null) {
+  if (!inner.blocked?.length) return true;
+  const box = bounds ?? pointsBounds(points);
+  return inner.blocked.every((b) => !boundsOverlap(box, b.keepBounds) || !polylineHitsObb(points, b.keep, EPS));
+}
+
+/** The box with these four corners in order (a placed element's core). */
+function quadObb(q) {
+  const ux = q[1][0] - q[0][0];
+  const uy = q[1][1] - q[0][1];
+  const vx = q[3][0] - q[0][0];
+  const vy = q[3][1] - q[0][1];
+  const lu = Math.sqrt(ux * ux + uy * uy) || 1;
+  const lv = Math.sqrt(vx * vx + vy * vy) || 1;
+  return {
+    c: [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2], u: [ux / lu, uy / lu], v: [vx / lv, vy / lv], hu: lu / 2, hv: lv / 2,
+  };
+}
+
+/** An element's core (cones and trajectory) inside the margin and clear of every blocked area's margin. */
+export function quadOnAsphalt(inner, quad) {
+  if (!quad.every((p) => inside(inner, p))) return false;
+  if (!inner.blocked?.length) return true;
+  const o = quadObb(quad);
+  const bounds = obbBounds(o);
+  return inner.blocked.every((b) => !boundsOverlap(bounds, b.keepBounds) || !obbOverlap(o, b.keep));
+}
+
+/** A shape — a run-off zone, a line's waiting area, a U-turn cone's keep-out — clear of every blocked area itself (it may reach into their margin, as into the edge's). */
+export function areaClear(inner, shape) {
+  if (!inner.blocked?.length) return true;
+  return inner.blocked.every((b) => !shapesOverlap(shape, b.shape));
+}
 
 /** Does a local rectangle of the template fit a w × h area in some orientation? */
 function rectFits(tpl, rect, w, h) {
@@ -195,6 +317,15 @@ function rectFits(tpl, rect, w, h) {
  * run-off zone the whole site, in some orientation?
  */
 export function templateFits(tpl, inner, site) {
+  // With blocked areas, the element has to fit one rectangle of free asphalt:
+  // its core inside it by the margin, its run-off zone inside it.
+  if (inner.free) {
+    return inner.free.some((r) => {
+      const m = inner.margin;
+      const own = [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
+      return own[2] > own[0] && own[3] > own[1] && templateFits(tpl, own, r);
+    });
+  }
   const fitsCore = rectFits(tpl, tpl.core, inner[2] - inner[0], inner[3] - inner[1]);
   if (!fitsCore || !tpl.runOff) return fitsCore;
   return rectFits(tpl, tpl.runOff, site[2] - site[0], site[3] - site[1]);
@@ -471,7 +602,7 @@ export function finishTerminal(last) {
 
 /** Cones inside the margin, and the waiting / run-out area on the asphalt. */
 export function terminalInside(t, inner, site) {
-  return t.cones.every((c) => inside(inner, c)) && obbCorners(t.zone).every((p) => inside(site, p));
+  return t.cones.every((c) => onAsphalt(inner, c)) && obbCorners(t.zone).every((p) => inside(site, p)) && areaClear(inner, t.footprint);
 }
 
 /**
@@ -483,7 +614,7 @@ export function closingLeg(fromPose, startT, radius, inner, zones, paths, maxTur
   const u = axisVector(startT.dir);
   const approach = [startT.center[0] - u[0] * radius, startT.center[1] - u[1] * radius];
   const last = [approach, startT.center];
-  if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) return null;
+  if (!onAsphalt(inner, approach) || !lineOffBlocked(inner, last) || !pathClear(last, pointsBounds(last), zones)) return null;
   const whole = accept && ((pts) => accept([...pts, startT.center]));
   const leg = connect(fromPose, pose(approach, startT.dir), radius, inner, zones, paths, maxTurn, whole, coneGap);
   if (!leg) return null;
@@ -524,7 +655,7 @@ export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
  */
 export function conesClear(cones, inner, zones, paths) {
   for (const cone of cones) {
-    if (!inside(inner, cone.center)) return false;
+    if (!onAsphalt(inner, cone.center) || !areaClear(inner, cone.footprint)) return false;
     for (const z of zones) {
       if (shapesOverlap(cone.footprint, z.footprint)) return false;
       // A U-turn cone is placed: it stays out of every run-off zone too.
@@ -552,7 +683,7 @@ export function homeBox(fromPose, box, radius, inner, zones, paths, maxTurn, acc
   let best = null;
   for (const { dir, edge, approach } of boxEntries(box, radius)) {
     const last = [approach, edge];
-    if (!inside(inner, approach) || !pathClear(last, pointsBounds(last), zones)) continue;
+    if (!onAsphalt(inner, approach) || !lineOffBlocked(inner, last) || !pathClear(last, pointsBounds(last), zones)) continue;
     const whole = accept && ((pts) => accept([...pts, edge, box.box]));
     const leg = connect(fromPose, pose(approach, dir), radius, inner, zones, paths, maxTurn, whole, coneGap);
     if (!leg) continue;
@@ -641,8 +772,8 @@ export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn =
   for (const rho of CONNECTOR_RADII.map((k) => k * radius)) {
     for (const path of dubinsPaths(fromPose, toPose, rho)) {
       if (path.turnLeft + path.turnRight > maxTurn) continue;
-      if (!path.points.every((p) => inside(inner, p))) continue;
       const bounds = pointsBounds(path.points);
+      if (!lineOnAsphalt(inner, path.points, bounds)) continue;
       if (!pathClear(path.points, bounds, zones)) continue;
       const cones = uTurnCones(path.arcs, coneGap);
       if (cones.length && !conesClear(cones, inner, zones, [...paths, { points: path.points, bounds }])) continue;
@@ -650,8 +781,72 @@ export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn =
       return { points: path.points, bounds, length: path.length, turnLeft: path.turnLeft, turnRight: path.turnRight, cones };
     }
   }
-  return null;
+  return inner.blocked?.length ? detour(fromPose, toPose, radius, inner, zones, paths, maxTurn, accept, coneGap) : null;
 }
+
+const DETOUR_HEADINGS = [0, 2, 4, 6]; // headings tried at a waypoint, × 45°: along the sides of the area
+
+/** One Dubins path, checked like a connector on its own: on the asphalt and out of every zone. */
+function cleanDubins(from, to, rho, inner, zones) {
+  return dubinsPaths(from, to, rho).filter((path) => {
+    const bounds = pointsBounds(path.points);
+    path.bounds = bounds;
+    return lineOnAsphalt(inner, path.points, bounds) && pathClear(path.points, bounds, zones);
+  });
+}
+
+/**
+ * A connector round a blocked area, when the straight way is blocked: two
+ * Dubins paths joined at a waypoint off one corner of a blocked area's margin,
+ * one turning radius out, passed along one of eight headings. The shortest
+ * pair that keeps every rule of a connector wins; ties keep the order tried.
+ * Only ever tried on a site with blocked areas, so a plain rectangle routes
+ * exactly as before.
+ */
+function detour(fromPose, toPose, radius, inner, zones, paths, maxTurn, accept, coneGap) {
+  const chord = [[fromPose[0], fromPose[1]], [toPose[0], toPose[1]]];
+  if (lineOnAsphalt(inner, chord)) return null;
+  const options = [];
+  for (const b of inner.blocked) {
+    const [x0, y0, x1, y1] = b.keepBounds;
+    const out = radius;
+    for (const [x, y] of [[x0 - out, y0 - out], [x1 + out, y0 - out], [x1 + out, y1 + out], [x0 - out, y1 + out]]) {
+      if (!onAsphalt(inner, [x, y])) continue;
+      for (const h of DETOUR_HEADINGS) {
+        const wp = [x, y, dirAngle(h)];
+        const est = Math.hypot(x - fromPose[0], y - fromPose[1]) + Math.hypot(toPose[0] - x, toPose[1] - y);
+        options.push({ wp, est, order: options.length });
+      }
+    }
+  }
+  options.sort((a, b) => a.est - b.est || a.order - b.order);
+  let best = null;
+  for (const { wp, est } of options) {
+    if (best && est >= best.length - 1e-9) break;
+    const firsts = cleanDubins(fromPose, wp, radius, inner, zones);
+    if (!firsts.length) continue;
+    const seconds = cleanDubins(wp, toPose, radius, inner, zones);
+    for (const a of firsts) {
+      for (const b of seconds) {
+        const length = a.length + b.length;
+        if (best && length >= best.length - 1e-9) continue;
+        if (a.turnLeft + a.turnRight + b.turnLeft + b.turnRight > maxTurn) continue;
+        const points = [...a.points, ...b.points.slice(1)];
+        const bounds = pointsBounds(points);
+        // The arcs either side of the waypoint are one turn when nothing straight lies between them.
+        const tail = a.word[2] === 'S' ? dist2(a.points.at(-2), a.points.at(-1)) : 0;
+        const arcs = [...a.arcs, ...b.arcs.map((arc, k) => (k === 0 && arc.gapBefore === Infinity ? { ...arc, gapBefore: a.arcs.length ? tail : Infinity } : arc))];
+        const cones = uTurnCones(arcs, coneGap);
+        if (cones.length && !conesClear(cones, inner, zones, [...paths, { points, bounds }])) continue;
+        if (accept && !accept(points)) continue;
+        best = { points, bounds, length, turnLeft: a.turnLeft + b.turnLeft, turnRight: a.turnRight + b.turnRight, cones };
+      }
+    }
+  }
+  return best;
+}
+
+const dist2 = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]);
 
 export const pose = (p, dir) => [p[0], p[1], dirAngle(dir)];
 
@@ -745,7 +940,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     return plans.get(key);
   };
   const closed = recipe.shape === 'closed';
-  const targets = layoutTargets(inner, n, recipe.shape !== 'open', createStream(seed, 'layout'));
+  const targets = layoutTargets(inner, n, recipe.shape !== 'open', createStream(seed, 'layout')).map((t) => freeTarget(inner, t));
   const place = createStream(seed, 'place');
   const radius = BIKE_TURN_RADIUS[recipe.bike];
   const { coneGap, trainGap } = safetyOf(recipe);
@@ -823,8 +1018,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   }
 
   function evaluate(i, cand) {
-    if (!cand.core.every((p) => inside(inner, p))) return null;
-    if (cand.runOffPoly && !cand.runOffPoly.every((p) => inside(site, p))) return null;
+    if (!quadOnAsphalt(inner, cand.core)) return null;
+    if (cand.runOffPoly && !(cand.runOffPoly.every((p) => inside(site, p)) && areaClear(inner, cand.runOff))) return null;
     const track = train ? trackBefore(i) : null;
     const paths = routePaths(legs, placed);
     if (!zoneClear(cand, zones, paths)) return null;
@@ -836,7 +1031,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (closed) {
         // Room behind the line for the closing connector to line up.
         const u = axisVector(terminal.dir);
-        if (!inside(inner, [terminal.center[0] - u[0] * radius, terminal.center[1] - u[1] * radius])) return null;
+        if (!onAsphalt(inner, [terminal.center[0] - u[0] * radius, terminal.center[1] - u[1] * radius])) return null;
       }
       if (!zoneClear(terminal, zones, paths)) return null;
       if (shapesOverlap(terminal.footprint, cand.footprint)) return null;
@@ -1065,7 +1260,7 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
   return {
     recipe,
     seed,
-    site: { width: recipe.width, length: recipe.length, margin: safetyOf(recipe).edge },
+    site: { width: recipe.width, length: recipe.length, margin: safetyOf(recipe).edge, blocked: (recipe.blocked ?? []).map((b) => ({ ...b })) },
     cones,
     elements,
     passes,

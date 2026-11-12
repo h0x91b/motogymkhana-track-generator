@@ -293,7 +293,7 @@ describe('setup sheet', () => {
   test('the sheet carries the site size and the simplification counts', () => {
     const course = generateCourse({ width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, 42).course;
     const sheet = buildSetupSheet(course);
-    expect(sheet.site).toEqual({ width: 25, length: 30 });
+    expect(sheet.site).toEqual({ width: 25, length: 30, blocked: [] });
     expect(sheet.requested).toBe(5);
     expect(sheet.placed).toBe(course.placed);
   });
