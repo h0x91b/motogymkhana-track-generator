@@ -533,3 +533,21 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .size-note:empty { display: none; }
 .size-note.warn { justify-self: start; width: fit-content; padding: 2px 6px; border-radius: 6px; color: var(--warn-ink); background: var(--warn-bg); font-weight: 600; }
 .chips span.below { color: var(--muted); border-style: dashed; }
+/* «Поворот»: a typed angle, snapped to the axes of the type. */
+.angle-row .size-name { display: grid; gap: 2px; }
+.angle-note { font-size: 13px; font-weight: 400; line-height: 1.25; }
+.angle-field { grid-column: 2 / -1; position: relative; display: block; }
+.angle-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 26px 8px 10px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.angle-field > span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-weight: 700; color: var(--muted); pointer-events: none; }

@@ -11,8 +11,8 @@ export {
 export { canonicalJSON } from './canonical.js';
 export { U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
-  ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, parseLayout, problemsWord, removeElement, replaceElement,
-  resizeElement, rotateElement, routeLayout, shiftElement,
+  axisDegrees, ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord, removeElement, replaceElement,
+  resizeElement, rotateElement, routeLayout, shiftElement, turnElementTo,
 } from './layout.js';
 export { typeAxes } from './catalog.js';
 
