@@ -310,20 +310,15 @@ function fixedSizes({ type, params }, diagonal, recipe) {
 }
 
 /**
- * Which side of the start-and-finish box the way back enters by, seen in the
- * start's direction of travel: `back`, `left` or `right`.
+ * How the way back of a `return` course crosses the start line: `square`
+ * (straight back the way the rider left) or `angled` (at 45° to it).
  */
-export function boxEntrySide(startDir, finishDir) {
-  const turn = (((finishDir - startDir) % 8) + 8) % 8;
-  return turn === 0 ? 'back' : turn === 6 ? 'left' : 'right';
+export function lineCrossing(startDir, finishDir) {
+  return (((finishDir - startDir) % 8) + 8) % 8 === 4 ? 'square' : 'angled';
 }
 
-/**
- * Which side of the box the rider rides back in by. Left and right are the
- * rider's at the start, which on a plan can read the other way round, so the
- * text says only «боковую», and the direction of travel shows which.
- */
-export const BOX_ENTRY_LABELS = { back: 'через заднюю сторону', left: 'через боковую сторону', right: 'через боковую сторону' };
+/** «поперёк линии», «под 45° к линии»: how the rider crosses the start line on the way back. */
+export const CROSSING_LABELS = { square: 'поперёк линии', angled: 'под 45° к линии' };
 
 function terminal(t, byId) {
   return {
@@ -596,11 +591,11 @@ export function buildSetupSheet(course) {
   const start = terminal(course.route.start, byId);
   const { shape } = course.route;
   const finish = shape === 'closed' ? start : terminal(course.route.finish, byId);
-  // A finish by the start is the start's own box, entered by its back or a side.
+  // A finish by the start is the start's own line, crossed back into its box.
   if (shape === 'return') {
     const [a, b] = start.cones;
     start.box = { size: Math.hypot(b.x - a.x, b.y - a.y) };
-    finish.entry = boxEntrySide(start.dir, finish.dir);
+    finish.crossing = lineCrossing(start.dir, finish.dir);
   }
   // Cutouts and obstacles, measured from corner A like everything else: the corner nearest it, then the size.
   const blocked = (course.site.blocked ?? []).map((b, i) => {

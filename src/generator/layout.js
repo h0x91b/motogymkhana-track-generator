@@ -249,7 +249,7 @@ export function routeLayout(layout) {
   // Everything a connector keeps out of: zones of the elements and the lines, then the U-turn cones as they appear.
   const zones = [start, ...placed, ...(finish ? [finish] : [])];
   const zoneName = (z) => {
-    if (z === start) return shape === 'return' ? 'коробку старта' : 'зону старта';
+    if (z === start || (start.inBox && z === start.inBox)) return shape === 'return' ? 'коробку старта' : 'зону старта';
     if (z === finish) return 'зону финиша';
     const i = placed.indexOf(z);
     return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
@@ -264,6 +264,8 @@ export function routeLayout(layout) {
     if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
     track = extendTrack(track, [legs[0].points, ridden(placed[0])]);
   }
+  // The route after the first element: what the way back across the start line is checked against.
+  let tail = track && emptyTrack(trainGap);
 
   /** A connector by the generator's rules, or the least bad one with its problem. `name` is «3 → 4». */
   const connectorProblem = (fault, connector, name, ends) => {
@@ -299,6 +301,7 @@ export function routeLayout(layout) {
     legs.push(leg);
     zones.push(...leg.cones);
     if (track) track = extendTrack(track, [leg.points, ridden(cur)]);
+    if (tail) tail = extendTrack(tail, [leg.points, ridden(cur)]);
   }
 
   const last = placed[n - 1];
@@ -317,24 +320,28 @@ export function routeLayout(layout) {
     }
     legs.push(leg);
   } else if (shape === 'return') {
-    // Back into the start-and-finish box, lined up like a closing connector.
+    // Back across the start line into the box, lined up like a closing connector.
+    // In «паровозик» the whole column has ridden the start and the first
+    // element long before the leader comes back, so the way back keeps clear
+    // of the rest of the route only.
     const from = pose(last.exit, last.exitDir);
-    const accept = track && ((pts) => trainClear(track, [pts], true));
+    const accept = tail && ((pts) => trainClear(tail, [pts]));
     let home = null;
     for (const limit of CLOSING_TURN_LIMITS) home = home || homeBox(from, start, radius, inner, zones, route(), limit, accept, coneGap);
     if (!home) {
-      // The least bad way in, through the back unless a side is less wrong.
+      // The least bad way back, square on unless an angle is less wrong.
+      const obstacles = zones.map((z) => (z === start ? start.inBox : z));
       let best = null;
-      for (const entry of boxEntries(start, radius)) {
-        const loose = looseConnector(from, pose(entry.approach, entry.dir), radius, inner, zones, route(), CLOSING_TURN_LIMITS.at(-1), accept, [entry.edge], coneGap);
+      for (const entry of boxEntries(start)) {
+        const loose = looseConnector(from, pose(entry.approach, entry.dir), radius, inner, obstacles, route(), CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
         if (!best || loose.weight < best.loose.weight) best = { loose, entry };
       }
       const { loose, entry } = best;
-      const points = [...loose.leg.points, start.box];
-      home = { dir: entry.dir, leg: { ...loose.leg, points, bounds: pointsBounds(points) } };
+      const points = [...loose.leg.points, entry.stop];
+      home = { dir: entry.dir, stop: entry.stop, leg: { ...loose.leg, points, bounds: pointsBounds(points) } };
       connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1), id(0)]);
     }
-    finish = boxFinish(start, home.dir);
+    finish = boxFinish(start, home.dir, home.stop);
     legs.push(home.leg);
   } else {
     if (legs.length === n) {

@@ -7,7 +7,7 @@ import { editAxes } from '../src/generator/catalog.js';
 import { ELEMENT_TYPES } from '../src/generator/recipe.js';
 import { conesCsv } from '../src/file/course-file.js';
 import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
-import { boxEntrySide, buildSetupSheet, dist } from '../src/sheet/setup-sheet.js';
+import { buildSetupSheet, dist, lineCrossing } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
 
 const RECIPES = [
@@ -273,19 +273,19 @@ describe('setup sheet', () => {
     }
   });
 
-  test('a finish by the start names the box size and the side the rider rides back in by', () => {
+  test('a finish by the start names the box size and how the rider crosses the start line back', () => {
     let n = 0;
     for (const course of courses) {
       const sheet = buildSetupSheet(course);
       expect(sheet.shape).toBe(course.route.shape);
       if (course.route.shape !== 'return') {
-        expect(sheet.finish.entry).toBeUndefined();
+        expect(sheet.finish.crossing).toBeUndefined();
         continue;
       }
       n++;
       expect([3, 2 * Math.SQRT2].some((size) => Math.abs(sheet.start.box.size - size) < 1e-9)).toBe(true);
-      expect(sheet.finish.entry).toBe(boxEntrySide(sheet.start.dir, sheet.finish.dir));
-      expect(['back', 'left', 'right']).toContain(sheet.finish.entry);
+      expect(sheet.finish.crossing).toBe(lineCrossing(sheet.start.dir, sheet.finish.dir));
+      expect(['square', 'angled']).toContain(sheet.finish.crossing);
     }
     expect(n).toBe(SEEDS);
   });

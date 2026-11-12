@@ -7,7 +7,7 @@
 // (SPEC, «Картинка схемы»).
 
 import { SHAPE_NAMES } from '../generator/recipe.js';
-import { anchorPoint, BOX_ENTRY_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
+import { anchorPoint, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -697,7 +697,7 @@ export function renderSheetImages(course, sheet, makeCanvas) {
       : sheet.shape === 'return'
         ? [
           { text: `Старт и финиш — одна коробка ${dist(sheet.start.box.size)} × ${dist(sheet.start.box.size)} м, низкие конусы ${sheet.start.cones.map(fmtCone).join(', ')}`, size: 22, weight: 600 },
-          { text: `Выезд через линию старта (первые два конуса), проезд ${sheet.start.travel}; финиш — заезд обратно в коробку ${BOX_ENTRY_LABELS[sheet.finish.entry]}, проезд ${sheet.finish.travel}, и остановка в ней`, size: 22, color: MUTED },
+          { text: `Одна линия старта и финиша — первые два конуса, на ней датчик времени. Выезд через неё, проезд ${sheet.start.travel}; финиш — обратно через ту же линию ${CROSSING_LABELS[sheet.finish.crossing]}, проезд ${sheet.finish.travel}, и остановка в коробке`, size: 22, color: MUTED },
         ]
         : [
           { text: `Старт: низкие конусы ${sheet.start.cones.map(fmtCone).join(' и ')}, проезд ${sheet.start.travel}`, size: 22, weight: 600 },
