@@ -24,11 +24,13 @@ import { arcPoints, clipConvex, convexHull, ellipsePoints, latticeUnit, PI, smoo
  * close. A type whose range has no lattice length on diagonals is placed on
  * side axes only at that difficulty.
  *
- * The sizes of the U-turns inside elements — the U-turn, the box, the pivot
- * turn, the mirror, the gate turn and the figure eight — are not in the table:
- * the bike class sets the tightest of them (`BIKE_TURN_RADIUS`, the same as for
- * connectors) and the difficulty only adds `uTurnMargin` metres to its radius
- * (`sizeTable`).
+ * The radius of the line ridden round the U-turns inside elements is not in
+ * the table: the bike class sets the tightest (`BIKE_TURN_RADIUS`, the same as
+ * for connectors) and the difficulty only adds `uTurnMargin` metres to it
+ * (`sizeTable`). That radius fixes the cones only where they bound the line —
+ * the walls of the U-turn and the box. Round the tall cones of an open figure
+ * the cone spacing is the table's (`eightDistance`) and the class radius sizes
+ * the loops, i.e. the element's width and footprint (ADR 0021).
  */
 export const DIFFICULTY_TABLE = {
   easy: {
@@ -37,7 +39,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [4.5],
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
-    snailCorridor: [3], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3.5], keyholeOpening: [3],
+    snailCorridor: [3], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3.5], keyholeOpening: [3], eightDistance: [10],
   },
   medium: {
     slalomStep: [4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
@@ -45,7 +47,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2, 3], gateTurnWidth: [4],
     tunnelGap: [4.5], tunnelShift: [2], zigzagStep: [3.5], zigzagShift: [2], zigzagWidth: [2],
     snakeWidth: [4.5], snakeStep: [3], crescentRadius: [6], flickRadius: 3, swerveWidth: [2], swerveRun: [7],
-    snailCorridor: [2.5], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3], keyholeOpening: [2.5],
+    snailCorridor: [2.5], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3], keyholeOpening: [2.5], eightDistance: [8],
   },
   hard: {
     slalomStep: [4], offsetStep: [4], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
@@ -53,7 +55,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [3.5],
     tunnelGap: [4], tunnelShift: [2.5], zigzagStep: [3], zigzagShift: [2.5], zigzagWidth: [1.5],
     snakeWidth: [4], snakeStep: [3], crescentRadius: [5], flickRadius: 2.5, swerveWidth: [2], swerveRun: [6],
-    snailCorridor: [2], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [2.5], keyholeOpening: [2],
+    snailCorridor: [2], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [2.5], keyholeOpening: [2], eightDistance: [6.5],
   },
 };
 
@@ -82,8 +84,8 @@ export const uTurnRadius = (difficulty, bike) => BIKE_TURN_RADIUS[bike] + DIFFIC
  * recipe may fix instead of leaving them to the difficulty. Each fixes one entry
  * of the size table (`table`) to a single value in 0.5 m steps from `min` to
  * `max`; the generator then takes that value, on a diagonal the nearest lattice
- * length (ADR 0005). Three of them size a U-turn inside the element, where the
- * bike class still sets the minimum (`sizeMinimum`) and a smaller value is raised.
+ * length (ADR 0005). Two of them size a U-turn inside walls of low cones, where
+ * the bike class still sets the minimum (`sizeMinimum`) and a smaller value is raised.
  * `name` labels the option on its type, `short` names it alone in the summary.
  */
 export const SIZE_OPTIONS = {
@@ -92,7 +94,7 @@ export const SIZE_OPTIONS = {
   gate: [{ key: 'width', table: 'gateWidth', name: 'Ширина', short: 'ворота', min: 1.5, max: 3.5 }],
   'lane-change': [{ key: 'shift', table: 'laneShift', name: 'Смещение', short: 'смещение переставки', min: 1.5, max: 4 }],
   'u-turn': [{ key: 'width', table: 'uTurnWidth', name: 'Ширина', short: 'ширина разворота', min: 8, max: 16 }],
-  'figure-eight': [{ key: 'loop', table: 'eightLoop', name: 'Радиус петли', short: 'петля восьмёрки', min: 3.5, max: 7 }],
+  'figure-eight': [{ key: 'distance', table: 'eightDistance', name: 'Между конусами', short: 'восьмёрка', min: 5, max: 12 }],
   box: [{ key: 'size', table: 'boxSize', name: 'Сторона', short: 'коробка', min: 8, max: 16 }],
   circle: [{ key: 'radius', table: 'circleRadius', name: 'Радиус', short: 'радиус круга', min: 1.5, max: 5 }],
   tunnel: [{ key: 'gap', table: 'tunnelGap', name: 'Между воротами', short: 'тоннель', min: 3.5, max: 6 }],
@@ -110,13 +112,12 @@ export const sizeValues = (option) => Array.from({ length: (option.max - option.
 
 /**
  * The smallest value the bike class allows for a size option at a difficulty,
- * or null when the class sets no minimum: the U-turns inside an element are
+ * or null when the class sets no minimum: a U-turn inside walls of low cones is
  * ridden on at least `uTurnRadius` (ADR 0006).
  */
 export function sizeMinimum(type, key, difficulty, bike) {
   const turn = uTurnRadius(difficulty, bike);
   if ((type === 'u-turn' && key === 'width') || (type === 'box' && key === 'size')) return 2 * (turn + WALL);
-  if (type === 'figure-eight' && key === 'loop') return turn;
   return null;
 }
 
@@ -475,22 +476,21 @@ const TYPES = {
   },
 
   'figure-eight': {
-    // Round loops on at least the U-turn radius; the base follows from them, so
-    // that the crossing lines meet at right angles: D = 2√2 r. A loop radius
-    // fixed in the recipe gives the shortest base not below it, raised to the
-    // U-turn radius when it is smaller.
-    options: (t, unit) => {
-      if (t.eightLoop) return { distance: latticeAtLeast(2 * Math.SQRT2 * Math.max(t.eightLoop[0], t.turn), unit) };
-      const min = 2 * Math.SQRT2 * t.turn;
-      return { distance: latticeChoices([min, min + 1], unit) };
-    },
-    build({ distance }) {
-      // Loops are circles centred on the cones. The crossing lines are their
-      // common inner tangents through the midpoint; with r = D / 2√2 they touch
-      // the loops at ±45° and cross each other at right angles.
-      const r = (distance * Math.SQRT1_2) / 2;
-      const a = [0, 0];
-      const b = [distance, 0];
+    // Two tall cones `distance` apart, from the difficulty table; the loops round
+    // them are ridden on the U-turn radius (ADR 0021).
+    options: (t, unit) => ({ distance: latticeChoices(t.eightDistance, unit) }),
+    extra: (t) => ({ radius: t.turn }),
+    build({ distance, radius }, unit) {
+      // Loops are circles of the U-turn radius round centres on the line through
+      // the cones, symmetric about their midpoint. The crossing lines are the
+      // loops' common inner tangents through the midpoint; with the centres
+      // 2√2 r apart they touch the loops at ±45° and cross at right angles. Two
+      // loops of radius r that cross cannot stand closer, so the centres are
+      // that far apart whatever the cone distance, and the cones, nearer each
+      // other, sit inside their loops towards the crossing.
+      const r = radius / unit;
+      const a = [distance / 2 - Math.SQRT2 * r, 0];
+      const b = [distance / 2 + Math.SQRT2 * r, 0];
       const path = [
         ...arcPoints(a, r, PI, (3 * PI) / 4, ARC),
         ...arcPoints(b, r, (3 * PI) / 4, (-3 * PI) / 2, ARC),
@@ -1060,7 +1060,10 @@ export const SIZE_SPECS = {
     { key: 'angle', name: 'Угол', kind: 'choice', values: [270, 360, 720] },
     { key: 'radius', name: 'Свободный радиус', kind: 'radius', min: (bike) => classRadius(bike) + 0.5, max: 8 },
   ],
-  'figure-eight': [{ key: 'distance', name: 'Между центрами', kind: 'length', min: (bike) => 2 * Math.SQRT2 * classRadius(bike), max: 20 }],
+  'figure-eight': [
+    { key: 'distance', name: 'Между конусами', kind: 'length', min: 5, max: 12 },
+    { key: 'radius', name: 'Радиус петли', kind: 'radius', min: classRadius, max: 8 },
+  ],
   box: [{ key: 'size', name: 'Сторона', kind: 'length', min: classWidth, max: 16 }],
   circle: [
     { key: 'radius', name: 'Радиус', kind: 'length', min: 1.5, max: 5 },
@@ -1155,6 +1158,8 @@ const latticeLength = (spec, value, unit, lo, hi) => clamp(Math.round(value / un
 function boundedSizes(type, sizes, bike) {
   const out = { ...sizes };
   for (const spec of SIZE_SPECS[type]) {
+    // A size the element was saved without (a file from before the type had it) starts at its minimum.
+    out[spec.key] ??= spec.kind === 'choice' ? spec.values[0] : specMin(spec, bike, out);
     if (spec.kind === 'choice') out[spec.key] = spec.values.includes(out[spec.key]) ? out[spec.key] : spec.values[0];
     else if (spec.kind !== 'length') out[spec.key] = clamp(out[spec.key], specMin(spec, bike, out), spec.max);
   }
@@ -1187,9 +1192,7 @@ export function elementSizes(type, params, diagonal) {
 export function keepsFixedSize(type, key, params, diagonal, recipe) {
   const only = { [type]: { [key]: recipe.sizes[type][key] } };
   const fixed = TYPES[type].options(sizeTable(recipe.difficulty, recipe.bike, type, only), unitFor(diagonal));
-  // The figure-eight's loop radius is fixed through the base it follows from.
-  const param = key === 'loop' ? 'distance' : key;
-  return fixed[param].includes(params[param]);
+  return fixed[key].includes(params[key]);
 }
 
 /**
