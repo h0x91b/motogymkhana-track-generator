@@ -91,6 +91,31 @@ export function readCourseFile(text) {
   return { ok: true, layout, recipe: layout.recipe, seed: layout.seed, edited: doc.edited === true, build };
 }
 
+/** Bytes; a course file is a few kilobytes, anything far bigger is not one. */
+export const COURSE_FILE_MAX = 1_000_000;
+
+/** readCourseFile for text from anywhere (a pasted clipboard), with the size check of a file. */
+export function readCourseText(text) {
+  if (String(text).length > COURSE_FILE_MAX) return fail('Это не файл трассы: он слишком большой');
+  return readCourseFile(text);
+}
+
+/**
+ * A picked or dropped file read as a course file: what «Открыть .json» and a
+ * drop on the page share. `file` is a File or Blob (anything with size and text()).
+ */
+export async function readCourseUpload(file) {
+  if (!file) return fail('Это не файл трассы');
+  if (file.size > COURSE_FILE_MAX) return fail('Это не файл трассы: он слишком большой');
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    return fail('Не удалось прочитать файл');
+  }
+  return readCourseFile(text);
+}
+
 /** File names without spaces or Cyrillic: messengers and file systems keep them as they are. */
 export function courseFileName(recipe, seed, ext) {
   const what = ext === 'csv' ? 'konusy' : 'trassa';

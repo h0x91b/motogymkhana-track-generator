@@ -7,7 +7,8 @@ import { canonicalJSON, generateCourse } from '../src/generator/index.js';
 import { layoutOf, mirrorElement, moveElement, rotateElement, routeLayout } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
-  COURSE_FILE_FORMAT, COURSE_FILE_VERSION, conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile,
+  COURSE_FILE_FORMAT, COURSE_FILE_MAX, COURSE_FILE_VERSION, conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile,
+  readCourseText, readCourseUpload,
 } from '../src/file/course-file.js';
 import { sweep } from './helpers/slow.js';
 
@@ -205,5 +206,25 @@ describe('cone list CSV', () => {
       expect(rows).toHaveLength(course.passes.filter((p) => p.connector).length);
       for (const r of rows) expect(r[3]).toBe('высокий');
     }
+  });
+});
+
+describe('dropped, picked and pasted course files', () => {
+  const text = courseFileText(courseDocument(layoutOf(courses[0]), { build: 'b' }));
+
+  test('a file opens through the same reader as its text', async () => {
+    const read = await readCourseUpload(new File([text], 'trassa.json', { type: 'application/json' }));
+    expect(read).toEqual(readCourseFile(text));
+    expect(readCourseText(text)).toEqual(readCourseFile(text));
+  });
+
+  test('the same size and format checks, with the same sentences', async () => {
+    const big = 'x'.repeat(COURSE_FILE_MAX + 1);
+    expect((await readCourseUpload(new Blob([big]))).error).toBe('Это не файл трассы: он слишком большой');
+    expect(readCourseText(big).error).toBe('Это не файл трассы: он слишком большой');
+    expect((await readCourseUpload(new Blob(['{"a":1}']))).error).toBe('Это не файл трассы мотоджимханы');
+    expect((await readCourseUpload(new Blob(['nope']))).error).toBe('Это не файл трассы: внутри не JSON');
+    expect((await readCourseUpload({ size: 10, text: () => Promise.reject(new Error('io')) })).error).toBe('Не удалось прочитать файл');
+    expect((await readCourseUpload(null)).ok).toBe(false);
   });
 });
