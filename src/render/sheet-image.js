@@ -7,7 +7,7 @@
 // (SPEC, «Картинка схемы»).
 
 import { SHAPE_NAMES } from '../generator/recipe.js';
-import { dist } from '../sheet/setup-sheet.js';
+import { dist, fmt } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
