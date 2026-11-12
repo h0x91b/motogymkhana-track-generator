@@ -1,5 +1,5 @@
 import {
-  BIG_ELEMENT_AREA, BLOCKED_DEFAULT, BLOCKED_MAX, BLOCKED_NAMES, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
+  BIG_ELEMENT_AREA, BLOCKED_DEFAULT, BLOCKED_MARGIN, BLOCKED_MAX, BLOCKED_NAMES, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile, readCourseText, readCourseUpload } from '../file/course-file.js';
@@ -138,6 +138,7 @@ function syncSafety() {
     : 'Ещё: безопасность — свободное место вокруг';
   form.querySelector('#safety-details summary').classList.toggle('set', set.length > 0);
   form.querySelector('.safety-option[data-key="trainGap"]').hidden = !form.train.checked;
+  syncBlockedMargins();
 }
 
 function buildTypeChecks() {
@@ -242,7 +243,40 @@ function savedShape(saved) {
 const BLOCKED_FIELDS = [['x', 'X'], ['y', 'Y'], ['w', 'по X'], ['h', 'по Y']];
 const capital = (s) => s[0].toUpperCase() + s.slice(1);
 
-/** The rows of the blocked areas: what they are, X and Y of the corner nearest A (0,0), the size along x and y. */
+/** The lot edge margin chosen in the form: what an area without its own margin keeps. */
+const formEdge = () => Number(form.querySelector(`[name="${safetyName('edge')}"]:checked`)?.value ?? BLOCKED_MARGIN.default);
+
+/**
+ * An area's margin row: − and + on the lot edge margin's steps around a typed
+ * field; empty means «as the lot edge», shown as the placeholder (ADR 0022).
+ */
+function blockedMarginHtml(title, margin) {
+  const value = margin === undefined || margin === null ? '' : String(margin).replace('.', ',').replace(/"/g, '');
+  return `<span class="blocked-margin" role="group" aria-label="${title}: отступ от краёв">
+      <span class="blocked-margin-name">Отступ, м</span>
+      <button type="button" data-blocked-step="-1" aria-label="${title}: отступ меньше">−</button>
+      <input data-blocked="margin" inputmode="decimal" enterkeyhint="done" value="${value}" placeholder="${fmt(formEdge())} (как край площадки)" aria-label="${title}: отступ, м; пусто — как от края площадки">
+      <button type="button" data-blocked-step="1" aria-label="${title}: отступ больше">+</button>
+    </span>`;
+}
+
+/** − or + in an area's margin row: one step of the lot edge margin from what is typed (or from the lot's), 0 to 3 m. */
+function stepBlockedMargin(button) {
+  const input = button.closest('li').querySelector('[data-blocked="margin"]');
+  const o = BLOCKED_MARGIN;
+  const typed = Number(input.value.trim().replace(',', '.'));
+  const now = input.value.trim() === '' || !Number.isFinite(typed) ? formEdge() : typed;
+  const k = Math.round((now - o.min) / o.step) + Number(button.dataset.blockedStep);
+  input.value = String(Math.min(Math.max(o.min + k * o.step, o.min), o.max)).replace('.', ',');
+  onFormChange(true);
+}
+
+/** The placeholders of the margin rows follow the lot edge margin chosen below. */
+function syncBlockedMargins() {
+  for (const input of form.querySelectorAll('[data-blocked="margin"]')) input.placeholder = `${fmt(formEdge())} (как край площадки)`;
+}
+
+/** The rows of the blocked areas: what they are, X and Y of the corner nearest A (0,0), the size along x and y, the margin. */
 function writeBlocked(list) {
   const ol = $('blocked-list');
   ol.replaceChildren(...list.map((b, i) => {
@@ -251,7 +285,8 @@ function writeBlocked(list) {
     const title = `${capital(BLOCKED_NAMES[b.kind])} ${i + 1}`;
     li.innerHTML = `<span class="blocked-name">${title}</span>`
       + BLOCKED_FIELDS.map(([key, label]) => `<label>${label}<input data-blocked="${key}" inputmode="numeric" enterkeyhint="done" value="${String(b[key] ?? '').replace(/"/g, '')}" aria-label="${title}: ${key === 'x' || key === 'y' ? key.toUpperCase() : label}, м"></label>`).join('')
-      + `<button type="button" class="blocked-remove" data-remove-blocked="${i}" aria-label="Убрать: ${title.toLowerCase()}" title="Убрать">✕</button>`;
+      + `<button type="button" class="blocked-remove" data-remove-blocked="${i}" aria-label="Убрать: ${title.toLowerCase()}" title="Убрать">✕</button>`
+      + blockedMarginHtml(title, b.margin);
     return li;
   }));
   for (const b of form.querySelectorAll('[data-add-blocked]')) b.disabled = list.length >= BLOCKED_MAX;
@@ -262,6 +297,8 @@ function readBlocked() {
   return [...$('blocked-list').children].map((li) => ({
     kind: li.dataset.kind,
     ...Object.fromEntries(BLOCKED_FIELDS.map(([key]) => [key, li.querySelector(`[data-blocked="${key}"]`).value])),
+    // Only when typed: empty keeps the lot edge margin, and the recipe has no `margin`.
+    ...(li.querySelector('[data-blocked="margin"]').value.trim() ? { margin: li.querySelector('[data-blocked="margin"]').value.trim() } : {}),
   }));
 }
 
@@ -284,10 +321,11 @@ function addBlockedRow(kind) {
  * The edited course now counts as made from this recipe.
  */
 function adoptBlocked(recipe) {
-  const same = JSON.stringify(readBlocked().map((b) => [b.kind, ...['x', 'y', 'w', 'h'].map((k) => Number(b[k]))]))
-    === JSON.stringify(recipe.blocked.map((b) => [b.kind, b.x, b.y, b.w, b.h]));
+  const margin = (v) => (v === undefined ? null : Number(String(v).replace(',', '.')));
+  const same = JSON.stringify(readBlocked().map((b) => [b.kind, ...['x', 'y', 'w', 'h'].map((k) => Number(b[k])), margin(b.margin)]))
+    === JSON.stringify(recipe.blocked.map((b) => [b.kind, b.x, b.y, b.w, b.h, margin(b.margin)]));
   if (same) return;
-  writeBlocked(recipe.blocked.map((b) => ({ kind: b.kind, x: String(b.x), y: String(b.y), w: String(b.w), h: String(b.h) })));
+  writeBlocked(recipe.blocked.map((b) => ({ kind: b.kind, x: String(b.x), y: String(b.y), w: String(b.w), h: String(b.h), ...(b.margin === undefined ? {} : { margin: String(b.margin) }) })));
   state.form = readForm();
   saveForm({ ...state.form, knownTypes: ELEMENT_TYPES });
   showErrors(validate(state.form).errors);
@@ -1751,6 +1789,8 @@ function start() {
   form.addEventListener('click', (e) => {
     const add = e.target.closest('[data-add-blocked]');
     if (add && !add.disabled) addBlockedRow(add.dataset.addBlocked);
+    const step = e.target.closest('[data-blocked-step]');
+    if (step) stepBlockedMargin(step);
     const remove = e.target.closest('[data-remove-blocked]');
     if (!remove) return;
     const list = readBlocked().filter((_, i) => i !== Number(remove.dataset.removeBlocked));

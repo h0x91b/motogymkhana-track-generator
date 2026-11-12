@@ -4,8 +4,8 @@
 // generator/layout.js; nothing here knows how a course is routed.
 
 import {
-  addBlocked, axisDegrees, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
-  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
+  addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
+  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -52,6 +52,9 @@ function sizeInput(c) {
 
 /** A safety margin as the panel prints it: «нет» for a rule switched off. */
 const marginText = (v) => (v > 0 ? `${String(v).replace('.', ',')}\u00a0м` : 'нет');
+
+/** A blocked area's margin as the panel says it: «отступ 2 м», or «… как край площадки» when it keeps the lot's. */
+const blockedMarginText = (m) => `отступ ${marginText(m.value)}${m.own ? '' : ', как край площадки'}`;
 
 /** The values one step down and up from a margin's, or null at an end. */
 function marginSteps(m) {
@@ -188,6 +191,8 @@ export function createEditor(host) {
       select(Number(arg) === selected ? null : Number(arg));
       if (selected !== null) host.reveal(idOf(selected));
     },
+    // A blocked area's row in the list: opens it; a second tap closes it.
+    selectBlocked: (arg) => select(null, Number(arg) === block ? null : Number(arg)),
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
     rotate: (arg) => {
       const next = rotateElement(layout, selected, Number(arg));
@@ -293,6 +298,32 @@ export function createEditor(host) {
       const snapped = to[key] === typed ? '' : ` — ближайшее допустимое к ${comma(typed)}\u00a0м`;
       if (!commit(next, null, `${blockedTitle(layout, block)}: ${to.w} × ${to.h}\u00a0м${snapped}.`, block) && field) field.value = String(to[key]);
     },
+    /** The selected area's own margin a step down or up, or back to the lot edge margin (`edge`). */
+    blockedMargin: (dir) => {
+      const m = blockedMarginOf(layout, block);
+      const value = dir === 'edge' ? null : marginSteps(m)[dir];
+      if (value === undefined || (value === null && dir !== 'edge')) return;
+      const next = setBlockedMargin(layout, block, value);
+      commit(next, null, `${blockedTitle(layout, block)}: ${blockedMarginText(blockedMarginOf(next, block))}.`, block);
+    },
+    /** A typed margin for the selected area: the nearest step from 0 to 3 m; the field says what it got. */
+    typedBlockedMargin: (text) => {
+      const before = blockedMarginOf(layout, block);
+      const field = $('edit-blocked-margin');
+      const typed = Number(String(text).trim().replace(',', '.').replace(/\s*м$/, ''));
+      if (String(text).trim() === '' || !Number.isFinite(typed)) {
+        if (field) field.value = comma(before.value);
+        say(`Отступ — число метров от 0 до 3. Сейчас ${blockedMarginText(before)}.`);
+        return;
+      }
+      const next = setBlockedMargin(layout, block, typed);
+      const now = blockedMarginOf(next, block);
+      const snapped = Math.abs(now.value - typed) < 1e-9 ? '' : ` — ближайшее допустимое к ${comma(typed)}\u00a0м`;
+      if (!commit(next, null, `${blockedTitle(layout, block)}: ${blockedMarginText(now)}${snapped}.`, block)) {
+        if (field) field.value = comma(before.value);
+        say(`${blockedTitle(layout, block)}: уже ${blockedMarginText(before)}${snapped}.`);
+      }
+    },
     // Back to the generated course; undo brings the edits back.
     reset: () => commit(base, null, 'Правки сброшены: трасса снова как от генератора.'),
   };
@@ -376,7 +407,7 @@ export function createEditor(host) {
       return `<li class="el-row blocked-row${open ? ' open' : ''}">
         <div class="el-head">
           <button type="button" class="el-pick" data-act="selectBlocked" data-arg="${k}" aria-expanded="${open}" aria-label="${title}, ${b.w} на ${b.h} метров">`
-        + `<span class="hatch ${b.kind}" aria-hidden="true"></span><span class="el-text"><span class="el-name">${title}</span><span class="el-sum">X ${b.x} · Y ${b.y} · ${b.w} × ${b.h}\u00a0м</span></span></button>
+        + `<span class="hatch ${b.kind}" aria-hidden="true"></span><span class="el-text"><span class="el-name">${title}</span><span class="el-sum">X ${b.x} · Y ${b.y} · ${b.w} × ${b.h}\u00a0м${b.margin === undefined ? '' : ` · отступ ${esc(marginText(b.margin))}`}</span></span></button>
         </div>${open ? `<div class="el-detail">${blockedHtml()}</div>` : ''}
       </li>`;
     }).join('');
@@ -393,14 +424,35 @@ export function createEditor(host) {
         <span class="size-field"><input id="edit-blocked-${key}" data-blocked-size="${key}" inputmode="numeric" autocomplete="off" enterkeyhint="done" value="${value}" aria-label="${name}, м"><span aria-hidden="true">м</span></span>
         <button type="button" data-act="blockedSize" data-arg="${key}:1" aria-label="${name}: больше">${icon('plus')}</button>
       </div>`;
-    return `<p class="edit-hint muted">Угол у «A (0,0)»: X ${b.x}, Y ${b.y}\u00a0м. Перетащите на плане или сдвиньте стрелками; от его краёв держится тот же отступ, что от края площадки.</p>
+    return `<p class="edit-hint muted">Угол у «A (0,0)»: X ${b.x}, Y ${b.y}\u00a0м. Перетащите на плане или сдвиньте стрелками; от его краёв держится его отступ — пунктир вокруг.</p>
       <div class="edit-tools">
         <span class="tool-group" role="group" aria-label="Сдвинуть">
           ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
         </span>
       </div>
       <div class="edit-actions"><button type="button" class="danger" data-act="remove">Убрать</button></div>
-      <div class="edit-sizes">${size('w', 'По X', b.w)}${size('h', 'По Y', b.h)}</div>`;
+      <div class="edit-sizes">${size('w', 'По X', b.w)}${size('h', 'По Y', b.h)}</div>
+      ${blockedMarginHtml()}`;
+  }
+
+  /**
+   * The selected area's own margin (ADR 0022): − and + on the lot edge
+   * margin's steps, or typed; until set, the lot's, said so in the note.
+   */
+  function blockedMarginHtml() {
+    const m = blockedMarginOf(layout, block);
+    const { less, more } = marginSteps(m);
+    const note = m.own
+      ? `<button type="button" class="link margin-reset" data-act="blockedMargin" data-arg="edge" aria-label="Отступ: как край площадки, ${esc(marginText(m.edge))}">как край площадки</button>`
+      : `<span class="margin-note muted" id="edit-blocked-margin-note">${esc(comma(m.edge))} (как край площадки)</span>`;
+    return `<div class="edit-sizes edit-margins" role="group" aria-label="Отступ от краёв">
+        <div class="size-row margin-row${m.own ? ' own' : ''}">
+          <span class="size-name"><label for="edit-blocked-margin">Отступ, м</label>${note}</span>
+          <button type="button" data-act="blockedMargin" data-arg="less" aria-label="Отступ: меньше"${less === null ? ' disabled' : ''}>${icon('minus')}</button>
+          <span class="size-field"><input id="edit-blocked-margin" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(m.value)}"${m.own ? '' : ' aria-describedby="edit-blocked-margin-note"'}><span aria-hidden="true">м</span></span>
+          <button type="button" data-act="blockedMargin" data-arg="more" aria-label="Отступ: больше"${more === null ? ' disabled' : ''}>${icon('plus')}</button>
+        </div>
+      </div>`;
   }
 
   function elementHtml() {
@@ -516,6 +568,25 @@ export function createEditor(host) {
     // A row's own buttons act on that row's element: it becomes the selected one.
     if (button.dataset.row !== undefined) select(Number(button.dataset.row));
     ACTIONS[button.dataset.act](button.dataset.arg);
+  });
+  // A blocked area's margin field: Enter or leaving it sets the margin; the arrows step it like − and +; Escape puts it back.
+  body.addEventListener('change', (e) => {
+    if (e.target.id === 'edit-blocked-margin' && block !== null && !drag) ACTIONS.typedBlockedMargin(e.target.value);
+  });
+  body.addEventListener('keydown', (e) => {
+    if (e.target.id !== 'edit-blocked-margin' || block === null || drag) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      ACTIONS.blockedMargin(e.key === 'ArrowUp' ? 'more' : 'less');
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (matchMedia('(pointer: coarse)').matches) e.target.blur();
+      else ACTIONS.typedBlockedMargin(e.target.value);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.target.value = comma(blockedMarginOf(layout, block).value);
+      e.target.blur();
+    }
   });
   // The angle field: Enter or leaving it turns the element; the arrows step through the axes.
   body.addEventListener('change', (e) => {

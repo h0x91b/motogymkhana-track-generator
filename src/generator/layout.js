@@ -692,7 +692,7 @@ export function resizeBlockedSide(layout, k, from, sx, sy, dx, dy) {
 /**
  * Gives blocked area k its own margin, metres on the lot edge margin's steps
  * (clamped and snapped to them); null drops it, so the area keeps the lot edge
- * margin again (ADR 0021).
+ * margin again (ADR 0022).
  */
 export function setBlockedMargin(layout, k, margin) {
   const { recipe } = layout;

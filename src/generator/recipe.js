@@ -193,7 +193,7 @@ function parseSafety(value) {
 // with one), or an obstacle standing on it (a parked car, a pillar, a kerb
 // island). Whole metres from the reference corner: x, y of the corner nearest
 // to it, then the size along x and y. Each keeps its own margin (`margin`,
-// metres, ADR 0021): cones, element lines and connectors stay that far from its
+// metres, ADR 0022): cones, element lines and connectors stay that far from its
 // edges; without one, the lot edge margin (`safety.edge`).
 export const BLOCKED_KINDS = ['cutout', 'obstacle'];
 export const BLOCKED_NAMES = { cutout: 'вырез', obstacle: 'препятствие' };

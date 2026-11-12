@@ -37,7 +37,7 @@ function blockedFaults(course) {
   const blocked = course.recipe.blocked;
   const cones = new Map(course.cones.map((c) => [c.id, c]));
   for (const b of blocked) {
-    // Its own margin (ADR 0021), else the lot edge margin.
+    // Its own margin (ADR 0022), else the lot edge margin.
     const MARGIN = b.margin ?? course.recipe.safety?.edge ?? 1;
     for (const c of course.cones) {
       if (toRect(coneXY(c), b) < MARGIN - 1e-6) faults.push(`cone ${c.id} ${toRect(coneXY(c), b).toFixed(2)} m from ${b.kind}`);

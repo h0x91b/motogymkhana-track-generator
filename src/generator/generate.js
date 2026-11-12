@@ -204,7 +204,7 @@ const rectObb = (x0, y0, x1, y1) => ({ c: [(x0 + x1) / 2, (y0 + y1) / 2], u: [1,
  * them: the rectangle itself (`obb`, as a shape `shape`), which a run-off zone,
  * a line's waiting area or a U-turn cone's keep-out may not enter, and the
  * rectangle grown by the area's own margin (`keep`, `m`: its `margin`, else the
- * lot edge margin, ADR 0021), which element cores, cones and connectors keep
+ * lot edge margin, ADR 0022), which element cores, cones and connectors keep
  * out of, as they do the edge.
  */
 export function blockedAreas(recipe) {

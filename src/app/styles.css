@@ -445,7 +445,7 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .blocked-list li {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) 44px;
-  grid-template-areas: "name name name name name" "x y w h del";
+  grid-template-areas: "name name name name name" "x y w h del" "margin margin margin margin margin";
   gap: 4px 6px;
   align-items: end;
   padding: 8px 10px 10px;
@@ -458,6 +458,15 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .blocked-list label { margin: 0 !important; font-weight: 500 !important; font-size: 13px; color: var(--muted); }
 .blocked-list input { margin-top: 2px !important; padding: 8px 6px !important; text-align: center; font-variant-numeric: tabular-nums; }
 .blocked-remove { grid-area: del; min-height: 44px; }
+/* The area's own margin: − typed field +, under its size; empty is the lot edge's (ADR 0022). */
+.blocked-margin { grid-area: margin; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; grid-template-areas: "label label label" "less value more"; gap: 2px 6px; align-items: center; margin-top: 4px; }
+.blocked-margin-name { grid-area: label; }
+.blocked-margin [data-blocked-step="-1"] { grid-area: less; }
+.blocked-margin input { grid-area: value; }
+.blocked-margin [data-blocked-step="1"] { grid-area: more; }
+.blocked-margin-name { font-size: 13px; font-weight: 500; color: var(--muted); }
+.blocked-margin button { min-height: 44px; padding: 0; font-size: 18px; }
+.blocked-list .blocked-margin input { margin-top: 0 !important; }
 .blocked-add { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .blocked-add button { flex: 1 1 auto; min-height: 44px; }
 .toast {
