@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, DIFFICULTY_TABLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, TRAIN_EXEMPT_TYPES,
   U_TURN_CONE_CLEARANCE, uTurnRadius, ZONE_PAD,
 } from '../src/generator/index.js';
 
@@ -40,7 +40,7 @@ const RECIPES = [
       width: 50, length: 70, elements: 8, difficulty: 'medium', shape: 'closed',
       sizes: {
         'straight-slalom': { step: 3 }, 'offset-slalom': { step: 7 }, gate: { width: 3.5 }, 'lane-change': { shift: 4 },
-        'u-turn': { width: 8 }, 'figure-eight': { loop: 7 }, box: { size: 16 }, circle: { radius: 5 }, tunnel: { gap: 6 },
+        'u-turn': { width: 8 }, 'figure-eight': { distance: 12 }, box: { size: 16 }, circle: { radius: 5 }, tunnel: { gap: 6 },
         zigzag: { step: 2.5 }, 'corridor-slalom': { width: 3, step: 5 }, keyhole: { radius: 4.5 }, crescent: { radius: 8 },
       },
     },
@@ -318,23 +318,43 @@ describe('placement', () => {
     expect([...seen].sort()).toEqual([...CLASS_SIZED_TYPES].sort());
   });
 
-  test('figure-eight loops are circles round their cones', () => {
+  test('figure-eight: the cones stand the table distance apart, the loops round them on the U-turn radius', () => {
+    let seen = 0;
     each((c) => {
       const byId = conesById(c);
+      const r = uTurnRadius(c.recipe.difficulty, c.recipe.bike);
+      const want = c.recipe.sizes['figure-eight']?.distance ?? DIFFICULTY_TABLE[c.recipe.difficulty].eightDistance[0];
       for (const e of c.elements.filter((x) => x.type === 'figure-eight')) {
+        seen++;
         const [p, q] = e.cones.map((id) => coneXY(byId.get(id)));
         const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
-        // Away from the crossing (and without the run-in from the zone edge) the
-        // line ridden keeps one distance from the nearer cone.
+        // On a diagonal the nearest lattice length (ADR 0005).
+        expect(Math.abs(d - want), `${label(c)} ${e.id} cones ${d} m apart`).toBeLessThanOrEqual(e.axis % 2 === 0 ? 1e-9 : 0.25 + 1e-9);
+        // Loop centres on the line through the cones, 2√2 r apart about their midpoint.
+        const u = [(q[0] - p[0]) / d, (q[1] - p[1]) / d];
         const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
-        const radii = e.path.slice(1, -1)
-          .filter((pt) => Math.hypot(pt[0] - mid[0], pt[1] - mid[1]) > d / 2)
-          .map((pt) => Math.min(Math.hypot(pt[0] - p[0], pt[1] - p[1]), Math.hypot(pt[0] - q[0], pt[1] - q[1])));
-        expect(radii.length, `${label(c)} ${e.id}`).toBeGreaterThan(20);
-        const r = d / (2 * Math.SQRT2);
-        for (const x of radii) expect(Math.abs(x - r), `${label(c)} ${e.id}`).toBeLessThan(0.05);
+        const centres = [-1, 1].map((k) => [mid[0] + k * Math.SQRT2 * r * u[0], mid[1] + k * Math.SQRT2 * r * u[1]]);
+        // Away from the crossing (and without the run-in from the zone edge) the
+        // line ridden keeps the U-turn radius from the nearer loop centre.
+        const loops = e.path.slice(1, -1).filter((pt) => Math.hypot(pt[0] - mid[0], pt[1] - mid[1]) > Math.SQRT2 * r);
+        expect(loops.length, `${label(c)} ${e.id}`).toBeGreaterThan(20);
+        for (const pt of loops) {
+          const x = Math.min(...centres.map((o) => Math.hypot(pt[0] - o[0], pt[1] - o[1])));
+          expect(Math.abs(x - r), `${label(c)} ${e.id}`).toBeLessThan(0.05);
+        }
+        // Across the base the eight is the loop diameter wide.
+        const across = e.path.slice(1, -1).map((pt) => -(pt[0] - mid[0]) * u[1] + (pt[1] - mid[1]) * u[0]);
+        expect(Math.max(...across) - Math.min(...across), `${label(c)} ${e.id}`).toBeCloseTo(2 * r, 1);
+        // The line ridden goes all the way round each cone in its own loop and keeps clear of it.
+        const dense = densify(e.path, 0.05);
+        for (const [k, cone] of [p, q].entries()) {
+          expect(distanceToPath(dense, cone), `${label(c)} ${e.id}`).toBeGreaterThan(1);
+          const own = dense.filter((pt) => (pt[0] - mid[0]) * u[0] + (pt[1] - mid[1]) * u[1] < 0 === (k === 0));
+          expect(Math.abs(sweepAround(own, cone)), `${label(c)} ${e.id}`).toBeGreaterThan(270);
+        }
       }
     });
+    expect(seen).toBeGreaterThan(sweep(20, 0));
   });
 
   test('connectors do not ride unmarked loops: at most 300° of turning, 400° for the closing one', () => {
@@ -605,36 +625,6 @@ describe('cone sides, from the actual geometry of the route', () => {
 });
 
 describe('element shapes', () => {
-  test('figure-eight loops are stretched along the line between the two centre cones', () => {
-    let seen = 0;
-    each((c) => {
-      const byId = conesById(c);
-      for (const e of c.elements.filter((x) => x.type === 'figure-eight')) {
-        seen++;
-        const [a, b] = e.cones.map((id) => coneXY(byId.get(id)));
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        const u = [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
-        // The loop around a cone: the trajectory within D/2 of it (this leaves out
-        // the straight approach and exit runs from the zone edge).
-        const dense = densify(e.path, 0.05);
-        for (const centre of [a, b]) {
-          const other = centre === a ? b : a;
-          const loop = dense.filter((p) => {
-            const d = Math.hypot(p[0] - centre[0], p[1] - centre[1]);
-            return d <= len / 2 + 1e-6 && d < Math.hypot(p[0] - other[0], p[1] - other[1]) + 1e-6;
-          });
-          const along = loop.map((p) => (p[0] - centre[0]) * u[0] + (p[1] - centre[1]) * u[1]);
-          const across = loop.map((p) => -(p[0] - centre[0]) * u[1] + (p[1] - centre[1]) * u[0]);
-          const ext = (xs) => Math.max(...xs) - Math.min(...xs);
-          expect(ext(along) > ext(across), `${label(c)} ${e.id}`).toBe(true);
-          // And the loop goes all the way round its cone.
-          expect(Math.abs(sweepAround(loop, centre))).toBeGreaterThan(270);
-        }
-      }
-    });
-    expect(seen).toBeGreaterThan(sweep(20, 0));
-  });
-
   test('pivot turns are 270°, 360° or 720° around their cone, as the pass says', () => {
     let seen = 0;
     each((c) => {

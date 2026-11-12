@@ -95,6 +95,10 @@ function parseMetres(value) {
 
 const fmtMetres = (v) => String(v).replace('.', ',');
 
+// Size options an older build offered and this one no longer has: a recipe
+// that still names one (a saved course file) opens without it.
+const RETIRED_SIZES = { 'figure-eight': ['loop'] }; // the loop radius, before ADR 0021
+
 /**
  * Size options the recipe fixes, `{ [type]: { [key]: metres } }` (SIZE_OPTIONS).
  * Only ticked types keep theirs, in canonical order, so a size left on an
@@ -109,6 +113,7 @@ function parseSizes(value, types) {
     const chosen = value[type];
     if (!chosen || typeof chosen !== 'object' || Array.isArray(chosen)) return { ok: false, error: `Размеры «${TYPE_NAMES[type]}» заданы неверно` };
     for (const key of Object.keys(chosen)) {
+      if (RETIRED_SIZES[type]?.includes(key)) continue;
       if (!SIZE_OPTIONS[type].some((o) => o.key === key)) return { ok: false, error: `У типа «${TYPE_NAMES[type]}» нет размера «${key}»` };
     }
   }

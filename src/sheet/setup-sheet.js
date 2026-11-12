@@ -139,8 +139,6 @@ const CLOCK = { left: 'против часовой стрелки', right: 'по
 const TURN = { left: 'налево', right: 'направо' };
 
 /** Diameter in metres of the round loops of a figure eight `distance` lattice steps across (D = 2√2 r). */
-const loopDiameter = (distance, diagonal) => (distance * (diagonal ? 0.5 * Math.SQRT2 : 0.5)) / Math.SQRT2;
-
 /**
  * Human summary of the sizes, multiples of 0.5 m on a side axis. On a diagonal
  * a length of k lattice steps is k × 0.5 m along X and along Y and is stated
@@ -178,9 +176,9 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       return [`Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`, `Свободный радиус: ${metres(p.radius)}`];
     case 'figure-eight':
       return [
-        `Между центрами: ${len(p.distance)}`,
+        `Между конусами: ${len(p.distance)}`,
         `Синий — ${CLOCK.left}, красный — ${CLOCK.right}`,
-        `Петли — круги вокруг конусов, по линии езды около Ø ${metres(Math.round(2 * loopDiameter(p.distance, diagonal)) / 2)}`,
+        `Петли шире конусов: по линии езды Ø ${metres(2 * p.radius)}, конусы внутри петель ближе к перекрёстку`,
       ];
     case 'box':
       return [`Сторона коробки: ${len(p.size)}`, `Внутри поворот на 270° ${TURN[turn]}, выезд через сторону ${turn === 'left' ? 'справа' : 'слева'} от въезда`];

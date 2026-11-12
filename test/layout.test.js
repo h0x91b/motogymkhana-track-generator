@@ -157,7 +157,18 @@ describe('sizes set by hand', () => {
     expect(narrowest('u-turn', 'width', 'cruiser')).toBe(11);
     expect(narrowest('pivot-turn', 'radius', 'cruiser')).toBe(5);
     expect(narrowest('pivot-turn', 'radius', 'sport')).toBe(4.25);
-    expect(narrowest('figure-eight', 'distance', 'cruiser')).toBe(13); // 2√2 × 4.5 m, on the grid
+    expect(narrowest('figure-eight', 'radius', 'cruiser')).toBe(4.5);
+    expect(narrowest('figure-eight', 'radius', 'sport')).toBe(3.75);
+  });
+
+  test('an eight saved without a loop radius (a file from before ADR 0021) gets the class radius', () => {
+    expect(elementParams('figure-eight', { distance: 13 }, false, 'cruiser')).toEqual({ distance: 24, radius: 4.5 });
+  });
+
+  test('the cones of a figure eight are not held apart by the bike class: they go down to 5 m on a cruiser', () => {
+    const narrowest = (bike) => sizeControls('figure-eight', toEnd('figure-eight', typicalSizes('figure-eight', 'hard', bike), false, bike, 'distance', -1), false, bike).find((c) => c.key === 'distance').value;
+    expect(narrowest('cruiser')).toBe(5);
+    expect(narrowest('sport')).toBe(5);
   });
 
   test('a mirror line grows with the radius of its turn', () => {

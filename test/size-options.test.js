@@ -14,7 +14,6 @@ const unitOf = (e) => (e.axis % 2 === 1 ? 0.5 * Math.SQRT2 : 0.5);
 
 /** The size an option gave this element, in metres along its axis. */
 function sizeOf(e, option) {
-  if (option.key === 'loop') return (e.params.distance * unitOf(e)) / (2 * Math.SQRT2);
   return e.params[option.key] * unitOf(e);
 }
 
@@ -41,7 +40,7 @@ describe('size options', () => {
                 const got = sizeOf(e, option);
                 const want = expected(type, option, value, difficulty, bike);
                 const label = `${bike} ${value} m seed ${seed} axis ${e.axis}`;
-                if (option.key === 'loop' || sizeMinimum(type, option.key, difficulty, bike) !== null) {
+                if (sizeMinimum(type, option.key, difficulty, bike) !== null) {
                   // A U-turn size is a minimum: the shortest lattice length not below it.
                   expect(got, label).toBeGreaterThanOrEqual(want - 1e-9);
                   expect(got, label).toBeLessThan(want + unitOf(e) + 1e-9);
@@ -60,6 +59,37 @@ describe('size options', () => {
       }, 30_000);
     }
   }
+
+  test('the class radius sizes the loops of a figure eight, not the distance between its cones (ADR 0021)', () => {
+    const eight = (difficulty, bike) => {
+      const recipe = { ...SITE, elements: 1, difficulty, bike, types: ['figure-eight'] };
+      const e = Array.from({ length: 30 }, (_, seed) => generateCourse(recipe, seed).course.elements[0]).find((x) => x.axis % 2 === 0);
+      return { distance: e.params.distance * unitOf(e), radius: e.params.radius };
+    };
+    for (const bike of ['cruiser', 'sport']) {
+      for (const [difficulty, distance] of [['easy', 10], ['medium', 8], ['hard', 6.5]]) {
+        expect(eight(difficulty, bike), `${difficulty} ${bike}`).toEqual({ distance, radius: uTurnRadius(difficulty, bike) });
+      }
+    }
+    expect(eight('hard', 'cruiser')).toEqual({ distance: 6.5, radius: 4.5 });
+  });
+
+  test('a recipe from before ADR 0021 that fixed the eight loop radius still reads, without it', () => {
+    const result = parseRecipe({ ...SITE, elements: 3, difficulty: 'hard', types: ['figure-eight'], sizes: { 'figure-eight': { loop: 7 } } });
+    expect(result.ok).toBe(true);
+    expect(result.recipe.sizes).toEqual({});
+  });
+
+  test('closed figures still grow with the bike class: a cruiser U-turn and box are wider than a sport one', () => {
+    const size = (type, key, bike) => {
+      const e = generateCourse({ ...SITE, elements: 1, difficulty: 'hard', bike, types: [type] }, 1).course.elements[0];
+      return e.params[key] * unitOf(e);
+    };
+    for (const [type, key] of [['u-turn', 'width'], ['box', 'size']]) {
+      expect(size(type, key, 'cruiser'), type).toBeGreaterThan(size(type, key, 'sport'));
+      expect(size(type, key, 'cruiser'), type).toBeGreaterThanOrEqual(2 * (uTurnRadius('hard', 'cruiser') + 1) - 1e-9);
+    }
+  });
 
   test('a straight slalom of 3, 4 or 5 m is laid out at exactly that step', () => {
     for (const step of [3, 4, 5]) {
