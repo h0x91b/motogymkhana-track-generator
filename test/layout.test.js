@@ -665,7 +665,7 @@ describe('the setup sheet of an edited course', () => {
     const { course } = routeLayout(layout);
     const sheet = buildSetupSheet(course);
     expect(sheet.cards.map((c) => c.type)).toEqual(course.elements.map((e) => e.type));
-    expect(sheet.coneList.tallBlue + sheet.coneList.tallRed + sheet.coneList.low).toBe(course.cones.length);
+    expect(sheet.coneList.tallBlue + sheet.coneList.tallRed + sheet.coneList.tallStriped + sheet.coneList.low).toBe(course.cones.length);
     // A ring is measured from its centre; every other element from the layout's anchor.
     sheet.cards.forEach((card, i) => {
       if (!card.anchorAtCentre) expect([card.anchor.x, card.anchor.y]).toEqual([layout.elements[i].x, layout.elements[i].y]);

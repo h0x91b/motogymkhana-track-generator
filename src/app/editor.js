@@ -6,7 +6,7 @@
 import {
   addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
   removeBlocked, removeElement, replaceElement, resetTerminal, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement,
-  terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
+  SINGLE_CONE_TYPES, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -255,7 +255,12 @@ export function createEditor(host) {
         say(`${what} уже стоит на ${now}°${snapped}.`);
       }
     },
-    mirror: () => commit(mirrorElement(layout, selected), selected, `Элемент ${selected + 1} отражён: повороты в другую сторону.`),
+    mirror: () => {
+      const next = mirrorElement(layout, selected);
+      const type = next.elements[selected].type;
+      // A cone passed on one side mirrors into the cone passed on the other.
+      commit(next, selected, type !== layout.elements[selected].type ? `Элемент ${selected + 1} отражён: теперь «${TYPE_NAMES[type]}».` : `Элемент ${selected + 1} отражён: повороты в другую сторону.`);
+    },
     size: (arg) => {
       const [key, dir] = arg.split(':');
       const control = elementControls(layout, selected).find((c) => c.key === key);
@@ -784,7 +789,8 @@ export function createEditor(host) {
       const looped = train && LOOPED_TYPES.includes(t);
       const note = t === current ? '<span class="type-note">сейчас</span>'
         : looped ? '<span class="type-note">не для паровозика</span>'
-          : t === suggested ? '<span class="type-note">показывают, куда ехать</span>' : '';
+          : t === suggested ? '<span class="type-note">показывают, куда ехать</span>'
+            : SINGLE_CONE_TYPES.includes(t) ? '<span class="type-note">один конус</span>' : '';
       const mark = t === current ? ' aria-current="true"' : t === suggested && !looped ? ' class="suggested"' : '';
       return `<button type="button" data-type="${t}"${mark}${looped ? ' disabled' : ''}><span>${esc(TYPE_NAMES[t])}</span>${note}</button>`;
     }).join('');

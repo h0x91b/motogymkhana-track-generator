@@ -12,7 +12,7 @@
 // Everything here is a pure function of the layout, so undo, redo and storage
 // keep layouts and nothing else.
 
-import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
+import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
   areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
@@ -56,7 +56,7 @@ function ownMargins(el) {
 function place(el, recipe) {
   const diagonal = diagonalAxis(el.type, el.axis);
   const own = ownMargins(el);
-  const margins = { ...elementMargins(recipe), ...own };
+  const margins = { ...elementMargins(recipe, el.type), ...own };
   const p = placeTemplate(template(el.type, elementParams(el.type, el.sizes, diagonal, recipe.bike), diagonal, el.mirrored, margins), el.axis, el.x, el.y);
   return own ? { ...p, override: own } : p;
 }
@@ -634,9 +634,15 @@ export function resetTerminal(layout, which) {
   return rest;
 }
 
-/** Mirrors element i across its axis: turns swap sides, and so do the colours of its cones. */
+/**
+ * Mirrors element i across its axis: turns swap sides, and so do the colours
+ * of its cones. A cone passed on one side becomes the one passed on the other
+ * («Конус слева» ↔ «Конус справа»): there the side is the type.
+ */
 export function mirrorElement(layout, i) {
-  return turned(layout, i, { mirrored: !layout.elements[i].mirrored });
+  const el = layout.elements[i];
+  const other = mirrorType(el.type);
+  return turned(layout, i, other !== el.type ? { type: other } : { mirrored: !el.mirrored });
 }
 
 /** Gives element i new nominal sizes (one of `sizeControls`' steps); its anchor stays. */
@@ -676,12 +682,14 @@ export function setElementSafety(layout, i, key, value) {
 
 /**
  * Element i's margins as the editor shows them: per key its value, whether
- * the element sets it itself, the recipe's value and the option it is one of.
+ * the element sets it itself, what the recipe gives its type (a single-cone
+ * element half the run-off, ADR 0024) and the option it is one of.
  * Run-off only for a type with a turn.
  */
 export function elementSafety(layout, i) {
   const el = layout.elements[i];
-  const recipe = safetyOf(layout.recipe);
+  const recipe = { ...safetyOf(layout.recipe) };
+  recipe.runOff = runOffFor(el.type, recipe.runOff);
   return ELEMENT_SAFETY_KEYS.filter((key) => key !== 'runOff' || RUN_OFF_TYPES[el.type]).map((key) => {
     const option = SAFETY_OPTIONS.find((o) => o.key === key);
     const own = el.safety?.[key];

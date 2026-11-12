@@ -129,7 +129,7 @@ export function courseFileName(recipe, seed, ext) {
 
 const CSV_HEAD = ['№', 'Где', '№ в элементе', 'Высота', 'Цвет', 'X, м', 'Y, м'];
 const HEIGHT = { tall: 'высокий', low: 'низкий' };
-const COLOUR = { blue: 'синий (слева)', red: 'красный (справа)', neutral: 'любой' };
+const COLOUR = { blue: 'синий (слева)', red: 'красный (справа)', striped: 'красный с жёлтой полосой (вращение)', neutral: 'любой' };
 
 /** Metres to 0.1 m with a decimal comma, as the setup sheet writes them. */
 const decimetres = (v) => (Math.round(v * 10) / 10 + 0).toFixed(1).replace('.', ',');

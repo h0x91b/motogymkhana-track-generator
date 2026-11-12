@@ -111,7 +111,7 @@ describe('recipe input', () => {
   test('every type is allowed by default', () => {
     const result = generateCourse(baseRecipe, 1);
     expect(result.course.recipe.types).toEqual(ELEMENT_TYPES);
-    expect(ELEMENT_TYPES).toHaveLength(20);
+    expect(ELEMENT_TYPES).toHaveLength(23);
   });
 
   test('every type is used at every difficulty, which changes only its sizes', () => {

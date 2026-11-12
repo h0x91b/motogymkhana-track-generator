@@ -2,7 +2,7 @@
 // docs/reference. Plan view = tilt 0; the 3D view tilts and rotates the same
 // metric scene. Draws only when asked (no animation loop).
 
-import { TYPE_NAMES } from '../generator/catalog.js';
+import { passColor, SINGLE_CONE_TYPES, TYPE_NAMES } from '../generator/catalog.js';
 import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
@@ -18,6 +18,9 @@ const RIDER_COLORS = ['#ff9f1c', '#ff5d8f', '#a3e635'];
 
 export const PALETTE = {
   red: '#ee624d',
+  // The pivot turn's cone: red with a yellow stripe (`passColor`).
+  striped: '#ee624d',
+  stripe: '#f5c400',
   blue: '#4e9fe7',
   low: '#c3c9c6',
   route: '#6ae0d3',
@@ -110,7 +113,7 @@ export function coneColors(course) {
     if (p.kind === 'gate') {
       colors.set(p.left, 'blue');
       colors.set(p.right, 'red');
-    } else if (p.kind === 'cone') colors.set(p.cone, p.side === 'left' ? 'blue' : 'red');
+    } else if (p.kind === 'cone') colors.set(p.cone, passColor(p));
   }
   return colors;
 }
@@ -466,6 +469,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const x = cone.hx / 2;
     const y = cone.hy / 2;
     const tall = cone.height === 'tall';
+    // A tall cone's light band; yellow on the striped one, which needs no side letter.
+    const striped = tall && colors.get(cone.id) === 'striped';
+    const band = striped ? PALETTE.stripe : '#f0f0df';
     const h = (tall ? 0.45 : 0.25) * k;
     const r = (tall ? 0.13 : 0.11) * k;
     const base = (tall ? 0.17 : 0.14) * k;
@@ -478,9 +484,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
         path(pts, null, 0, fill, true);
       };
       disc(r, color);
-      if (tall) disc(r * 0.62, '#f0f0df');
+      if (tall) disc(r * 0.62, band);
       disc(r * (tall ? 0.42 : 0.4), shade(color, 1.08));
-      if (tall && r * scale >= 7) {
+      if (tall && !striped && r * scale >= 7) {
         const side = colors.get(cone.id) === 'blue' ? 'Л' : 'П';
         plate(side, x, y, { size: Math.min(13, r * scale * 0.9), bg: null, fill: '#17232a' });
       }
@@ -501,7 +507,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
           [x + Math.cos(a0) * rings[j + 1][1], y + Math.sin(a0) * rings[j + 1][1], rings[j + 1][0]],
         ];
         const lit = 0.69 + 0.29 * (0.5 + 0.5 * Math.cos(a0 - 3.5));
-        faces.push({ p, c: shade(j === 1 && tall ? '#f0f0df' : color, lit) });
+        faces.push({ p, c: shade(j === 1 && tall ? band : color, lit) });
       }
     }
     for (const f of faces) f.d = f.p.reduce((s, p) => s + project(...p).d, 0) / f.p.length;
@@ -573,13 +579,15 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const text = `${wide ? `${e.order} ${TYPE_NAMES[e.type].toUpperCase()}` : String(e.order)}${wrong ? ' !' : ''}`;
     const sel = e.id === selected;
     const tone = wrong ? { bg: sel ? '#ffe2dd' : '#7c241ce6', fill: sel ? '#6b1710' : '#ffe9e5' } : { bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee' };
-    labels.push([text, cx, cy, { size: 13, z: 0.05, ...tone, hit: e.id, top: sel }]);
+    // A single cone stands about the middle of its zone: its number goes above it, not over it.
+    const lift = SINGLE_CONE_TYPES.includes(e.type) ? -(Math.max(6, 0.35 * scale) + 16) : 0;
+    labels.push([text, cx, cy, { size: 13, z: 0.05, dy: lift, ...tone, hit: e.id, top: sel }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.
       const a = anchorPoint(e, byId);
-      const below = project(a.x, a.y, 0).y >= project(cx, cy, 0.05).y;
+      const below = lift !== 0 || project(a.x, a.y, 0).y >= project(cx, cy, 0.05).y;
       const m = (v) => String(v).replace('.', ',');
-      labels.push([`якорь X ${m(a.x)} · Y ${m(a.y)}`, a.x, a.y, { size: 12, z: 0, dy: below ? 24 : -24, bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
+      labels.push([`якорь X ${m(a.x)} · Y ${m(a.y)}`, a.x, a.y, { size: 12, z: 0, dy: (below ? 1 : -1) * (lift ? -lift : 24), bg: '#4a3d12', fill: '#ffe7a3', top: true }]);
     }
   }
   const coneRadius = Math.max(6, 0.35 * scale);

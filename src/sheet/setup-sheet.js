@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { keepsFixedSize, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
+import { keepsFixedSize, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
 import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
@@ -55,7 +55,7 @@ function axisLabel(axis, diagonal, offLattice) {
   return `${axis % 4 === 0 ? 'вдоль ширины' : 'вдоль длины'}, ${DIR_LABELS[axis]}`;
 }
 
-const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole']);
+const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'small-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole']);
 
 /** Net turning of an element that turns one way (±180° or more, never near zero). */
 function netTurn(path) {
@@ -106,6 +106,9 @@ const DIMENSIONS = {
   keyhole: [],
   crescent: [],
   swerve: [['across', 0, 1], ['along', 0, 4], ['along', 4, 6]],
+  'pass-left': [],
+  'pass-right': [],
+  'small-turn': [],
 };
 
 const half = (v) => Math.round(v * 2) / 2 + 0;
@@ -150,9 +153,9 @@ function describe(element, cones, diagonal, turn, shift, dims) {
   const len = (steps) => size(steps * 0.5);
   const first = cones[0];
   const last = cones[cones.length - 1];
-  const colour = (c) => (c.color === 'blue' ? 'синий' : 'красный');
+  const colour = (c) => (c.color === 'blue' ? 'синий' : c.color === 'striped' ? 'красный с жёлтой полосой' : 'красный');
   const colours = (c) => (c.color === 'blue' ? 'синих' : 'красных');
-  const colourOf = (c) => (c.color === 'blue' ? 'синего' : 'красного');
+  const colourOf = (c) => (c.color === 'blue' ? 'синего' : c.color === 'striped' ? 'красного с жёлтой полосой' : 'красного');
   switch (element.type) {
     case 'straight-slalom':
       return [`${p.count} конусов, шаг: ${len(p.step)}`, `Первый конус ${colour(first)}, дальше цвета чередуются`];
@@ -173,7 +176,22 @@ function describe(element, cones, diagonal, turn, shift, dims) {
         `Разворот ${TURN[turn]} внутри, въезд и выезд с открытой стороны`,
       ];
     case 'pivot-turn':
-      return [`Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`, `Свободный радиус: ${metres(p.radius)}`];
+      return [
+        `Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`,
+        'Конус красный с жёлтой полосой: полный оборот вокруг него',
+        `Свободный радиус: ${metres(p.radius)}`,
+      ];
+    case 'pass-left':
+    case 'pass-right':
+      return [
+        `Один высокий конус, ${colour(first)}: объехать, оставив его ${element.type === 'pass-left' ? 'слева' : 'справа'}`,
+        'Линию выбирает гонщик; поворот к следующему элементу — какой нужен маршруту',
+      ];
+    case 'small-turn':
+      return [
+        `Разворот ${TURN[turn]} на 180° вокруг ${colourOf(first)} высокого конуса`,
+        `Радиус не меньше ${metres(p.radius)}; стенок нет, шире — можно`,
+      ];
     case 'figure-eight':
       return [
         `Между конусами: ${len(p.distance)}`,
@@ -440,7 +458,7 @@ function looseCones(e, byId, anchor, cones) {
     const cone = byId.get(e.cones[c.n - 1]);
     const dx = (cone.hx - anchor.hx) / 2 + 0;
     const dy = (cone.hy - anchor.hy) / 2 + 0;
-    const kind = c.height === 'low' ? 'низкий' : c.color === 'blue' ? 'синий высокий' : 'красный высокий';
+    const kind = c.height === 'low' ? 'низкий' : c.color === 'blue' ? 'синий высокий' : c.color === 'striped' ? 'красный с жёлтой полосой высокий' : 'красный высокий';
     return { n: c.n, dx, dy, label: `Конус ${c.n} (${kind}): от якоря X ${signed(dx)} м · Y ${signed(dy)} м` };
   });
 }
@@ -483,7 +501,7 @@ export function buildSetupSheet(course) {
       color.set(pass.left, 'blue');
       color.set(pass.right, 'red');
     } else if (pass.kind === 'cone') {
-      color.set(pass.cone, pass.side === 'left' ? 'blue' : 'red');
+      color.set(pass.cone, passColor(pass));
     }
   }
   const coneColor = (id) => (byId.get(id).height === 'tall' ? color.get(id) : 'neutral');
@@ -581,10 +599,11 @@ export function buildSetupSheet(course) {
     card.fromPrevious = { from: prev.number, dx, dy, label: `От якоря ${prev.number}: X ${signed(dx)} м · Y ${signed(dy)} м` };
   });
 
-  const coneList = { tallBlue: 0, tallRed: 0, low: 0 };
+  const coneList = { tallBlue: 0, tallRed: 0, tallStriped: 0, low: 0 };
   for (const c of course.cones) {
     if (c.height === 'low') coneList.low++;
     else if (color.get(c.id) === 'blue') coneList.tallBlue++;
+    else if (color.get(c.id) === 'striped') coneList.tallStriped++;
     else coneList.tallRed++;
   }
 

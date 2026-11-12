@@ -174,7 +174,34 @@ export const RUN_OFF_TYPES = {
   'fast-circle': 'loop',
   snail: 'loop',
   'box-eight': 'loop',
+  'small-turn': 'turnaround',
 };
+
+/**
+ * Single-cone elements (ADR 0024): one tall cone and the line round it, no
+ * walls — the rider picks the line and the class radius is only its minimum.
+ * They are small, so a turning one keeps a shorter run-off: this share of the
+ * recipe's (`runOffFor`); an element's own run-off in «Правка» is taken as set.
+ */
+export const SINGLE_CONE_TYPES = ['pass-left', 'pass-right', 'small-turn', 'pivot-turn'];
+export const SINGLE_CONE_RUN_OFF = 0.5;
+
+/**
+ * Single-cone types the generator uses only to fill a gap: never dealt as one
+ * of the course's own elements, tried at a place after every other type has
+ * failed there (the pivot turn is dealt as before and fills gaps too).
+ */
+export const FILLER_TYPES = ['pass-left', 'pass-right', 'small-turn'];
+
+/**
+ * Colour of the tall cone of a pass round one cone: the side — blue on the
+ * rider's left, red on the right — or, for a turn of more than 180° round it
+ * (the pivot turn), red with a yellow stripe, as it stands on the asphalt.
+ */
+export const passColor = (pass) => (pass.angle > 180 ? 'striped' : pass.side === 'left' ? 'blue' : 'red');
+
+/** The run-off an element of the type keeps when the recipe's is `runOff` metres: on the option's 0.5 m step. */
+export const runOffFor = (type, runOff) => (SINGLE_CONE_TYPES.includes(type) ? Math.round(runOff * SINGLE_CONE_RUN_OFF * 2) / 2 : runOff);
 
 // A big element takes a good part of a site: its core (cones and trajectory,
 // without the clearance) covers this many square metres or more at the sizes
@@ -212,6 +239,9 @@ export const TYPE_NAMES = {
   keyhole: 'Замочная скважина',
   crescent: 'Месяц',
   swerve: 'Лосиный тест',
+  'pass-left': 'Конус слева',
+  'pass-right': 'Конус справа',
+  'small-turn': 'Малый разворот',
 };
 
 // Trajectory-hint constants (metres). Visual only, but they size the zones.
@@ -847,7 +877,58 @@ const TYPES = {
       };
     },
   },
+
+  // A tall cone passed on the rider's left (blue) or right (red), and on to
+  // the next element: the connectors turn as the route needs, on at least the
+  // class radius. The side is the type, so neither is mirrored: mirroring one
+  // in «Правка» makes it the other (`mirrorType`).
+  'pass-left': {
+    fixedSide: true,
+    mirrorType: 'pass-right',
+    options: () => ({}),
+    build: (params, unit) => passCone('left', unit),
+  },
+  'pass-right': {
+    fixedSide: true,
+    mirrorType: 'pass-left',
+    options: () => ({}),
+    build: (params, unit) => passCone('right', unit),
+  },
+
+  'small-turn': {
+    // «Малый разворот»: back round one tall cone, 180°, on at least the U-turn
+    // radius; no walls, so a wider line is fine.
+    options: () => ({}),
+    extra: (t) => ({ radius: t.turn }),
+    build({ radius }, unit) {
+      const r = radius / unit;
+      const lead = LEAD / unit;
+      return {
+        cones: [{ a: 0, b: 0, height: 'tall' }],
+        passes: [{ kind: 'cone', cone: 0, side: 'left', angle: 180 }],
+        path: [[-lead, -r], ...arcPoints([0, 0], r, -PI / 2, PI), [-lead, r]],
+        entryDir: [1, 0],
+        exitDir: [-1, 0],
+      };
+    },
+  },
 };
+
+/** One tall cone passed on `side`, WEAVE away, straight on. */
+function passCone(side, unit) {
+  const b = (side === 'left' ? -WEAVE : WEAVE) / unit;
+  const lead = LEAD / unit;
+  return {
+    cones: [{ a: 0, b: 0, height: 'tall' }],
+    passes: [{ kind: 'cone', cone: 0, side }],
+    path: [[-lead, b], [lead, b]],
+    entryDir: [1, 0],
+    exitDir: [1, 0],
+  };
+}
+
+/** The type an element becomes when mirrored, for a type whose side is the type itself; else the type. */
+export const mirrorType = (type) => TYPES[type].mirrorType ?? type;
 
 const unitFor = (diagonal) => latticeUnit(diagonal);
 
@@ -947,6 +1028,8 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
   const runOffDistance = margins.runOff ?? RUN_OFF;
   const unit = unitFor(diagonal);
   let g = { lines: [], guides: [], ...TYPES[type].build(params, unit) };
+  // A type whose side is the type itself is never mirrored.
+  if (TYPES[type].fixedSide) mirrored = false;
   if (mirrored) g = mirrorGeometry(g);
   let a0 = Infinity;
   let b0 = Infinity;
@@ -1113,6 +1196,9 @@ export const SIZE_SPECS = {
     { key: 'width', name: 'Ширина коридора', kind: 'length', min: 2, max: 3 },
     { key: 'run', name: 'До тупика', kind: 'length', min: 5, max: 10 },
   ],
+  'pass-left': [],
+  'pass-right': [],
+  'small-turn': [{ key: 'radius', name: 'Радиус разворота', kind: 'radius', min: classRadius, max: 8 }],
 };
 
 /** Axes 0..7 a type may stand on: curved rings and walls only along the site sides. */

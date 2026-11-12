@@ -26,7 +26,8 @@ const courses = RECIPES.flatMap((r) => Array.from({ length: SEEDS }, (_, seed) =
 
 const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
-const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'crescent'];
+// A single cone has no dimension line either: the card says its side or turn.
+const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'crescent', 'pass-left', 'pass-right', 'small-turn'];
 const isHalf = (v) => Number.isInteger(v * 2);
 /** A setup-sheet distance: always one decimal, decimal comma («12,0», «1,5»). */
 const d1 = (v) => v.toFixed(1).replace('.', ',');
@@ -103,13 +104,13 @@ describe('setup sheet', () => {
         const pivot = course.passes.find((p) => p.element === element.id && p.angle);
         expect(card.angle ?? null).toBe(pivot ? pivot.angle : null);
         for (const cone of card.cones) {
-          expect(cone.height === 'tall' ? ['blue', 'red'] : ['neutral']).toContain(cone.color);
+          expect(cone.height === 'tall' ? ['blue', 'red', 'striped'] : ['neutral']).toContain(cone.color);
         }
       });
     }
   });
 
-  test('a cone that stays left is blue and one that stays right is red', () => {
+  test('a cone that stays left is blue, one that stays right is red, the pivot turn\'s red with a yellow stripe', () => {
     for (const course of courses.slice(0, 20)) {
       const sheet = buildSetupSheet(course);
       sheet.cards.forEach((card, i) => {
@@ -118,7 +119,8 @@ describe('setup sheet', () => {
         for (const pass of course.passes.filter((p) => p.element === element.id && p.kind !== 'line')) {
           const sides = pass.kind === 'gate' ? [[pass.left, 'left'], [pass.right, 'right']] : [[pass.cone, pass.side]];
           for (const [id, side] of sides) {
-            expect(card.cones[ids.indexOf(id)].color).toBe(side === 'left' ? 'blue' : 'red');
+            const expected = pass.angle > 180 ? 'striped' : side === 'left' ? 'blue' : 'red';
+            expect(card.cones[ids.indexOf(id)].color, element.type).toBe(expected);
           }
         }
       });
@@ -237,8 +239,9 @@ describe('setup sheet', () => {
       const cones = reconstruct(buildSetupSheet(course));
       expect(coneList.tallBlue).toBe(cones.filter((c) => c.height === 'tall' && c.color === 'blue').length);
       expect(coneList.tallRed).toBe(cones.filter((c) => c.height === 'tall' && c.color === 'red').length);
+      expect(coneList.tallStriped).toBe(cones.filter((c) => c.height === 'tall' && c.color === 'striped').length);
       expect(coneList.low).toBe(cones.filter((c) => c.height === 'low').length);
-      expect(coneList.tallBlue + coneList.tallRed + coneList.low).toBe(course.cones.length);
+      expect(coneList.tallBlue + coneList.tallRed + coneList.tallStriped + coneList.low).toBe(course.cones.length);
     }
   });
 

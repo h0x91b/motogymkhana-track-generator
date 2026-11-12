@@ -1,6 +1,6 @@
 import {
   BIG_ELEMENT_AREA, BLOCKED_DEFAULT, BLOCKED_MARGIN, BLOCKED_MAX, BLOCKED_NAMES, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SAFETY_OPTIONS, safetyValues,
-  SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
+  FILLER_TYPES, SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile, readCourseText, readCourseUpload } from '../file/course-file.js';
 import { buildSetupSheet, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
@@ -150,6 +150,7 @@ function buildTypeChecks() {
     label.className = 'check';
     // Name and hints in one span: the label is a flex row, so loose text would wrap as a separate column.
     label.innerHTML = `<input type="checkbox" name="types" value="${t}"> <span>${TYPE_NAMES[t]}`
+      + `${FILLER_TYPES.includes(t) ? '<span class="type-hint"> — один конус, заполняет пробелы</span>' : ''}`
       + `${LOOPED_TYPES.includes(t) ? '<span class="train-off"> — не в паровозике</span>' : ''}</span>`;
     row.append(label);
     box.append(row);
@@ -875,8 +876,8 @@ function onTap(x, y) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 function coneDot(cone) {
-  const letter = cone.height === 'tall' ? (cone.color === 'blue' ? 'Л' : 'П') : '';
-  const title = cone.height === 'tall' ? `${cone.color === 'blue' ? 'синий' : 'красный'} высокий` : 'низкий';
+  const letter = cone.height === 'tall' && cone.color !== 'striped' ? (cone.color === 'blue' ? 'Л' : 'П') : '';
+  const title = cone.height === 'tall' ? `${cone.color === 'blue' ? 'синий' : cone.color === 'striped' ? 'красный с жёлтой полосой' : 'красный'} высокий` : 'низкий';
   return `<span class="dot ${cone.color}" title="${title}" aria-hidden="true">${letter}</span><span class="sr-only">${title}</span>`;
 }
 
@@ -974,7 +975,7 @@ function renderSetup() {
   const steps = setupSteps();
   const step = steps[state.setupStep];
   const body = $('setup-body');
-  const counter = `<p class="step-counter"><b>Шаг ${state.setupStep + 1} из ${steps.length}</b><span class="muted"> · конусов: синих ${state.sheet.coneList.tallBlue}, красных ${state.sheet.coneList.tallRed}, низких ${state.sheet.coneList.low}</span></p>`;
+  const counter = `<p class="step-counter"><b>Шаг ${state.setupStep + 1} из ${steps.length}</b><span class="muted"> · конусов: синих ${state.sheet.coneList.tallBlue}, красных ${state.sheet.coneList.tallRed}${state.sheet.coneList.tallStriped ? `, красных с жёлтой полосой ${state.sheet.coneList.tallStriped}` : ''}, низких ${state.sheet.coneList.low}</span></p>`;
   if (step.kind === 'element') {
     body.innerHTML = counter + cardHtml(step.card, true);
     state.selected = step.card.element;
