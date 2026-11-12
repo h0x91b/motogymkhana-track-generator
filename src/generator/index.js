@@ -13,10 +13,10 @@ export {
 export { canonicalJSON } from './canonical.js';
 export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
-  axisDegrees, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
+  axisDegrees, turnStep, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
   removeElement, replaceElement, resizeElement, rotateElement, routeLayout, setElementSafety, shiftElement, turnElementTo,
 } from './layout.js';
-export { typeAxes } from './catalog.js';
+export { editAxes, typeAxes } from './catalog.js';
 
 const DIFFICULTY_NAMES = { easy: 'лёгкая', medium: 'средняя', hard: 'сложная' };
 const BIKE_NAMES = { sport: 'спорт', cruiser: 'крузер' };

@@ -22,8 +22,16 @@ export const AXIS_STEPS = [
 /** Length in metres of one lattice step along an axis of this class. */
 export const latticeUnit = (diagonal) => (diagonal ? 0.5 * Math.SQRT2 : 0.5);
 
-/** Unit vector (metres) of axis index 0..7. Exact for the 45° cases. */
+/**
+ * Unit vector (metres) of an axis or direction in steps of 45° counter-clockwise
+ * from +X. Exact for the eight 45° cases; an element turned off the lattice in
+ * «Правка» (ADR 0017) stands on a half step, 22.5° between two of them.
+ */
 export function axisVector(axis) {
+  if (!Number.isInteger(axis)) {
+    const a = (axis * PI) / 4;
+    return [Math.cos(a), Math.sin(a)];
+  }
   const [x, y] = AXIS_STEPS[((axis % 8) + 8) % 8];
   const k = x !== 0 && y !== 0 ? Math.SQRT1_2 : 1;
   return [x * k, y * k];

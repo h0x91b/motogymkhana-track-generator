@@ -3,6 +3,10 @@
 
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
+import { editAxes } from '../src/generator/catalog.js';
+import { ELEMENT_TYPES } from '../src/generator/recipe.js';
+import { conesCsv } from '../src/file/course-file.js';
+import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet, dist } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
 
@@ -33,7 +37,7 @@ function reconstruct(sheet) {
   for (const card of sheet.cards) {
     for (const cone of card.cones) {
       let pos;
-      if (card.axis.diagonal) {
+      if (card.axis.xy) {
         pos = [card.anchor.x + cone.dx, card.anchor.y + cone.dy];
       } else {
         const [ux, uy] = card.axis.vector;
@@ -287,5 +291,67 @@ describe('setup sheet', () => {
     expect(sheet.site).toEqual({ width: 25, length: 30 });
     expect(sheet.requested).toBe(5);
     expect(sheet.placed).toBe(course.placed);
+  });
+});
+
+describe('the setup sheet of an element turned by 22.5°', () => {
+  // Every element turned one step in «Правка»: 22.5°, or 45° for a side-only type, off the lattice either way.
+  const turned = [courses[0], courses[courses.length - 1]].map((course) => {
+    let layout = layoutOf(course);
+    for (let i = 0; i < layout.elements.length; i++) layout = rotateElement(layout, i, 1);
+    return routeLayout(layout).course;
+  });
+  const near = (v) => Math.round(v * 1e6) / 1e6 + 0;
+
+  test('its cones are laid out by X and Y from the anchor, and the sheet alone rebuilds them', () => {
+    for (const course of turned) {
+      const sheet = buildSetupSheet(course);
+      expect(JSON.stringify(sheet)).not.toMatch(/NaN|undefined/);
+      for (const card of sheet.cards) {
+        expect(card.axis.offLattice && card.axis.xy, card.type).toBe(true);
+        expect(card.axis.diagonal).toBe(false);
+        expect(card.axis.label).toMatch(/^под углом \d+(,5)?° к ширине/);
+        expect(Number.isInteger(card.anchor.x) && Number.isInteger(card.anchor.y)).toBe(true);
+        expect([card.cones[0].dx, card.cones[0].dy]).toEqual([0, 0]);
+      }
+      const fromSheet = reconstruct(sheet).map((c) => key(c.pos.map(near))).sort();
+      expect(fromSheet).toEqual(course.cones.map((c) => key([near(c.hx / 2), near(c.hy / 2)])).sort());
+    }
+  });
+
+  test('its dimension lines run along or across the turned axis and say true lengths in 0.5 m steps', () => {
+    let checked = 0;
+    for (const course of turned) {
+      for (const card of buildSetupSheet(course).cards) {
+        expect(card.dims.length > 0, card.type).toBe(!LAID_FROM_CENTRES.includes(card.type));
+        const [sx, sy] = card.axis.vector;
+        expect(Math.hypot(sx, sy)).toBeCloseTo(1, 12);
+        for (const d of card.dims) {
+          const dx = d.to.x - d.from.x;
+          const dy = d.to.y - d.from.y;
+          expect(Math.abs(dx * sy - dy * sx) < 1e-9 || Math.abs(dx * sx + dy * sy) < 1e-9, card.type).toBe(true);
+          expect(d.value).toBeCloseTo(Math.hypot(dx, dy), 9);
+          expect(d.value > 0 && isHalf(near(d.value)), `${card.type} ${d.value}`).toBe(true);
+          expect(d.label).toBe(`${d1(Math.round(d.value * 10) / 10)} м`);
+          expect(card.notes.join(' '), card.type).toContain(d.label);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
+  });
+
+  test('every type at every orientation of «Правка» gives a sheet and a cone list without a hole', () => {
+    const base = layoutOf(courses[0]);
+    for (const type of ELEMENT_TYPES) {
+      let layout = replaceElement(base, 0, type);
+      for (const axis of editAxes(type)) {
+        layout = turnElementTo(layout, 0, axis * 45);
+        expect(layout.elements[0].axis).toBe(axis);
+        const { course } = routeLayout(layout);
+        const sheet = buildSetupSheet(course);
+        expect(`${JSON.stringify(course)}${JSON.stringify(sheet)}${conesCsv(course, sheet)}`, `${type} ${axis * 45}°`).not.toMatch(/NaN|undefined|Infinity/);
+      }
+    }
   });
 });

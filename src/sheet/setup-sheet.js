@@ -3,7 +3,7 @@
 // Contract: cone positions can be rebuilt from this data alone.
 
 import { keepsFixedSize, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
-import { AXIS_STEPS } from '../generator/geometry.js';
+import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
 export const fmt = (v) => {
@@ -30,12 +30,30 @@ export const slant = (v) => Math.round(v * Math.SQRT2 * 10) / 10;
 
 const DIR_LABELS = ['→ вправо', '↗ вправо-вверх', '↑ вверх', '↖ влево-вверх', '← влево', '↙ влево-вниз', '↓ вниз', '↘ вправо-вниз'];
 
-function axisLabel(axis) {
-  if (axis % 2 === 1) return `по диагонали, ${DIR_LABELS[axis]}`;
-  return `${axis % 4 === 0 ? 'вдоль ширины' : 'вдоль длины'}, ${DIR_LABELS[axis]}`;
+/** «22,5°»: an angle in degrees counter-clockwise from along the width. */
+const degrees = (axis) => `${String(((axis * 45) % 360 + 360) % 360).replace('.', ',')}°`;
+
+/**
+ * Where a direction in 45° steps points. Between two of the eight arrows — an
+ * element turned by a half step in «Правка» (ADR 0017) — it says the angle and
+ * the arrows it lies between.
+ */
+export function travelLabel(dir) {
+  if (Number.isInteger(dir)) return DIR_LABELS[((dir % 8) + 8) % 8];
+  return `${degrees(dir)}, ${between(dir)}`;
 }
 
-export const travelLabel = (dir) => DIR_LABELS[dir];
+/** «между ↓ и ↘»: the two arrows a half-step direction lies between. */
+function between(dir) {
+  const arrow = (k) => DIR_LABELS[((k % 8) + 8) % 8].split(' ')[0];
+  return `между ${arrow(Math.floor(dir))} и ${arrow(Math.ceil(dir))}`;
+}
+
+function axisLabel(axis, diagonal, offLattice) {
+  if (offLattice) return `под углом ${degrees(axis)} к ширине, ${Number.isInteger(axis) ? DIR_LABELS[axis] : between(axis)}`;
+  if (diagonal) return `по диагонали, ${DIR_LABELS[axis]}`;
+  return `${axis % 4 === 0 ? 'вдоль ширины' : 'вдоль длины'}, ${DIR_LABELS[axis]}`;
+}
 
 const ONE_WAY = new Set(['u-turn', 'pivot-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole']);
 
@@ -57,7 +75,7 @@ function shiftSide(element, byId) {
   const [a, b, c, d] = element.cones.map((id) => byId.get(id));
   const mx = c.hx + d.hx - a.hx - b.hx;
   const my = c.hy + d.hy - a.hy - b.hy;
-  const [ux, uy] = AXIS_STEPS[element.entry.dir];
+  const [ux, uy] = axisVector(element.entry.dir);
   return ux * my - uy * mx > 0 ? 'left' : 'right';
 }
 
@@ -95,19 +113,19 @@ const half = (v) => Math.round(v * 2) / 2 + 0;
 /**
  * One dimension line in site metres. On a diagonal its value is the offset by
  * X and by Y (equal), from which the cone table lays it out; its label is the
- * true slant length, which is what the rider gets.
+ * true slant length, which is what the rider gets. Off the lattice (ADR 0017)
+ * the foot is wherever it falls and the value is the true length itself.
  */
-function dimension(points, axis, [kind, i, j]) {
-  const [sx, sy] = AXIS_STEPS[axis];
+function dimension(points, axis, diagonal, offLattice, [kind, i, j]) {
+  const [sx, sy] = offLattice ? axisVector(axis) : AXIS_STEPS[axis];
   const [ax, ay] = points[i];
   const [bx, by] = points[j];
   const t = ((bx - ax) * sx + (by - ay) * sy) / (sx * sx + sy * sy);
-  const foot = [half(ax + t * sx), half(ay + t * sy)];
+  const foot = offLattice ? [ax + t * sx, ay + t * sy] : [half(ax + t * sx), half(ay + t * sy)];
   const [from, to] = kind === 'along' ? [[ax, ay], foot] : [foot, [bx, by]];
   const dx = Math.abs(to[0] - from[0]);
   const dy = Math.abs(to[1] - from[1]);
-  const diagonal = axis % 2 === 1;
-  const value = diagonal ? dx : dx + dy;
+  const value = offLattice ? Math.hypot(dx, dy) : diagonal ? dx : dx + dy;
   return {
     kind,
     from: { x: from[0], y: from[1] },
@@ -314,14 +332,18 @@ export function buildSetupSheet(course) {
 
   const cards = course.elements.map((e) => {
     const anchor = byId.get(e.anchor);
-    const diagonal = e.axis % 2 === 1;
-    const [sx, sy] = AXIS_STEPS[e.axis];
+    // Off the lattice (ADR 0017) the element is built along a side and turned, so
+    // its sizes are true lengths; its cones are laid out by X and Y like a diagonal's.
+    const offLattice = e.offLattice === true;
+    const diagonal = e.axis % 2 === 1 && !offLattice;
+    const xy = diagonal || offLattice;
+    const [sx, sy] = offLattice ? axisVector(e.axis) : AXIS_STEPS[e.axis];
     const cones = e.cones.map((id, i) => {
       const c = byId.get(id);
       const dx = (c.hx - anchor.hx) / 2 + 0;
       const dy = (c.hy - anchor.hy) / 2 + 0;
       const base = { n: i + 1, height: c.height, color: coneColor(id) };
-      if (diagonal) return { ...base, dx, dy };
+      if (xy) return { ...base, dx, dy };
       // Side axes: along the axis, and across it measured to the left (+ 0 drops a −0).
       return { ...base, along: dx * sx + dy * sy + 0, across: -dx * sy + dy * sx + 0 };
     });
@@ -329,7 +351,7 @@ export function buildSetupSheet(course) {
     const shift = e.type === 'lane-change' || e.type === 'tunnel' ? shiftSide(e, byId) : null;
     const pivot = course.passes.find((p) => p.element === e.id && p.angle);
     const points = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
-    const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, d));
+    const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, diagonal, offLattice, d));
     const fixed = fixedSizes(e, diagonal, course.recipe);
     const arcs = (e.guides ?? []).map((g) => ({
       center: { x: g.x, y: g.y },
@@ -344,7 +366,7 @@ export function buildSetupSheet(course) {
       type: e.type,
       name: TYPE_NAMES[e.type],
       anchor: { x: anchor.hx / 2, y: anchor.hy / 2 },
-      axis: { index: e.axis, diagonal, vector: [sx, sy], label: axisLabel(e.axis) },
+      axis: { index: e.axis, diagonal, offLattice, xy, vector: [sx, sy], label: axisLabel(e.axis, diagonal, offLattice) },
       travel: travelLabel(e.entry.dir),
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
