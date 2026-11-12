@@ -9,6 +9,8 @@ import {
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
+/** The type the picker offers first for an inserted element. */
+const SUGGESTED_INSERT = 'gate';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -29,6 +31,7 @@ const ICONS = {
 };
 const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
 
+const plural = (n, one, few, many) => (n % 10 === 1 && n % 100 !== 11 ? one : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? few : many);
 const comma = (v) => String(Math.round(v * 10) / 10).replace('.', ',');
 /** Text as the panel sets it: a dash never starts a line. */
 const tied = (s) => s.replace(/ —/g, '\u00a0—');
@@ -62,6 +65,7 @@ const NUDGES = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowD
  *   show(course, problems, {dragging}) — the course to draw now;
  *   reveal(id) — an element was picked in the panel: bring it into view on the plan;
  *   leave() — «Готово»;
+ *   facts(id) — {head, tail}: HTML of what the element's row says and cannot change (anchor, axis; notes, cone table);
  *   modal(open) — the type picker opened or closed: everything behind it goes inert.
  */
 export function createEditor(host) {
@@ -75,8 +79,9 @@ export function createEditor(host) {
   let redo = [];
   let drag = null; // { from, i, x, y }: the layout and the anchor an element is dragged from
   let active = false;
-  let picker = null; // 'replace' | 'add' while the type picker is open
-  let shownSelected = null; // the selection the chip row was last scrolled to
+  let picker = null; // 'replace' | 'insert' while the type picker is open
+  let pickerAt = 0; // where in the route an inserted element goes
+  let shownSelected = null; // the selection the list was last scrolled to
   let problemAt = 0; // which problem a phone shows
   let problemsKey = ''; // the problems it was counted in
 
@@ -151,8 +156,9 @@ export function createEditor(host) {
 
   const ACTIONS = {
     select: (arg) => {
-      select(Number(arg));
-      host.reveal(idOf(selected));
+      // The open row closes on a second tap.
+      select(Number(arg) === selected ? null : Number(arg));
+      if (selected !== null) host.reveal(idOf(selected));
     },
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
     rotate: (arg) => {
@@ -206,7 +212,8 @@ export function createEditor(host) {
       commit(next, selected, `${now.name}: ${marginText(now.value)}${now.own ? '' : ', как в рецепте'}.`);
     },
     replace: () => openPicker('replace'),
-    add: () => openPicker('add'),
+    // A new element under the selected one («＋» in its row), or before it («Вставить первым»).
+    insert: (arg) => openPicker('insert', selected + (arg === 'after' ? 1 : 0), 'insert', arg),
     // Back to the generated course; undo brings the edits back.
     reset: () => commit(base, null, 'Правки сброшены: трасса снова как от генератора.'),
   };
@@ -243,17 +250,37 @@ export function createEditor(host) {
     return problems;
   }
 
-  function chipsHtml() {
+  /** «6 конусов · 3 м»: the sizes of element i at a glance, for its row. */
+  function sizesSummary(i) {
+    return elementControls(layout, i).map((c) => (c.kind === 'count' ? `${c.value} ${plural(c.value, 'конус', 'конуса', 'конусов')}` : sizeText(c))).join(' · ');
+  }
+
+  /**
+   * The route as a list, one row an element in riding order: its number,
+   * type, sizes and problem mark, with the buttons to move it earlier or later
+   * in the route and to insert a new element under it. The selected row opens
+   * with everything else the element can be told (`elementHtml`).
+   */
+  function listHtml() {
     const wrong = new Set(routed.problems.flatMap((p) => p.elements));
-    const chips = layout.elements.map((el, i) => {
+    const n = layout.elements.length;
+    const full = n >= ELEMENTS_MAX;
+    const fullTitle = full ? ` disabled title="На трассе не больше ${ELEMENTS_MAX} элементов"` : '';
+    const rows = layout.elements.map((el, i) => {
       const bad = wrong.has(idOf(i));
-      return `<button type="button" class="chip${bad ? ' bad' : ''}" data-act="select" data-arg="${i}" aria-pressed="${i === selected}" aria-label="${i + 1}. ${esc(TYPE_NAMES[el.type])}${bad ? ', есть проблема' : ''}">`
-        + `<b>${i + 1}</b><span class="chip-name">${esc(TYPE_NAMES[el.type])}</span>${bad ? '<span class="mark" aria-hidden="true">!</span>' : ''}</button>`;
+      const open = i === selected;
+      const typeName = esc(TYPE_NAMES[el.type]);
+      const rowTool = (act, arg, label, glyph, off) => `<button type="button" class="row-tool" data-act="${act}" data-arg="${arg}" data-row="${i}" aria-label="${label}" title="${label}"${off}>${icon(glyph)}</button>`;
+      return `<li class="el-row${open ? ' open' : ''}${bad ? ' bad' : ''}">
+        <div class="el-head">
+          <button type="button" class="el-pick" data-act="select" data-arg="${i}" aria-expanded="${open}" aria-label="${i + 1}. ${typeName}${bad ? ', есть проблема' : ''}">`
+        + `<b class="el-num">${i + 1}</b><span class="el-text"><span class="el-name">${typeName}</span><span class="el-sum">${esc(sizesSummary(i))}</span></span>${bad ? '<span class="mark" aria-hidden="true">!</span>' : ''}</button>
+          ${rowTool('shift', '-1', `Элемент ${i + 1} раньше по маршруту`, 'up', i === 0 ? ' disabled' : '')}${rowTool('shift', '1', `Элемент ${i + 1} позже по маршруту`, 'down', i === n - 1 ? ' disabled' : '')}${rowTool('insert', 'after', `Вставить новый элемент под элементом ${i + 1}`, 'plus', full ? fullTitle : '')}
+        </div>${open ? `<div class="el-detail">${elementHtml()}</div>` : ''}
+      </li>`;
     }).join('');
-    const full = layout.elements.length >= ELEMENTS_MAX;
-    const where = selected === null ? 'в конец маршрута' : `после элемента ${selected + 1}`;
-    const add = `<button type="button" class="chip add" data-act="add" aria-label="Добавить элемент ${where}" title="${full ? `На трассе не больше ${ELEMENTS_MAX} элементов` : `Добавить элемент ${where}`}"${full ? ' disabled' : ''}>${icon('plus')}</button>`;
-    return `<div class="edit-chips" role="group" aria-label="Элементы по порядку маршрута">${chips}${add}</div>`;
+    const first = `<button type="button" class="link insert-first" data-act="insert" data-arg="before" data-row="0"${fullTitle}>${icon('plus')}Вставить первым</button>`;
+    return `<div class="list-head"><span class="muted">${n} ${plural(n, 'элемент', 'элемента', 'элементов')} по порядку</span>${first}</div><ol class="edit-list" aria-label="Элементы по порядку маршрута">${rows}</ol>`;
   }
 
   function elementHtml() {
@@ -286,9 +313,12 @@ export function createEditor(host) {
     }).join('');
     const tool = (act, arg, label, glyph) => `<button type="button" data-act="${act}"${arg === null ? '' : ` data-arg="${arg}"`} aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
     const n = layout.elements.length;
-    // Moving and the route actions first: they stay where they are from one
-    // element to the next. The sizes, one to three rows by type, come last.
-    return `<div class="edit-tools">
+    // Moving and the actions first: they stay where they are from one element
+    // to the next. The angle and the sizes, one to three rows by type, come
+    // after, then the margins. What the element is and where it stands, read only: the anchor follows from a drag or the arrows.
+    const facts = host.facts?.(idOf(i)) || { head: '', tail: '' };
+    return `<div class="el-facts">${facts.head}</div>
+      <div class="edit-tools">
         <span class="tool-group" role="group" aria-label="Сдвинуть">
           ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
         </span>
@@ -298,12 +328,11 @@ export function createEditor(host) {
       </div>
       <div class="edit-actions">
         <button type="button" data-act="replace">Заменить</button>
-        <button type="button" data-act="shift" data-arg="-1" aria-label="Раньше по маршруту"${i === 0 ? ' disabled' : ''}>Раньше</button>
-        <button type="button" data-act="shift" data-arg="1" aria-label="Позже по маршруту"${i === n - 1 ? ' disabled' : ''}>Позже</button>
         <button type="button" class="danger" data-act="remove"${n === 1 ? ' disabled title="Последний элемент трассы не удаляется"' : ''}>Удалить</button>
       </div>
       <div class="edit-sizes">${angle}${sizes}</div>
-      <div class="edit-sizes edit-margins" role="group" aria-label="Безопасность элемента">${margins}</div>`;
+      <div class="edit-sizes edit-margins" role="group" aria-label="Безопасность элемента">${margins}</div>
+      <div class="el-facts">${facts.tail}</div>`;
   }
 
   function render() {
@@ -312,24 +341,25 @@ export function createEditor(host) {
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
     const key = focused && [focused.dataset.act, focused.dataset.arg];
     const angleFocused = focused?.id === 'edit-angle';
-    const scroll = body.querySelector('.edit-chips')?.scrollLeft ?? 0;
-    const hint = '<p class="edit-hint muted">Нажмите на элемент на плане или на его номер. Выбранный элемент перетаскивается по плану, а размеры, поворот и порядок меняются здесь.</p>';
+    const scroll = body.scrollTop;
     // About the whole course, so it is offered with no element selected.
     const reset = courseOf(layout) === courseOf(base) ? '' : '<button type="button" class="link" data-act="reset">Сбросить все правки</button>';
-    body.innerHTML = `${chipsHtml()}${selected === null ? hint + reset : elementHtml()}`;
+    const hint = selected === null ? '<p class="edit-hint muted">Нажмите на строку или на элемент на плане, чтобы править его. Выбранный элемент перетаскивается по плану.</p>' : '';
+    body.innerHTML = `${listHtml()}${hint}${reset}`;
     renderProblems();
     $('edit-title').textContent = selected === null ? 'Правка трассы' : `${selected + 1}. ${name(selected)}`;
     $('edit-undo').disabled = !undo.length;
     $('edit-redo').disabled = !redo.length;
-    const chips = body.querySelector('.edit-chips');
-    chips.scrollLeft = scroll;
+    body.scrollTop = scroll;
     if (selected !== shownSelected) {
       shownSelected = selected;
-      const chip = selected === null ? null : chips.children[selected];
-      if (chip) {
-        const [a, b] = [chip.offsetLeft - chips.offsetLeft, chip.offsetLeft - chips.offsetLeft + chip.offsetWidth];
-        if (a < chips.scrollLeft) chips.scrollLeft = a - 8;
-        else if (b > chips.scrollLeft + chips.clientWidth) chips.scrollLeft = b - chips.clientWidth + 8;
+      // A newly opened row comes into view from its head down, as much of it as fits.
+      const row = selected === null ? null : body.querySelectorAll('.el-row')[selected];
+      if (row) {
+        const view = body.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        if (box.top < view.top || box.bottom > view.bottom) body.scrollTop += Math.min(box.top - view.top, box.bottom - view.bottom) - 4;
+        if (row.getBoundingClientRect().top < view.top) body.scrollTop += row.getBoundingClientRect().top - view.top - 4;
       }
     }
     hintMore();
@@ -337,26 +367,29 @@ export function createEditor(host) {
       $('edit-angle').focus({ preventScroll: true });
       $('edit-angle').select();
     } else if (key && key[0]) {
-      const same = [...body.querySelectorAll('[data-act]')].find((b) => b.dataset.act === key[0] && b.dataset.arg === key[1] && !b.disabled);
-      // The button is gone or at its limit: undo is the next thing wanted.
-      const next = same ?? [$('edit-undo'), $('edit-done')].find((b) => !b.disabled);
+      const candidates = [...body.querySelectorAll('[data-act]')].filter((b) => b.dataset.act === key[0] && b.dataset.arg === key[1] && !b.disabled);
+      // A row button follows its element to the row it moved to; a select button its own row.
+      const same = key[0] === 'select' ? candidates[0]
+        : candidates.find((b) => b.closest('.el-row.open')) ?? candidates.find((b) => !b.closest('.el-row'));
+      const pick = body.querySelector('.el-row.open .el-pick');
+      // The button is gone or at its limit: the open row, then undo, is the next thing wanted.
+      const next = same ?? pick ?? [$('edit-undo'), $('edit-done')].find((b) => !b.disabled);
       next.focus({ preventScroll: true });
     }
   }
 
-  /** Controls under the fold and chips past the edge fade out there, so the panel does not look complete when it is not. */
+  /** Controls under the fold fade out there, so the panel does not look complete when it is not. */
   function hintMore() {
     body.classList.toggle('more-below', body.scrollHeight - body.scrollTop - body.clientHeight > 8);
-    const chips = body.querySelector('.edit-chips');
-    if (chips) chips.classList.toggle('more-after', chips.scrollWidth - chips.scrollLeft - chips.clientWidth > 8);
   }
-  // Scroll events do not bubble: the chip row's are caught on the way down.
-  body.addEventListener('scroll', hintMore, { passive: true, capture: true });
+  body.addEventListener('scroll', hintMore, { passive: true });
   new ResizeObserver(hintMore).observe(body);
 
   body.addEventListener('click', (e) => {
     const button = e.target.closest('[data-act]');
     if (!button || button.disabled || drag) return;
+    // A row's own buttons act on that row's element: it becomes the selected one.
+    if (button.dataset.row !== undefined) select(Number(button.dataset.row));
     ACTIONS[button.dataset.act](button.dataset.arg);
   });
   // The angle field: Enter or leaving it turns the element; the arrows step through the axes.
@@ -401,31 +434,45 @@ export function createEditor(host) {
 
   // ---------------------------------------------------------------- type picker
 
-  let pickerOpener = null;
+  let pickerOpener = null; // [act, arg] of the button that opened the picker
   let added = false; // the picker closed on a new element: the keyboard goes to it
 
-  function openPicker(mode) {
+  /** Where an element inserted at place `at` of the route goes, as the picker says it. */
+  function insertPlace(at) {
+    const n = layout.elements.length;
+    if (at === 0) return 'перед элементом 1, первым по маршруту';
+    if (at >= n) return `после элемента ${n}, последним по маршруту`;
+    return `между элементами ${at} и ${at + 1}`;
+  }
+
+  function openPicker(mode, at = 0, act = mode, arg = null) {
     if (mode === 'replace' && selected === null) return;
-    if (mode === 'add' && layout.elements.length >= ELEMENTS_MAX) return;
+    if (mode === 'insert' && layout.elements.length >= ELEMENTS_MAX) return;
     picker = mode;
-    pickerOpener = mode;
+    pickerAt = at;
+    pickerOpener = [act, arg];
     added = false;
     const current = mode === 'replace' ? layout.elements[selected].type : null;
-    $('type-title').textContent = mode === 'replace' ? `Заменить элемент ${selected + 1}` : 'Добавить элемент';
+    // Gates are what an inserted element most often is: they show the way between two others.
+    const suggested = mode === 'insert' ? SUGGESTED_INSERT : null;
+    $('type-title').textContent = mode === 'replace' ? `Заменить элемент ${selected + 1}` : 'Вставить элемент';
     $('type-note').textContent = tied(mode === 'replace'
       ? `Сейчас это «${name(selected)}». Новый элемент встанет на то же место, размеры — по рецепту.`
-      : `Встанет ${selected === null ? 'в конец маршрута' : `в маршрут после элемента ${selected + 1}`}, на свободное место.`);
+      : `Встанет ${insertPlace(at)}, на свободное место у связки; маршрут пройдёт через него.`);
     const { train } = layout.recipe;
     $('type-grid').innerHTML = ELEMENT_TYPES.map((t) => {
       const looped = train && LOOPED_TYPES.includes(t);
-      const note = t === current ? '<span class="type-note">сейчас</span>' : looped ? '<span class="type-note">не для паровозика</span>' : '';
-      return `<button type="button" data-type="${t}"${t === current ? ' aria-current="true"' : ''}${looped ? ' disabled' : ''}><span>${esc(TYPE_NAMES[t])}</span>${note}</button>`;
+      const note = t === current ? '<span class="type-note">сейчас</span>'
+        : looped ? '<span class="type-note">не для паровозика</span>'
+          : t === suggested ? '<span class="type-note">показывают, куда ехать</span>' : '';
+      const mark = t === current ? ' aria-current="true"' : t === suggested && !looped ? ' class="suggested"' : '';
+      return `<button type="button" data-type="${t}"${mark}${looped ? ' disabled' : ''}><span>${esc(TYPE_NAMES[t])}</span>${note}</button>`;
     }).join('');
     host.modal(true);
     const sheet = $('type-sheet');
     sheet.hidden = false;
     sheet.scrollTop = 0;
-    (sheet.querySelector('[aria-current]') ?? sheet).focus({ preventScroll: true });
+    (sheet.querySelector('[aria-current], .suggested') ?? sheet).focus({ preventScroll: true });
   }
 
   function closePicker() {
@@ -434,9 +481,12 @@ export function createEditor(host) {
     document.activeElement?.blur?.();
     $('type-sheet').hidden = true;
     host.modal(false);
-    // Back to the button that opened it, or on to the new element's chip.
-    const chip = body.querySelector('.chip[aria-pressed="true"]');
-    const back = (added && chip) || body.querySelector(`[data-act="${pickerOpener}"]:not(:disabled)`) || chip || $('edit-done');
+    // Back to the button that opened it, or on to the new element's row.
+    const row = body.querySelector('.el-row.open .el-pick');
+    const [act, arg] = pickerOpener;
+    const opener = body.querySelector(`.el-row.open [data-act="${act}"][data-arg="${arg}"]:not(:disabled)`)
+      ?? body.querySelector(`[data-act="${act}"]:not(:disabled)`);
+    const back = (added && row) || opener || row || $('edit-done');
     back.focus({ preventScroll: true });
   }
 
@@ -445,11 +495,12 @@ export function createEditor(host) {
     if (!button || button.disabled) return;
     const type = button.dataset.type;
     const mode = picker;
-    const at = selected === null ? layout.elements.length : selected + 1;
     if (mode === 'replace') {
       if (type !== layout.elements[selected].type) commit(replaceElement(layout, selected, type), selected, `Элемент ${selected + 1} теперь «${TYPE_NAMES[type]}».`);
     } else {
-      added = commit(insertElement(layout, at, type), at, `«${TYPE_NAMES[type]}» добавлен ${at + 1}-м по маршруту.`);
+      const at = pickerAt;
+      const text = `Вставлен элемент «${TYPE_NAMES[type]}» ${insertPlace(at)}: теперь он ${at + 1}-й. Перетащите его, если нужно.`;
+      added = commit(insertElement(layout, at, type), at, text);
     }
     host.reveal(idOf(selected));
     closePicker();
