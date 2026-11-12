@@ -1,0 +1,23 @@
+# Collide by footprints, not zone rectangles; an exit may chain straight into the next entry
+
+Until now every collision rule worked on the element's **zone**: the rectangle along its axis round its cones and ride line plus 0.75 m. Zones could not overlap, connectors could not enter them, run-off zones were the rectangle grown by 5 m, and a connector's U-turn cone kept a 3 × 3 m square clear. A rectangle reserves its empty corners and, round curved or diagonal elements, a lot of asphalt nobody rides. The field tester's 40 × 38 m lot took 3.6 of 6 elements on average.
+
+Collisions are now tested on the **footprint**: a ZONE_PAD (0.75 m) disc round every cone and a band as wide round every wall, chalk line and the line ridden inside the element. Two footprints may not overlap, so cones and lines of two elements stay at least 1.5 m apart — the same minimum as two touching zones had, without the corners. The run-in from the zone edge to the first point of the ride line, and the run-out to the exit, are ridden like a connector and belong to the route: other footprints keep out of them, the element's own does not. The run-off zone is the convex hull of the cones and ride line grown by RUN_OFF (a 16-gon circumscribed round the 5 m circle, so it reaches exactly 5 m along the axes and diagonals and no further than the rectangle anywhere), cut on the entry side of a turnaround as before. A U-turn cone keeps a 1.5 m disc. The zone rectangle stays: it places the entry and exit, slides the anchor onto the site and frames the selected element.
+
+An element's exit may **chain** into the next entry: when the entry faces the same way (within CHAIN_ANGLE, 10°) and lies no more than CHAIN_REACH (0.5 m) ahead of the exit, its bearing within 10° of the way the rider goes, the two are joined by a straight instead of a Dubins path. Every third placement the search draws for an element after the first is chained on purpose: entered straight off the previous exit, or round one 45° or 90° arc of the class radius, as close as whole-metre anchors allow. Because anchors are on whole metres, an exact straight chain is only sometimes possible; otherwise the entry is put just far enough ahead for the shortest S of two arcs. `routeLayout` applies the same rules, so a layout taken from a generated course still routes back to it.
+
+Two search changes ship with it, because the looser rules exposed them: each of the three search rounds starts with the next of the first element's types (a type whose subtree eats a whole round can no longer starve the others), and connector length weighs 1.5 instead of 0.5 in the soft score (the tester's "connectors are long and wander over empty asphalt").
+
+Measured with `scripts/bench.mjs` (mean elements placed, seeds 1–100): Anton's 40 × 38 medium sport 3.62 → 4.23 of 6 (4.29 of 10), 28 × 30 easy sport 2.00 → 2.20, the default 40 × 60 hard cruiser closed train 4.46 → 5.54 of 8. The tester's target of 8 of 10 on 40 × 38 is not reachable by geometry alone: there the 5 m run-off zones and the search budget are the limits.
+
+## Considered Options
+
+- Exact geometry on unions of discs, capsules and convex polygons (chosen): no grid artefacts, the clearance is the same 0.75 m everywhere, and touching stays allowed. It costs time: a course takes about 1.5–2× as long to generate, kept down by caching templates and their footprints and moving shapes by an offset instead of copying them.
+- An occupancy raster (0.25 m cells): fast lookups, but every test is off by up to a cell and depends on where the grid falls; a raster also makes the published geometry and the rule disagree.
+- Several smaller rectangles per element: cheap, but still reserves corners, and the split per type is arbitrary.
+- The convex hull of the cones grown by the clearance as the footprint: simpler, but reserves the inside of a circle or a crescent, which is exactly the over-reservation this decision removes.
+- Allow a lateral jog in a chain (up to 0.5 m sideways with no length): would chain more often on whole-metre anchors, but the rider would be asked for a sideways step the plan cannot show as a ride line.
+
+## With configurable safety margins (ADR 0014)
+
+The footprint's clearance is the element's pad (its own from «Правка», else the recipe's, ZONE_PAD by default), the run-off polygon grows by the element's run-off, and the U-turn cone keeps a disc of the recipe's `coneGap` — the old square's half side, so the default distance is unchanged. A pad or a cone gap of 0 still keeps MIN_PAD (5 cm): cones and lines of two elements may come as close as the organiser wants, but never touch or cross, which the core rectangles had guaranteed before.

@@ -11,7 +11,7 @@ export {
   BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, RUN_OFF, RUN_OFF_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, ZONE_PAD,
 } from './catalog.js';
 export { canonicalJSON } from './canonical.js';
-export { CHAIN_ANGLE, CHAIN_REACH, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
+export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
   axisDegrees, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
   removeElement, replaceElement, resizeElement, rotateElement, routeLayout, setElementSafety, shiftElement, turnElementTo,
