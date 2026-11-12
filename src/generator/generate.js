@@ -254,6 +254,21 @@ function facingAxis(plan, mirrored, from, to) {
   return best;
 }
 
+/** Does a template on this axis stand on the half-metre lattice (ADR 0001), or was it turned off it in «Правка» (ADR 0017)? */
+export const onLattice = (tpl, axis) => Number.isInteger(axis) && (axis % 2 === 1) === tpl.diagonal;
+
+/**
+ * Lattice step of a template turned onto `axis`, in half-metres along X and Y:
+ * one of `AXIS_STEPS` when the axis is of the template's class, otherwise a
+ * real vector of the template's unit — an element turned off the lattice in
+ * «Правка» (ADR 0017), or a side-only type on a diagonal.
+ */
+function templateStep(tpl, axis) {
+  if (onLattice(tpl, axis)) return AXIS_STEPS[axis % 8];
+  const [ux, uy] = axisVector(axis);
+  return [2 * tpl.unit * ux, 2 * tpl.unit * uy];
+}
+
 const SHAPES = new WeakMap();
 
 /**
@@ -268,7 +283,7 @@ function originShapes(tpl, axis) {
   let byAxis = SHAPES.get(tpl);
   if (!byAxis) SHAPES.set(tpl, (byAxis = []));
   if (!byAxis[axis]) {
-    const [dx, dy] = AXIS_STEPS[axis];
+    const [dx, dy] = templateStep(tpl, axis);
     const toM = (a, b) => [(a * dx - b * dy) / 2, (a * dy + b * dx) / 2];
     const cones = tpl.cones.map((c) => toM(c.a, c.b));
     const pad = Math.max(tpl.margins?.pad ?? ZONE_PAD, MIN_PAD);
@@ -286,9 +301,9 @@ function originShapes(tpl, axis) {
   return byAxis[axis];
 }
 
-/** Places a local template: axis 0..7, anchor on whole metres. */
+/** Places a local template: axis in 45° steps (a half step off the lattice, ADR 0017), anchor on whole metres. */
 export function placeTemplate(tpl, axis, ax, ay) {
-  const [dx, dy] = AXIS_STEPS[axis];
+  const [dx, dy] = templateStep(tpl, axis);
   const px = -dy;
   const py = dx;
   const toM = (a, b) => [(2 * ax + a * dx + b * px) / 2, (2 * ay + a * dy + b * py) / 2];
@@ -393,7 +408,8 @@ export function chainedPlacement(plan, mirrored, prev, radius, k, inner, site) {
 
 /** A start or finish line two low cones wide, across `dir`, centred near `ideal`. */
 function lineTerminal(ideal, dir, from, to) {
-  const [dx, dy] = AXIS_STEPS[dir];
+  // Off the lattice (behind or past an element turned by a half step, ADR 0017) the second cone is off it too.
+  const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
   const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
   const px = -dy;
   const py = dx;
@@ -972,6 +988,8 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
       type: p.tpl.type,
       axis: p.axis,
       mirrored: p.tpl.mirrored,
+      // Turned off the half-metre lattice in «Правка» (ADR 0017): cones stand anywhere, measured by X and Y.
+      ...(onLattice(p.tpl, p.axis) ? {} : { offLattice: true }),
       params: p.tpl.params,
       anchor: ids[0],
       cones: ids,

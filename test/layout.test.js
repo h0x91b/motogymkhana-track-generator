@@ -4,10 +4,12 @@
 
 import { describe, expect, test } from 'bun:test';
 import { canonicalJSON, ELEMENT_TYPES, generateCourse } from '../src/generator/index.js';
-import { SIZE_OPTIONS, SIZE_SPECS, sizeControls, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
+import { editAxes, elementParams, instantiate, SIZE_OPTIONS, SIZE_SPECS, sizeControls, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
+import { placeTemplate } from '../src/generator/generate.js';
+import { shapeParts } from '../src/generator/geometry.js';
 import {
   ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, parseLayout, removeElement, replaceElement, resizeElement,
-  nearestAxis, rotateElement, routeLayout, shiftElement, turnElementTo,
+  nearestAxis, rotateElement, routeLayout, shiftElement, turnElementTo, turnStep,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
@@ -207,50 +209,51 @@ describe('editing a layout', () => {
     }
   });
 
-  test('turning goes round all eight axes and back, about the middle of the element', () => {
+  test('turning goes round all sixteen orientations and back, about the middle of the element', () => {
     let layout = single('offset-slalom');
     const centre = zoneCentre(routed(layout).elements[0]);
     const axes = [];
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 16; k++) {
       layout = rotateElement(layout, 0, 1);
       const [e] = routed(layout).elements;
       axes.push(e.axis);
       const c = zoneCentre(e);
       expect(Math.hypot(c[0] - centre[0], c[1] - centre[1])).toBeLessThanOrEqual(0.75);
     }
-    expect(axes).toEqual([1, 2, 3, 4, 5, 6, 7, 0]);
+    expect(axes).toEqual([0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 0]);
     // A full turn ends exactly where it began.
     expect(bare(routed(layout))).toEqual(bare(routed(single('offset-slalom'))));
-    expect(rotateElement(layout, 0, -1).elements[0].axis).toBe(7);
+    expect(rotateElement(layout, 0, -1).elements[0].axis).toBe(7.5);
   });
 
-  test('a type that stands only along the site sides turns by 90°', () => {
+  test('a type that stands only along the site sides turns by 45°', () => {
     let layout = single('snail');
     const axes = [];
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < 8; k++) {
       layout = rotateElement(layout, 0, 1);
       axes.push(layout.elements[0].axis);
     }
-    expect(axes).toEqual([2, 4, 6, 0]);
+    expect(axes).toEqual([1, 2, 3, 4, 5, 6, 7, 0]);
   });
 
-  test('a typed angle snaps to the nearest axis the type stands on', () => {
-    expect([0, 20, 30, 44, 90, 179, 315, 359, 360, 405, -45, -90].map((d) => nearestAxis('offset-slalom', d))).toEqual([0, 0, 1, 1, 2, 4, 7, 0, 0, 1, 7, 6]);
-    expect([30, 46, 134, 136, 271, -45.5].map((d) => nearestAxis('snail', d))).toEqual([0, 2, 2, 4, 6, 6]);
-    // Halfway between two axes: the one nearer the current axis, then counter-clockwise.
-    expect(nearestAxis('offset-slalom', 22.5, 0)).toBe(0);
-    expect(nearestAxis('offset-slalom', 22.5, 1)).toBe(1);
-    expect(nearestAxis('snail', 45, 0)).toBe(0);
-    expect(nearestAxis('snail', 45, 2)).toBe(2);
-    expect(nearestAxis('snail', 45, 5)).toBe(2);
+  test('a typed angle snaps to the nearest 22.5° (45° for a side-only type)', () => {
+    expect([0, 10, 12, 22.5, 30, 44, 90, 179, 315, 345, 359, 360, 405, -22.5, -45, -90].map((d) => nearestAxis('offset-slalom', d)))
+      .toEqual([0, 0, 0.5, 0.5, 0.5, 1, 2, 4, 7, 7.5, 0, 0, 1, 7.5, 7, 6]);
+    expect([20, 23, 46, 134, 136, 271, -45.5].map((d) => nearestAxis('snail', d))).toEqual([0, 1, 1, 3, 3, 6, 7]);
+    // Halfway between two orientations: the one nearer the current one, then counter-clockwise.
+    expect(nearestAxis('offset-slalom', 11.25, 0)).toBe(0);
+    expect(nearestAxis('offset-slalom', 11.25, 0.5)).toBe(0.5);
+    expect(nearestAxis('snail', 22.5, 0)).toBe(0);
+    expect(nearestAxis('snail', 22.5, 1)).toBe(1);
+    expect(nearestAxis('offset-slalom', 11.25, 4.25)).toBe(0.5); // both as far from the current one
     expect(nearestAxis('offset-slalom', Number.NaN)).toBeNull();
   });
 
   test('turning to an angle is the same edit as turning step by step', () => {
     for (const type of ['offset-slalom', 'snail']) {
       let stepped = single(type);
-      const step = typeAxes(type)[1] * 45;
-      for (let k = 1; k <= typeAxes(type).length; k++) {
+      const step = turnStep(type);
+      for (let k = 1; k <= 360 / step; k++) {
         stepped = rotateElement(stepped, 0, 1);
         const typed = turnElementTo(single(type), 0, (k * step) % 360);
         // Both turn about the middle of the zone the element started from.
@@ -260,7 +263,82 @@ describe('editing a layout', () => {
     }
     const layout = single('offset-slalom');
     expect(turnElementTo(layout, 0, 10)).toBe(layout);
+    expect(turnElementTo(layout, 0, 22.5).elements[0].axis).toBe(0.5);
     expect(turnElementTo(layout, 0, Number.NaN)).toBe(layout);
+  });
+
+  test('every type turned by 22.5° stands off the lattice: anchor on whole metres, true sizes, cones inside the zone', () => {
+    for (const type of ELEMENT_TYPES) {
+      const flat = single(type);
+      const half = turnElementTo(flat, 0, turnStep(type));
+      const { course } = routeLayout(half);
+      const [e] = course.elements;
+      expect(e.offLattice, type).toBe(true);
+      expect(e.axis).toBe(turnStep(type) / 45);
+      // Built along a side and turned: the same sizes as along the width.
+      expect(e.params, type).toEqual(routed(flat).elements[0].params);
+      const byId = conesById(course);
+      const anchor = byId.get(e.anchor);
+      expect(anchor.hx % 2 === 0 && anchor.hy % 2 === 0, type).toBe(true);
+      for (const id of e.cones) expect(insidePolygon(e.zone, coneXY(byId.get(id)), 0.5), `${type} ${id}`).toBe(true);
+      // Distances between cones are those of the unturned element.
+      const gaps = (c) => {
+        const [el] = c.elements;
+        const at = conesById(c);
+        return el.cones.slice(1).map((id, k) => Math.hypot(at.get(id).hx - at.get(el.cones[k]).hx, at.get(id).hy - at.get(el.cones[k]).hy) / 2);
+      };
+      gaps(course).forEach((g, k) => expect(g, type).toBeCloseTo(gaps(routed(flat))[k], 9));
+    }
+  });
+
+  test('footprints and run-off zones off the lattice are the unturned ones, turned', () => {
+    const turn = (deg) => ([x, y]) => {
+      const t = (deg * Math.PI) / 180;
+      return [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)];
+    };
+    for (const type of ELEMENT_TYPES) {
+      const tpl = instantiate(type, elementParams(type, typicalSizes(type, 'medium', 'cruiser'), false, 'cruiser'), false, false);
+      const flat = placeTemplate(tpl, 0, 0, 0);
+      for (const axis of editAxes(type).filter((a) => !Number.isInteger(a) || (a % 2 === 1 && turnStep(type) === 45))) {
+        const turned = placeTemplate(tpl, axis, 0, 0);
+        const back = turn(-axis * 45);
+        const a = shapeParts(turned.footprint);
+        const b = shapeParts(flat.footprint);
+        expect(a.length, type).toBe(b.length);
+        a.forEach((p, k) => {
+          expect(p.r).toBe(b[k].r);
+          p.pts.map(back).forEach((q, j) => {
+            expect(q[0], `${type} ${axis * 45}°`).toBeCloseTo(b[k].pts[j][0], 9);
+            expect(q[1]).toBeCloseTo(b[k].pts[j][1], 9);
+          });
+        });
+        if (flat.runOffPoly) turned.runOffPoly.map(back).forEach((q, j) => expect(Math.hypot(q[0] - flat.runOffPoly[j][0], q[1] - flat.runOffPoly[j][1]), type).toBeLessThan(1e-9));
+      }
+    }
+  });
+
+  test('an element turned by 22.5° collides like any other: alone it is clear, on top of a copy it overlaps', () => {
+    for (const type of ELEMENT_TYPES) {
+      const half = turnElementTo(single(type), 0, turnStep(type));
+      expect(codes(routeLayout(half).problems).filter((c) => ['overlap', 'in-run-off', 'off-site', 'run-off-site'].includes(c)), type).toEqual([]);
+      const twice = { ...half, elements: [half.elements[0], { ...half.elements[0], x: half.elements[0].x + 1 }] };
+      expect(codes(routeLayout(twice).problems), type).toContain('overlap');
+    }
+  });
+
+  test('a side-only type is not turned by 22.5°, and a layout with one is not read', () => {
+    expect(turnStep('snail')).toBe(45);
+    expect(turnStep('gate')).toBe(22.5);
+    const layout = single('snail');
+    expect(parseLayout({ ...layout, elements: [{ ...layout.elements[0], axis: 1 }] })).not.toBeNull();
+    expect(parseLayout({ ...layout, elements: [{ ...layout.elements[0], axis: 0.5 }] })).toBeNull();
+    const gate = single('gate');
+    expect(parseLayout({ ...gate, elements: [{ ...gate.elements[0], axis: 0.5 }] })).not.toBeNull();
+    expect(parseLayout({ ...gate, elements: [{ ...gate.elements[0], axis: 0.25 }] })).toBeNull();
+  });
+
+  test('a generated course never stands off the lattice', () => {
+    for (const course of generated) for (const e of course.elements) expect(e.offLattice).toBeUndefined();
   });
 
   test('a turn onto a diagonal and back keeps the sizes', () => {
@@ -363,7 +441,7 @@ describe('sizes as the editor prints them', () => {
   });
 
   test('on a diagonal a length is what a tape shows between the cones', () => {
-    const gate = rotateElement(single('gate'), 0, 1);
+    const gate = rotateElement(rotateElement(single('gate'), 0, 1), 0, 1);
     const width = elementControls(gate, 0)[0];
     const { course } = routeLayout(gate);
     const [a, b] = course.elements[0].cones.map((id) => course.cones.find((c) => c.id === id));
@@ -546,7 +624,7 @@ describe('the setup sheet of an edited course', () => {
 
   test('cones of an edited course stay on the 0.5 m grid, anchors on whole metres, elements inside their zones', () => {
     let layout = layoutOf(generated[1]);
-    for (let i = 0; i < layout.elements.length; i++) layout = rotateElement(mirrorElement(layout, i), i, 1);
+    for (let i = 0; i < layout.elements.length; i++) layout = rotateElement(rotateElement(mirrorElement(layout, i), i, 1), i, 1);
     const { course } = routeLayout(layout);
     const byId = conesById(course);
     for (const c of course.cones) expect(Number.isInteger(c.hx) && Number.isInteger(c.hy)).toBe(true);

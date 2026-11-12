@@ -12,7 +12,7 @@
 // Everything here is a pure function of the layout, so undo, redo and storage
 // keep layouts and nothing else.
 
-import { BIKE_TURN_RADIUS, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
+import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
   assemble, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeFinish, innerRect, inside,
@@ -54,7 +54,7 @@ function ownMargins(el) {
 }
 
 function place(el, recipe) {
-  const diagonal = el.axis % 2 === 1;
+  const diagonal = diagonalAxis(el.type, el.axis);
   const own = ownMargins(el);
   const margins = { ...elementMargins(recipe), ...own };
   const p = placeTemplate(template(el.type, elementParams(el.type, el.sizes, diagonal, recipe.bike), diagonal, el.mirrored, margins), el.axis, el.x, el.y);
@@ -70,7 +70,7 @@ export function layoutOf(course) {
     elements: course.elements.map((e) => {
       const anchor = byId.get(e.anchor);
       return {
-        type: e.type, sizes: elementSizes(e.type, e.params, e.axis % 2 === 1), axis: e.axis, mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
+        type: e.type, sizes: elementSizes(e.type, e.params, diagonalAxis(e.type, e.axis)), axis: e.axis, mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
         ...(e.safety ? { safety: { ...e.safety } } : {}),
       };
     }),
@@ -80,7 +80,7 @@ export function layoutOf(course) {
 /**
  * A layout read back from storage, or null when it is not one this build can
  * route: an unknown type, a size that is not a number, an axis the type cannot
- * stand on.
+ * be turned to (`editAxes`).
  */
 export function parseLayout(raw) {
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.elements)) return null;
@@ -89,7 +89,7 @@ export function parseLayout(raw) {
   if (raw.elements.length < 1 || raw.elements.length > ELEMENTS_MAX) return null;
   const elements = [];
   for (const e of raw.elements) {
-    if (!e || !ELEMENT_TYPES.includes(e.type) || !typeAxes(e.type).includes(e.axis)) return null;
+    if (!e || !ELEMENT_TYPES.includes(e.type) || !editAxes(e.type).includes(e.axis)) return null;
     if (!Number.isInteger(e.x) || !Number.isInteger(e.y) || typeof e.mirrored !== 'boolean') return null;
     if (!e.sizes || !SIZE_SPECS[e.type].every((s) => Number.isFinite(e.sizes[s.key]))) return null;
     const sizes = Object.fromEntries(SIZE_SPECS[e.type].map((s) => [s.key, e.sizes[s.key]]));
@@ -394,34 +394,37 @@ export function moveElement(layout, i, x, y) {
   return withElement(layout, i, fitted({ ...unpinned(layout.elements[i]), x: Math.round(x), y: Math.round(y) }, layout.recipe));
 }
 
-/** Turns element i by one step of its axes — 45°, or 90° for a type that only stands along the site sides — about the middle of its zone. */
+/** Turns element i by one step of the axes it can be turned to in «Правка» — 22.5°, or 45° for a side-only type (ADR 0017) — about the middle of its zone. */
 export function rotateElement(layout, i, dir) {
   const el = layout.elements[i];
-  const axes = typeAxes(el.type);
+  const axes = editAxes(el.type);
   return turned(layout, i, { axis: axes[(axes.indexOf(el.axis) + dir + axes.length) % axes.length] });
 }
 
 /** The angle of an axis in degrees, counter-clockwise from along the width (axis 0 points to +X). */
 export const axisDegrees = (axis) => axis * 45;
 
+/** The step in degrees an element of the type is turned by in «Правка»: 22.5°, or 45° for a side-only type. */
+export const turnStep = (type) => 360 / editAxes(type).length;
+
 /**
- * The axis a type stands on nearest to `degrees` (any number, wrapped to a
- * full turn): there is nothing between the axes (ADR 0001). Halfway between
- * two the one nearer `current` wins, then the counter-clockwise one. Null for
- * something that is not a number.
+ * The axis an element of the type can be turned to nearest to `degrees` (any
+ * number, wrapped to a full turn): there is nothing between them (ADR 0017).
+ * Halfway between two the one nearer `current` wins, then the
+ * counter-clockwise one. Null for something that is not a number.
  */
 export function nearestAxis(type, degrees, current = 0) {
   if (!Number.isFinite(degrees)) return null;
   const off = (a, d) => Math.abs((((d - axisDegrees(a)) % 360) + 540) % 360 - 180);
   let best = null;
-  for (const axis of typeAxes(type)) {
+  for (const axis of editAxes(type)) {
     const key = [off(axis, degrees), off(axis, axisDegrees(current)), -axis];
     if (!best || key[0] < best.key[0] - 1e-9 || (Math.abs(key[0] - best.key[0]) <= 1e-9 && (key[1] < best.key[1] || (key[1] === best.key[1] && key[2] < best.key[2])))) best = { axis, key };
   }
   return best.axis;
 }
 
-/** Turns element i to the axis of its type nearest to `degrees`, about the middle of its zone like `rotateElement`. */
+/** Turns element i to the axis nearest to `degrees` it can be turned to, about the middle of its zone like `rotateElement`. */
 export function turnElementTo(layout, i, degrees) {
   const el = layout.elements[i];
   const axis = nearestAxis(el.type, degrees, el.axis);
@@ -471,11 +474,11 @@ function startingSizes(type, recipe) {
   return typicalSizes(type, recipe.difficulty, recipe.bike, recipe.sizes);
 }
 
-/** The axis on which the element is entered as close to `dir` (0..7) as its type allows. */
+/** The axis on which the element is entered as close to `dir` (in 45° steps) as it can be turned to. */
 function axisEnteredAlong(el, dir, recipe) {
   let best = el.axis;
   let off = Infinity;
-  for (const axis of typeAxes(el.type)) {
+  for (const axis of editAxes(el.type)) {
     const d = Math.abs(wrapPi(dirAngle(place({ ...el, axis, x: 0, y: 0 }, recipe).entryDir) - dirAngle(dir)));
     if (d < off - 1e-9) {
       off = d;
@@ -581,7 +584,7 @@ export function insertElement(layout, at, type) {
 /** The sizes of element i as the editor shows them, with the steps down and up (`sizeControls`). */
 export function elementControls(layout, i) {
   const el = layout.elements[i];
-  return sizeControls(el.type, el.sizes, el.axis % 2 === 1, layout.recipe.bike);
+  return sizeControls(el.type, el.sizes, diagonalAxis(el.type, el.axis), layout.recipe.bike);
 }
 
 /** Name of element i's type. */

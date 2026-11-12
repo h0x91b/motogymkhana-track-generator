@@ -5,7 +5,7 @@
 
 import {
   axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord,
-  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, shiftElement, turnElementTo, typeAxes, TYPE_NAMES,
+  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -163,13 +163,13 @@ export function createEditor(host) {
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
     rotate: (arg) => {
       const next = rotateElement(layout, selected, Number(arg));
-      commit(next, selected, `Элемент ${selected + 1} повёрнут на ${axisDegrees(next.elements[selected].axis)}°.`);
+      commit(next, selected, `Элемент ${selected + 1} повёрнут на ${comma(axisDegrees(next.elements[selected].axis))}°.`);
     },
-    /** A typed angle: the nearest axis of the type; the field says where the element went. */
+    /** A typed angle: the nearest orientation the element can be turned to (22.5° steps); the field says where the element went. */
     angle: (text) => {
       const typed = Number(String(text).trim().replace(',', '.').replace(/°$/, ''));
       const field = $('edit-angle');
-      const now = axisDegrees(layout.elements[selected].axis);
+      const now = comma(axisDegrees(layout.elements[selected].axis));
       if (String(text).trim() === '' || !Number.isFinite(typed)) {
         if (field) field.value = now;
         say(`Поворот — число градусов. Элемент ${selected + 1} стоит на ${now}°.`);
@@ -177,8 +177,8 @@ export function createEditor(host) {
       }
       const next = turnElementTo(layout, selected, typed);
       const to = axisDegrees(next.elements[selected].axis);
-      const snapped = ((typed % 360) + 360) % 360 === to ? '' : ` — ближайшая ось к ${comma(typed)}°`;
-      if (!commit(next, selected, `Элемент ${selected + 1} повёрнут на ${to}°${snapped}.`)) {
+      const snapped = ((typed % 360) + 360) % 360 === to ? '' : ` — ближайшее к ${comma(typed)}° с шагом ${comma(turnStep(layout.elements[selected].type))}°`;
+      if (!commit(next, selected, `Элемент ${selected + 1} повёрнут на ${comma(to)}°${snapped}.`)) {
         if (field) field.value = now;
         say(`Элемент ${selected + 1} уже стоит на ${now}°${snapped}.`);
       }
@@ -286,17 +286,17 @@ export function createEditor(host) {
   function elementHtml() {
     const i = selected;
     const el = layout.elements[i];
-    const turn = typeAxes(el.type).length === 8 ? 45 : 90;
+    const turn = comma(turnStep(el.type));
     const sizes = elementControls(layout, i).map((c) => `<div class="size-row" role="group" aria-label="${esc(c.name)}">
         <span class="size-name">${esc(c.name)}</span>
         <button type="button" data-act="size" data-arg="${c.key}:less" aria-label="${esc(c.name)}: меньше"${c.less ? '' : ' disabled'}>${icon('minus')}</button>
         <span class="size-value">${esc(sizeText(c))}</span>
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
-    // The angle can be typed; whatever is typed lands on the nearest axis of the type (ADR 0001).
+    // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0017).
     const angle = `<div class="size-row angle-row">
         <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>
-        <span class="angle-field"><input id="edit-angle" inputmode="numeric" autocomplete="off" enterkeyhint="done" value="${axisDegrees(el.axis)}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
+        <span class="angle-field"><input id="edit-angle" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(axisDegrees(el.axis))}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
       </div>`;
     // The element's own margins: free asphalt round it, over the recipe's.
     const margins = elementSafety(layout, i).map((m) => {
@@ -408,7 +408,7 @@ export function createEditor(host) {
       else ACTIONS.angle(e.target.value);
     } else if (e.key === 'Escape') {
       e.stopPropagation();
-      e.target.value = axisDegrees(layout.elements[selected].axis);
+      e.target.value = comma(axisDegrees(layout.elements[selected].axis));
       e.target.blur();
     }
   });

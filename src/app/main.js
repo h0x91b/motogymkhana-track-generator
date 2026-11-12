@@ -767,7 +767,7 @@ function coneDot(cone) {
 const LONG_TABLE = 16;
 
 function coneTable(card, big = false) {
-  const diag = card.axis.diagonal;
+  const diag = card.axis.xy;
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
   const rows = card.cones.map((c) => {
     const a = diag ? c.dx : c.along;
@@ -797,7 +797,7 @@ function cardHtml(card, big = false) {
 function elementFacts(id) {
   const card = state.sheet?.cards.find((c) => c.element === id);
   if (!card) return '';
-  const diag = card.axis.diagonal;
+  const diag = card.axis.xy;
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
   const rows = card.cones.map((c) => `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${dist(diag ? c.dx : c.along)} м</td><td>${dist(diag ? c.dy : c.across)} м</td></tr>`).join('');
   const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';

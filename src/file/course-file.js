@@ -11,11 +11,19 @@
 import { parseLayout } from '../generator/layout.js';
 import { parseRecipe, parseSeed } from '../generator/recipe.js';
 import { buildSetupSheet } from '../sheet/setup-sheet.js';
-import { TYPE_NAMES } from '../generator/catalog.js';
+import { TYPE_NAMES, typeAxes } from '../generator/catalog.js';
 
 export const COURSE_FILE_FORMAT = 'motogymkhana-course';
-/** Raised on a change an older build cannot read; a reader refuses a newer version instead of half-opening it. */
-export const COURSE_FILE_VERSION = 1;
+/**
+ * The newest version this build reads and writes. Raised on a change an older
+ * build cannot read; a reader refuses a newer version instead of half-opening
+ * it. A file is written with the oldest version that can read it: 2 only for
+ * a course with an element turned off the 45° lattice (ADR 0017), 1 otherwise.
+ */
+export const COURSE_FILE_VERSION = 2;
+
+/** Is an axis one that version 1 knew: whole 45° steps, and only side axes for a side-only type? */
+const firstVersionAxis = (e) => typeAxes(e.type).includes(e.axis);
 
 /**
  * The document of a course file for a layout.
@@ -25,7 +33,7 @@ export const COURSE_FILE_VERSION = 1;
 export function courseDocument(layout, { build = '', edited = false } = {}) {
   return {
     format: COURSE_FILE_FORMAT,
-    version: COURSE_FILE_VERSION,
+    version: layout.elements.every(firstVersionAxis) ? 1 : COURSE_FILE_VERSION,
     build,
     edited,
     recipe: layout.recipe,

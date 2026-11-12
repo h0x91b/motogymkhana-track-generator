@@ -477,11 +477,11 @@ function cardBlock(card, width) {
     ...card.notes.map((n) => ({ text: n, size: 20, color: '#2f3d45' })),
   ]);
   const rowH = 32;
-  const cols = card.axis.diagonal ? ['№', 'конус', 'ΔX', 'ΔY'] : ['№', 'конус', 'вдоль', 'поперёк'];
+  const cols = card.axis.xy ? ['№', 'конус', 'ΔX', 'ΔY'] : ['№', 'конус', 'вдоль', 'поперёк'];
   return {
     measure(ctx) {
       this.headH = head.measure(ctx, inner - 44);
-      this.height = 18 + this.headH + 14 + rowH * (rows + 1) + (card.axis.diagonal ? 0 : 30) + 18;
+      this.height = 18 + this.headH + 14 + rowH * (rows + 1) + (card.axis.xy ? 0 : 30) + 18;
       return this.height;
     },
     wide: tables > 1,
@@ -535,13 +535,13 @@ function cardBlock(card, width) {
         font(ctx, 22, 700);
         ctx.fillStyle = INK;
         ctx.textAlign = 'left';
-        const a = card.axis.diagonal ? cone.dx : cone.along;
-        const b = card.axis.diagonal ? cone.dy : cone.across;
+        const a = card.axis.xy ? cone.dx : cone.along;
+        const b = card.axis.xy ? cone.dy : cone.across;
         ctx.fillText(`${dist(a)} м`, colX[2] + (tables === 1 ? 20 : 0), ty + rowH / 2);
         ctx.fillText(`${dist(b)} м`, colX[3], ty + rowH / 2);
       });
       const ty = top + rowH * (rows + 1);
-      if (!card.axis.diagonal) {
+      if (!card.axis.xy) {
         font(ctx, 17);
         ctx.fillStyle = MUTED;
         ctx.textAlign = 'left';

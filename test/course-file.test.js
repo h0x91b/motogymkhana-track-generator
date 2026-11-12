@@ -54,11 +54,34 @@ describe('course file', () => {
     }
   }, 30_000);
 
+  test('an element turned by 22.5° is written as version 2 and opens back where it was', () => {
+    const flat = layoutOf(courses[2]);
+    const layout = rotateElement(flat, 0, 1);
+    const axis = layout.elements[0].axis;
+    expect(axis).toBe(flat.elements[0].axis + 0.5);
+    const doc = courseDocument(layout, { edited: true });
+    expect(doc.version).toBe(COURSE_FILE_VERSION);
+    expect(COURSE_FILE_VERSION).toBe(2);
+    const read = readCourseFile(courseFileText(doc));
+    expect(read.ok).toBe(true);
+    expect(read.layout.elements[0].axis).toBe(axis);
+    expect(canonicalJSON(routeLayout(read.layout).course)).toBe(canonicalJSON(routeLayout(layout).course));
+    // A version 1 file, written before half steps, still opens.
+    const old = readCourseFile(courseFileText({ ...courseDocument(layoutOf(courses[2])), version: 1 }));
+    expect(old.ok).toBe(true);
+    // Half steps only: never a quarter one.
+    const bent = (axis) => readCourseFile(courseFileText({ ...doc, elements: doc.elements.map((e, i) => (i ? e : { ...e, axis })) }));
+    expect(bent(7.5).ok).toBe(true);
+    expect(bent(0.25).ok).toBe(false);
+    expect(bent(8).ok).toBe(false);
+  });
+
   test('the document names its format and version and carries the whole recipe', () => {
     const course = courses[2];
     const doc = JSON.parse(courseFileText(courseDocument(layoutOf(course))));
     expect(doc.format).toBe(COURSE_FILE_FORMAT);
-    expect(doc.version).toBe(COURSE_FILE_VERSION);
+    // The oldest version that reads it: a course on the 45° lattice is still version 1.
+    expect(doc.version).toBe(1);
     expect(doc.recipe).toEqual(course.recipe);
     expect(doc.seed).toBe(course.seed);
     expect(doc.elements).toHaveLength(course.elements.length);
@@ -131,6 +154,18 @@ describe('cone list CSV', () => {
       expect(got).toEqual(want);
       expect(rows.some((r) => r[1] === '—')).toBe(false);
     }
+  });
+
+  test('cones of an element turned by 22.5° are at their exact place, to 0.1 m', () => {
+    let layout = layoutOf(courses[2]);
+    for (let i = 0; i < layout.elements.length; i++) layout = rotateElement(layout, i, 1);
+    const { course } = routeLayout(layout);
+    const rows = parseCsv(conesCsv(course)).slice(1);
+    expect(rows).toHaveLength(course.cones.length);
+    const off = course.cones.filter((c) => !Number.isInteger(c.hx) || !Number.isInteger(c.hy));
+    expect(off.length).toBeGreaterThan(0);
+    const want = course.cones.map((c) => `${Math.round(c.hx * 5) / 10}|${Math.round(c.hy * 5) / 10}`).sort();
+    expect(rows.map((r) => `${metres(r[5])}|${metres(r[6])}`).sort()).toEqual(want);
   });
 
   test('heights and colours add up to the cone list of the setup sheet', () => {

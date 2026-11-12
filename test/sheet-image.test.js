@@ -29,3 +29,13 @@ test('every frame of the setup sheet draws without an error', () => {
     expect(frames.length).toBeGreaterThan(1);
   }
 });
+
+test('a course with every element turned off the lattice in «Правка» draws too', async () => {
+  const { layoutOf, rotateElement, routeLayout } = await import('../src/generator/layout.js');
+  const { course: generated } = generateCourse({ width: 60, length: 80, elements: 8, difficulty: 'medium', shape: 'open', types: ['corridor-slalom', 'box-eight', 'swerve', 'tunnel', 'lane-change', 'u-turn', 'box', 'mirror', 'snail'] }, 1);
+  let layout = layoutOf(generated);
+  for (let i = 0; i < layout.elements.length; i++) layout = rotateElement(layout, i, 1);
+  const { course } = routeLayout(layout);
+  expect(course.elements.every((e) => e.offLattice)).toBe(true);
+  expect(renderSheetImages(course, buildSetupSheet(course), makeCanvas).length).toBeGreaterThan(1);
+});
