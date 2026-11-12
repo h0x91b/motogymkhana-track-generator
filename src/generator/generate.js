@@ -40,7 +40,7 @@ export const CONNECTOR_RADII = [1, 1.5]; // × the minimum turning radius
 const BUDGET_BASE = 720; // evaluated placements per attempt…
 const BUDGET_PER_ELEMENT = 360; // …plus this many per requested element
 const ROUNDS = 3; // the budget is split into restarts so early choices get revisited
-// A search with gap fillers (ADR 0021) follows one that already found a course:
+// A search with gap fillers (ADR 0023) follows one that already found a course:
 // it gets this share of the budget, so a gap that cannot be filled costs little.
 export const FILLER_BUDGET = 1;
 const EPS = 0.01; // touching a zone edge is fine, entering it by more is not
@@ -1005,7 +1005,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   const feasible = dealtTypes(usable);
   if (!feasible.length) return { ok: false };
   const preferences = typePreferences(seed, feasible, n);
-  // Gap fillers (ADR 0021): up to `fillers` single-cone elements, each tried at
+  // Gap fillers (ADR 0023): up to `fillers` single-cone elements, each tried at
   // a place only after every dealt type has failed there, in a seeded order of
   // their own, so they never take the place of an element that fits.
   const fillerPool = fillers > 0 ? gapFillers(usable) : [];

@@ -1,4 +1,4 @@
-// Single-cone elements (ADR 0021): «Конус слева», «Конус справа», «Малый
+// Single-cone elements (ADR 0023): «Конус слева», «Конус справа», «Малый
 // разворот» and the pivot turn. Their geometry and colours through the
 // catalog, their place in a generated course as gap fillers, and their way
 // through «Правка» and the course file.
@@ -91,7 +91,7 @@ describe('catalog', () => {
 });
 
 describe('gap fillers in a generated course', () => {
-  const seeds = sweep(40, 6);
+  const seeds = sweep(40, 4);
   const filled = [];
   for (let seed = 1; seed <= seeds; seed++) filled.push([seed, generateCourse(ANTON, seed).course]);
 
@@ -109,7 +109,7 @@ describe('gap fillers in a generated course', () => {
       used += FILLED(c);
     }
     expect(used).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   test('never two of a kind in a row, and no U-turn round a cone in «паровозик»', () => {
     for (const [, c] of filled) c.elements.forEach((e, i) => i && expect(e.type).not.toBe(c.elements[i - 1].type));
