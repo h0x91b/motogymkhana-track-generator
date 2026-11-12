@@ -402,7 +402,6 @@ const generator = createGenerator(({ id, result: generated }) => {
   state.stale = false;
   state.selected = null;
   state.image = null;
-  hideElementCard();
   if (state.setupStep !== null) exitSetup();
   resetCamera(state.camera);
   // The count stays in the summary; the hint only needs to be seen once.
@@ -750,13 +749,9 @@ function updateCursor(e) {
 function onTap(x, y) {
   if (!state.course || state.setupStep !== null || state.ride?.playing) return;
   if (editor.active) return editor.select(hitTest(state.hits, x, y));
+  // An element is edited where it is opened: a tap on it opens its row in «Правка».
   const id = hitTest(state.hits, x, y);
-  if (id && id !== state.selected) selectElement(id);
-  else {
-    state.selected = null;
-    hideElementCard();
-  }
-  invalidate();
+  if (id) enterEdit(id);
 }
 
 // ---------------------------------------------------------------- element card and setup mode
@@ -794,37 +789,25 @@ function cardHtml(card, big = false) {
     ${coneTable(card, big)}`;
 }
 
-function selectElement(id) {
-  state.selected = id;
-  const card = state.sheet.cards.find((c) => c.element === id);
-  const box = $('element-card');
-  box.innerHTML = `<button type="button" class="close-x" aria-label="Закрыть">×</button>${cardHtml(card)}`;
-  box.querySelector('.close-x').addEventListener('click', () => {
-    state.selected = null;
-    hideElementCard();
-    invalidate();
-  });
-  // The card's title shares its row with the way into «Правка» for this element.
-  const head = Object.assign(document.createElement('div'), { className: 'card-head' });
-  const edit = Object.assign(document.createElement('button'), { type: 'button', className: 'card-edit', textContent: 'Править' });
-  edit.setAttribute('aria-label', `Править элемент ${card.number}`);
-  edit.addEventListener('click', () => enterEdit(id));
-  box.querySelector('h3').replaceWith(head);
-  head.append(Object.assign(document.createElement('h3'), { textContent: `${card.number}. ${card.name}` }), edit);
-  box.hidden = false;
-  // Frame the element in the part of the stage the card leaves free: beside it on
-  // a wide screen, above it on a phone.
-  if (wide.matches) {
-    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: 60, left: 80, right: box.offsetWidth + 16 });
-  } else {
-    const free = Math.max(120, canvas.clientHeight - box.offsetHeight - 10);
-    frameBounds(state.camera, canvas.clientWidth, canvas.clientHeight, state.course.site, elementBounds(id), { top: 60, bottom: canvas.clientHeight - free + 16 });
-  }
-  invalidate();
-}
-
-function hideElementCard() {
-  $('element-card').hidden = true;
+/**
+ * What «Правка» shows of element `id` and cannot change: the anchor and the
+ * offset from the previous one, the axis and the way through, the notes and the
+ * cone table (folded) — what the card on the plan used to say.
+ */
+function elementFacts(id) {
+  const card = state.sheet?.cards.find((c) => c.element === id);
+  if (!card) return '';
+  const diag = card.axis.diagonal;
+  const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
+  const rows = card.cones.map((c) => `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${dist(diag ? c.dx : c.along)} м</td><td>${dist(diag ? c.dy : c.across)} м</td></tr>`).join('');
+  const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';
+  return {
+    head: `<p class="anchor">Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м</p>
+      ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
+      <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>`,
+    tail: `${card.notes.map((n) => `<p>${esc(n)}</p>`).join('')}
+      <details class="cones-fold"><summary>Таблица конусов: ${card.cones.length} шт.</summary><table class="cones"><tr>${head}</tr>${rows}</table>${note}</details>`,
+  };
 }
 
 /** The element's zone, and the previous anchor its own is measured from. */
@@ -909,7 +892,6 @@ function enterSetup() {
   }
   if (!state.course || state.stale) return;
   stopRide();
-  hideElementCard();
   $('toast').hidden = true; // it would cover the step's anchor
   state.setupStep = 0;
   $('stage').classList.add('in-setup');
@@ -960,6 +942,7 @@ const editor = createEditor({
     invalidate();
   },
   leave: () => exitEdit(),
+  facts: (id) => elementFacts(id),
   /** The type picker is modal: what is behind it goes inert. */
   modal(open) {
     for (const id of BEHIND_PICKER) $(id).inert = open;
@@ -978,14 +961,13 @@ function enterEdit(id = null) {
     return;
   }
   stopRide();
-  hideElementCard();
   $('toast').hidden = true;
   $('stage').classList.add('in-edit');
   $('dock').hidden = true;
   $('edit-panel').hidden = false;
   editor.enter(id);
   applyLayout();
-  ($('edit-body').querySelector('.chip[aria-pressed="true"]') ?? $('edit-body').querySelector('.chip')).focus({ preventScroll: true });
+  ($('edit-body').querySelector('.el-row.open .el-pick') ?? $('edit-body').querySelector('.el-pick')).focus({ preventScroll: true });
 }
 
 function exitEdit() {
@@ -1051,7 +1033,6 @@ function toggleRide() {
   if (state.ride?.playing) return pauseRide();
   if (state.setupStep !== null) exitSetup();
   state.selected = null;
-  hideElementCard();
   if (state.camera.mode !== 'angle') setView('angle');
   if (!state.ride || state.ride.s >= rideEnd(state.ride)) {
     const track = buildRide(state.course);
@@ -1556,10 +1537,6 @@ function start() {
       else if (e.key === 'Escape') exitSetup();
       else return;
       e.preventDefault();
-    } else if (e.key === 'Escape' && !$('element-card').hidden) {
-      state.selected = null;
-      hideElementCard();
-      invalidate();
     }
   });
   $('share').addEventListener('click', openPicture);
@@ -1585,19 +1562,11 @@ function start() {
   $('zoom-in').addEventListener('click', () => zoomBy(1.25));
   $('zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
   $('zoom-fit').addEventListener('click', () => {
-    // In «Правка» the selected element stays selected: only the camera moves.
-    if (!editor.active) {
-      state.selected = null;
-      hideElementCard();
-    }
     resetCamera(state.camera);
     invalidate();
   });
 
-  wide.addEventListener('change', () => {
-    applyLayout();
-    if (state.selected && state.setupStep === null && !editor.active) selectElement(state.selected);
-  });
+  wide.addEventListener('change', applyLayout);
   applyLayout();
 
   renderSummary();
