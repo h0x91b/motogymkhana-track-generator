@@ -309,6 +309,22 @@ function fixedSizes({ type, params }, diagonal, recipe) {
   });
 }
 
+/**
+ * Which side of the start-and-finish box the way back enters by, seen in the
+ * start's direction of travel: `back`, `left` or `right`.
+ */
+export function boxEntrySide(startDir, finishDir) {
+  const turn = (((finishDir - startDir) % 8) + 8) % 8;
+  return turn === 0 ? 'back' : turn === 6 ? 'left' : 'right';
+}
+
+/**
+ * Which side of the box the rider rides back in by. Left and right are the
+ * rider's at the start, which on a plan can read the other way round, so the
+ * text says only «боковую», and the direction of travel shows which.
+ */
+export const BOX_ENTRY_LABELS = { back: 'через заднюю сторону', left: 'через боковую сторону', right: 'через боковую сторону' };
+
 function terminal(t, byId) {
   return {
     cones: t.cones.map((id) => ({ x: byId.get(id).hx / 2, y: byId.get(id).hy / 2 })),
@@ -578,13 +594,13 @@ export function buildSetupSheet(course) {
   }
 
   const start = terminal(course.route.start, byId);
-  const closed = course.route.shape === 'closed';
-  const finish = closed ? start : terminal(course.route.finish, byId);
-  // A finish by the start is measured from the start line: one short tape run.
-  if (course.route.shape === 'return') {
-    const dx = finish.center.x - start.center.x + 0;
-    const dy = finish.center.y - start.center.y + 0;
-    finish.fromStart = { dx, dy, label: `От середины старта: X ${signed(dx)} м · Y ${signed(dy)} м` };
+  const { shape } = course.route;
+  const finish = shape === 'closed' ? start : terminal(course.route.finish, byId);
+  // A finish by the start is the start's own box, entered by its back or a side.
+  if (shape === 'return') {
+    const [a, b] = start.cones;
+    start.box = { size: Math.hypot(b.x - a.x, b.y - a.y) };
+    finish.entry = boxEntrySide(start.dir, finish.dir);
   }
   return {
     site: { width: course.site.width, length: course.site.length },

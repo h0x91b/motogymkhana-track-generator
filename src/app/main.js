@@ -3,7 +3,7 @@ import {
   SHAPE_NAMES, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, TYPE_NAMES,
 } from '../generator/index.js';
 import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
-import { buildSetupSheet, dist, fmt } from '../sheet/setup-sheet.js';
+import { BOX_ENTRY_LABELS, buildSetupSheet, dist, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
 import { renderSheetImages } from '../render/sheet-image.js';
@@ -26,7 +26,7 @@ function randomSeed() {
 }
 
 const DEFAULT_FORM = {
-  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {}, safety: {},
+  width: '40', length: '60', elements: '8', difficulty: 'hard', bike: 'cruiser', shape: 'return', train: true, seed: '1', types: [...ELEMENT_TYPES], sizes: {}, safety: {},
 };
 
 // The types a form saved before `knownTypes` was stored had to choose from.
@@ -220,7 +220,7 @@ function syncTypes() {
 const SHAPE_HINTS = {
   open: 'Старт и финиш генератор ставит где угодно на площадке.',
   closed: 'Одна линия — и старт, и финиш: последняя связка ведёт обратно на старт, трассу можно ехать по кругу.',
-  return: 'Две линии рядом: финиш не дальше 8 м от старта, заканчивают там же, где начали, но не заезжают на старт.',
+  return: 'Одна коробка — и старт, и финиш: гонщик выезжает из неё через линию старта и в конце заезжает обратно в неё же, сзади или сбоку.',
 };
 
 function syncShapeHint() {
@@ -840,14 +840,17 @@ function focusElement(id) {
 
 function setupSteps() {
   const steps = [{ kind: 'start' }, ...state.sheet.cards.map((card) => ({ kind: 'element', card }))];
-  if (state.sheet.shape !== 'closed') steps.push({ kind: 'finish' });
+  if (state.sheet.shape === 'open') steps.push({ kind: 'finish' });
   return steps;
 }
 
 function terminalHtml(t, title) {
   const cones = t.cones.map((c) => `<tr><td>${coneDot({ height: 'low', color: 'neutral' })}</td><td>X ${dist(c.x)} м</td><td>Y ${dist(c.y)} м</td></tr>`).join('');
-  const near = t.fromStart ? `<p><b>Финиш у старта:</b> ${esc(t.fromStart.label.replace('От', 'от'))}</p>` : '';
-  return `<h3>${title}</h3><p class="muted">Два низких конуса, линия поперёк проезда (${esc(t.travel)})</p>${near}
+  const { finish } = state.sheet;
+  const what = t.box
+    ? `Четыре низких конуса — коробка ${dist(t.box.size)} × ${dist(t.box.size)} м. Первые два — линия старта, выезд через неё (${esc(t.travel)}); финиш — заезд обратно в коробку ${esc(BOX_ENTRY_LABELS[finish.entry])} (${esc(finish.travel)}) и остановка в ней`
+    : `Два низких конуса, линия поперёк проезда (${esc(t.travel)})`;
+  return `<h3>${title}</h3><p class="muted">${what}</p>
     <table class="cones big"><tr><th></th><th>X от опорного угла A</th><th>Y от опорного угла A</th></tr>${cones}</table>`;
 }
 
@@ -862,7 +865,7 @@ function renderSetup() {
     focusElement(step.card.element);
   } else {
     const t = step.kind === 'start' ? state.sheet.start : state.sheet.finish;
-    body.innerHTML = counter + terminalHtml(t, step.kind === 'start' ? (state.sheet.shape === 'closed' ? 'Старт и финиш' : 'Старт') : 'Финиш');
+    body.innerHTML = counter + terminalHtml(t, step.kind === 'start' ? (state.sheet.shape === 'open' ? 'Старт' : 'Старт и финиш') : 'Финиш');
     state.selected = null;
     const xs = t.cones.map((c) => c.x);
     const ys = t.cones.map((c) => c.y);

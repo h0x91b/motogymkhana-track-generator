@@ -132,7 +132,8 @@ export function conesCsv(course, sheet = buildSetupSheet(course)) {
     rows.push([rows.length + 1, where, n, HEIGHT[c.height], COLOUR[c.height === 'tall' ? colour : 'neutral'], decimetres(c.hx / 2), decimetres(c.hy / 2)]);
   };
   const closed = course.route.shape === 'closed';
-  for (const id of course.route.start.cones) add(id, closed ? 'Старт и финиш' : 'Старт', '', 'neutral');
+  const where = closed ? 'Старт и финиш' : course.route.shape === 'return' ? 'Коробка старта и финиша' : 'Старт';
+  for (const id of course.route.start.cones) add(id, where, '', 'neutral');
   const orderOf = new Map(course.elements.map((e) => [e.id, e.order]));
   course.elements.forEach((e, i) => {
     const card = sheet.cards[i];
