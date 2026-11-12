@@ -5,7 +5,7 @@
 
 import {
   addBlocked, axisDegrees, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
-  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
+  removeBlocked, removeElement, replaceElement, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -277,6 +277,22 @@ export function createEditor(host) {
       const to = next.recipe.blocked[block];
       commit(next, null, `${blockedTitle(layout, block)}: ${to.w} × ${to.h}\u00a0м.`, block);
     },
+    /** A typed size of the selected blocked area: whole metres, kept on the lot; the field says what it got. */
+    typedBlockedSize: (arg) => {
+      const [key, text] = [arg.slice(0, arg.indexOf(':')), arg.slice(arg.indexOf(':') + 1)];
+      const b = layout.recipe.blocked[block];
+      const typed = Number(String(text).trim().replace(',', '.').replace(/\s*м$/, ''));
+      const field = $(`edit-blocked-${key}`);
+      if (String(text).trim() === '' || !Number.isFinite(typed)) {
+        if (field) field.value = String(b[key]);
+        say(`${key === 'w' ? 'По X' : 'По Y'} — число метров. Сейчас ${b[key]}\u00a0м.`);
+        return;
+      }
+      const next = resizeBlocked(layout, block, key === 'w' ? typed : b.w, key === 'h' ? typed : b.h);
+      const to = next.recipe.blocked[block];
+      const snapped = to[key] === typed ? '' : ` — ближайшее допустимое к ${comma(typed)}\u00a0м`;
+      if (!commit(next, null, `${blockedTitle(layout, block)}: ${to.w} × ${to.h}\u00a0м${snapped}.`, block) && field) field.value = String(to[key]);
+    },
     // Back to the generated course; undo brings the edits back.
     reset: () => commit(base, null, 'Правки сброшены: трасса снова как от генератора.'),
   };
@@ -374,7 +390,7 @@ export function createEditor(host) {
     const size = (key, name, value) => `<div class="size-row" role="group" aria-label="${name}">
         <span class="size-name">${name}</span>
         <button type="button" data-act="blockedSize" data-arg="${key}:-1" aria-label="${name}: меньше"${value <= 1 ? ' disabled' : ''}>${icon('minus')}</button>
-        <span class="size-value">${value}\u00a0м</span>
+        <span class="size-field"><input id="edit-blocked-${key}" data-blocked-size="${key}" inputmode="numeric" autocomplete="off" enterkeyhint="done" value="${value}" aria-label="${name}, м"><span aria-hidden="true">м</span></span>
         <button type="button" data-act="blockedSize" data-arg="${key}:1" aria-label="${name}: больше">${icon('plus')}</button>
       </div>`;
     return `<p class="edit-hint muted">Угол у «A (0,0)»: X ${b.x}, Y ${b.y}\u00a0м. Перетащите на плане или сдвиньте стрелками; от его краёв держится тот же отступ, что от края площадки.</p>
@@ -506,6 +522,27 @@ export function createEditor(host) {
     if (selected === null || drag) return;
     if (e.target.id === 'edit-angle') ACTIONS.angle(e.target.value);
     else if (e.target.dataset.size) ACTIONS.typedSize(`${e.target.dataset.size}:${e.target.value}`);
+  });
+  // A blocked area's size field: the same, in whole metres.
+  body.addEventListener('change', (e) => {
+    const key = e.target.dataset?.blockedSize;
+    if (key && block !== null && !drag) ACTIONS.typedBlockedSize(`${key}:${e.target.value}`);
+  });
+  body.addEventListener('keydown', (e) => {
+    const key = e.target.dataset?.blockedSize;
+    if (!key || block === null || drag) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      ACTIONS.blockedSize(`${key}:${e.key === 'ArrowUp' ? 1 : -1}`);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (matchMedia('(pointer: coarse)').matches) e.target.blur();
+      else ACTIONS.typedBlockedSize(`${key}:${e.target.value}`);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.target.value = String(layout.recipe.blocked[block][key]);
+      e.target.blur();
+    }
   });
   // A size field: Enter or leaving it sets the size; the arrows step it like − and +.
   body.addEventListener('keydown', (e) => {
@@ -699,8 +736,12 @@ export function createEditor(host) {
       select(indexOf(id), blockOf(id));
     },
 
-    /** A finger went down on an element and moved: it is selected and follows the finger until `dragEnd`. */
-    dragStart(id) {
+    /**
+     * A finger went down on an element and moved: it is selected and follows the
+     * finger until `dragEnd`. With `handle` ({sx, sy}, a blocked area's corner or
+     * side, `blockedHandles`) that side moves instead and the opposite one stays.
+     */
+    dragStart(id, handle = null) {
       const k = blockOf(id);
       if (k !== null) {
         if (block !== k || selected !== null) {
@@ -708,7 +749,8 @@ export function createEditor(host) {
           block = k;
           render();
         }
-        drag = { from: layout, block: k, x: layout.recipe.blocked[k].x, y: layout.recipe.blocked[k].y };
+        const b = layout.recipe.blocked[k];
+        drag = { from: layout, block: k, x: b.x, y: b.y, rect: { ...b }, handle: handle && (handle.sx || handle.sy) ? handle : null };
         return true;
       }
       const i = indexOf(id);
@@ -724,9 +766,11 @@ export function createEditor(host) {
     /** The dragged element, (dx, dy) metres from where the drag began. */
     dragBy(dx, dy) {
       if (!drag) return;
-      const next = drag.block !== undefined
-        ? moveBlocked(drag.from, drag.block, drag.x + dx, drag.y + dy)
-        : moveElement(drag.from, drag.i, drag.x + dx, drag.y + dy);
+      const next = drag.handle
+        ? resizeBlockedSide(drag.from, drag.block, drag.rect, drag.handle.sx, drag.handle.sy, dx, dy)
+        : drag.block !== undefined
+          ? moveBlocked(drag.from, drag.block, drag.x + dx, drag.y + dy)
+          : moveElement(drag.from, drag.i, drag.x + dx, drag.y + dy);
       if (elementsOf(next) === elementsOf(layout)) return;
       layout = next;
       routed = routeLayout(layout);
@@ -736,7 +780,7 @@ export function createEditor(host) {
 
     dragEnd() {
       if (!drag) return;
-      const { from, i, block: k } = drag;
+      const { from, i, block: k, handle } = drag;
       drag = null;
       if (elementsOf(from) !== elementsOf(layout)) {
         undo.push(k !== undefined ? { layout: from, selected: null, block: k } : { layout: from, selected: i, block: null });
@@ -745,12 +789,26 @@ export function createEditor(host) {
         const before = routeLayout(from).problems.length;
         if (k !== undefined) {
           const b = layout.recipe.blocked[k];
-          say(`${blockedTitle(layout, k)}: X ${b.x}, Y ${b.y} м.${problemsNote(before)}`);
+          say(handle
+            ? `${blockedTitle(layout, k)}: ${b.w} × ${b.h} м, угол X ${b.x}, Y ${b.y} м.${problemsNote(before)}`
+            : `${blockedTitle(layout, k)}: X ${b.x}, Y ${b.y} м.${problemsNote(before)}`);
         } else {
           const el = layout.elements[i];
           say(`Элемент ${i + 1}: якорь X ${el.x}, Y ${el.y} м.${problemsNote(before)}`);
         }
       }
+      show();
+      render();
+    },
+
+    /** Esc during a drag: everything goes back to where the gesture began, no undo step. */
+    dragCancel() {
+      if (!drag) return;
+      const changed = elementsOf(drag.from) !== elementsOf(layout);
+      layout = drag.from;
+      drag = null;
+      if (changed) routed = routeLayout(layout);
+      say('Перетаскивание отменено.');
       show();
       render();
     },

@@ -6,6 +6,7 @@ import { TYPE_NAMES } from '../generator/catalog.js';
 import { anchorPoint, dist } from '../sheet/setup-sheet.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
+import { blockedHandles } from './handles.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 import { boxArrows, terminalPlates } from './terminals.js';
 
@@ -548,7 +549,9 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (const b of blocked) {
     const sel = editing && selected === `b${b.n}`;
     const text = sel ? `${b.name}: X ${b.x} · Y ${b.y}, ${b.w} × ${b.h} м` : b.name;
-    labels.push([text, b.x + b.w / 2, b.y + b.h / 2, { size: 11, z: tilted && b.kind === 'obstacle' ? OBSTACLE_HEIGHT : 0.02, bg: '#3d3220', fill: '#f6d9a4', hit: editing ? `b${b.n}` : null, top: sel }]);
+    // The selected one's plate sits clear of its far side, off the resize handles.
+    const [ly, dy] = sel ? [b.y + b.h, -22] : [b.y + b.h / 2, 0];
+    labels.push([text, b.x + b.w / 2, ly, { size: 11, z: tilted && b.kind === 'obstacle' ? OBSTACLE_HEIGHT : 0.02, dy, bg: '#3d3220', fill: '#f6d9a4', hit: editing ? `b${b.n}` : null, top: sel }]);
   }
   for (const e of course.elements) {
     const [cx, cy] = zoneCentre(e.zone);
@@ -589,6 +592,19 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   // The selected element's plates go on top: its name and anchor are what is being read.
   const onTop = (l) => l[3].top === true;
   for (const [text, x, y, o] of [...labels.filter((l) => !onTop(l)), ...labels.filter(onTop)]) plate(text, x, y, o);
+  // The selected blocked area's resize handles, above everything: corners and side midpoints.
+  const held = editing && blocked.find((b) => selected === `b${b.n}`);
+  if (held) {
+    for (const h of blockedHandles(`b${held.n}`, held, (x, y) => project(x, y, 0))) {
+      hits.push(h);
+      const r = h.sx && h.sy ? 5.5 : 4.5;
+      ctx.fillStyle = PALETTE.select;
+      ctx.strokeStyle = '#14232f';
+      ctx.lineWidth = 2;
+      ctx.fillRect(h.x - r, h.y - r, 2 * r, 2 * r);
+      ctx.strokeRect(h.x - r, h.y - r, 2 * r, 2 * r);
+    }
+  }
   scaleBar();
   return { hits, view };
 }
