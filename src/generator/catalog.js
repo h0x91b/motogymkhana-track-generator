@@ -781,9 +781,13 @@ const TYPES = {
       const half = opening / 2;
       const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
       const ring = arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1);
+      // A tall cone at the centre: the loop inside goes round it (clockwise, so
+      // it stays on the right and is red; blue when mirrored), and the ring is
+      // laid out from it with a tape.
+      const cones = [...conesAt(ring, 'low'), { a: k[0], b: k[1], height: 'tall' }];
       return rebase({
-        cones: conesAt(ring, 'low'),
-        passes: [],
+        cones,
+        passes: [{ kind: 'cone', cone: cones.length - 1, side: 'right' }],
         path: [
           ...arcPoints(c1, ro, -PI / 2, beta, ARC),
           ...arcPoints(k, rho, PI / 2 + beta, -(PI + 2 * beta), ARC),

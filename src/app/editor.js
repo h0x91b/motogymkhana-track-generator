@@ -5,7 +5,7 @@
 
 import {
   axisDegrees, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveElement, problemsWord,
-  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
+  removeElement, replaceElement, resizeElement, rotateElement, routeLayout, safetyValues, setElementSafety, setElementSize, shiftElement, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -41,6 +41,13 @@ function sizeText(c) {
   if (c.kind === 'count') return String(c.value);
   if (c.kind === 'choice') return `${c.value}°`;
   return `${comma(c.value)}\u00a0м`;
+}
+
+/** A size in metres — a length or a radius — is a field: type a value, or step it with − and +. */
+const metric = (c) => c.kind === 'length' || c.kind === 'radius';
+const sizeFieldId = (key) => `edit-size-${key}`;
+function sizeInput(c) {
+  return `<span class="size-field"><input id="${sizeFieldId(c.key)}" data-size="${c.key}" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(c.value)}" aria-label="${esc(c.name)}, м"><span aria-hidden="true">м</span></span>`;
 }
 
 /** A safety margin as the panel prints it: «нет» for a rule switched off. */
@@ -100,6 +107,7 @@ export function createEditor(host) {
   };
   const name = (i) => TYPE_NAMES[layout.elements[i].type];
   const say = (text) => (live.textContent = text);
+  const sizeField = (key) => $(sizeFieldId(key));
 
   /** What the problems are now, for the end of an announcement. */
   function problemsNote(before) {
@@ -191,6 +199,25 @@ export function createEditor(host) {
       const next = resizeElement(layout, selected, control[dir]);
       const now = elementControls(next, selected).find((c) => c.key === key);
       commit(next, selected, `${now.name}: ${sizeText(now)}.`);
+    },
+    /** A typed size in metres: the nearest the type allows; the field says what the element got. */
+    typedSize: (arg) => {
+      const [key, text] = [arg.slice(0, arg.indexOf(':')), arg.slice(arg.indexOf(':') + 1)];
+      const before = elementControls(layout, selected).find((c) => c.key === key);
+      const typed = Number(String(text).trim().replace(',', '.').replace(/\s*м$/, ''));
+      const field = sizeField(key);
+      if (String(text).trim() === '' || !Number.isFinite(typed)) {
+        if (field) field.value = comma(before.value);
+        say(`${before.name} — число метров. Сейчас ${sizeText(before)}.`);
+        return;
+      }
+      const next = setElementSize(layout, selected, key, typed);
+      const now = elementControls(next, selected).find((c) => c.key === key);
+      const snapped = Math.abs(now.value - typed) < 0.05 ? '' : ` — ближайшее допустимое к ${comma(typed)}\u00a0м`;
+      if (!commit(next, selected, `${now.name}: ${sizeText(now)}${snapped}.`)) {
+        if (field) field.value = comma(before.value);
+        say(`${before.name} уже ${sizeText(before)}${snapped}.`);
+      }
     },
     shift: (arg) => {
       const to = selected + Number(arg);
@@ -290,7 +317,7 @@ export function createEditor(host) {
     const sizes = elementControls(layout, i).map((c) => `<div class="size-row" role="group" aria-label="${esc(c.name)}">
         <span class="size-name">${esc(c.name)}</span>
         <button type="button" data-act="size" data-arg="${c.key}:less" aria-label="${esc(c.name)}: меньше"${c.less ? '' : ' disabled'}>${icon('minus')}</button>
-        <span class="size-value">${esc(sizeText(c))}</span>
+        ${metric(c) ? sizeInput(c) : `<span class="size-value">${esc(sizeText(c))}</span>`}
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
     // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0017).
@@ -341,6 +368,7 @@ export function createEditor(host) {
     const focused = body.contains(document.activeElement) ? document.activeElement : null;
     const key = focused && [focused.dataset.act, focused.dataset.arg];
     const angleFocused = focused?.id === 'edit-angle';
+    const sizeFocused = focused?.dataset.size;
     const scroll = body.scrollTop;
     // About the whole course, so it is offered with no element selected.
     const reset = courseOf(layout) === courseOf(base) ? '' : '<button type="button" class="link" data-act="reset">Сбросить все правки</button>';
@@ -366,6 +394,9 @@ export function createEditor(host) {
     if (angleFocused && $('edit-angle')) {
       $('edit-angle').focus({ preventScroll: true });
       $('edit-angle').select();
+    } else if (sizeFocused && sizeField(sizeFocused)) {
+      sizeField(sizeFocused).focus({ preventScroll: true });
+      sizeField(sizeFocused).select();
     } else if (key && key[0]) {
       const candidates = [...body.querySelectorAll('[data-act]')].filter((b) => b.dataset.act === key[0] && b.dataset.arg === key[1] && !b.disabled);
       // A row button follows its element to the row it moved to; a select button its own row.
@@ -394,7 +425,26 @@ export function createEditor(host) {
   });
   // The angle field: Enter or leaving it turns the element; the arrows step through the axes.
   body.addEventListener('change', (e) => {
-    if (e.target.id === 'edit-angle' && selected !== null && !drag) ACTIONS.angle(e.target.value);
+    if (selected === null || drag) return;
+    if (e.target.id === 'edit-angle') ACTIONS.angle(e.target.value);
+    else if (e.target.dataset.size) ACTIONS.typedSize(`${e.target.dataset.size}:${e.target.value}`);
+  });
+  // A size field: Enter or leaving it sets the size; the arrows step it like − and +.
+  body.addEventListener('keydown', (e) => {
+    const key = e.target.dataset?.size;
+    if (!key || selected === null || drag) return;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      ACTIONS.size(`${key}:${e.key === 'ArrowUp' ? 'more' : 'less'}`);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (matchMedia('(pointer: coarse)').matches) e.target.blur();
+      else ACTIONS.typedSize(`${key}:${e.target.value}`);
+    } else if (e.key === 'Escape') {
+      e.stopPropagation();
+      e.target.value = comma(elementControls(layout, selected).find((c) => c.key === key).value);
+      e.target.blur();
+    }
   });
   body.addEventListener('keydown', (e) => {
     if (e.target.id !== 'edit-angle' || selected === null || drag) return;

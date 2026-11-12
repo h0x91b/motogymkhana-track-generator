@@ -9,7 +9,7 @@ import { placeTemplate } from '../src/generator/generate.js';
 import { shapeParts } from '../src/generator/geometry.js';
 import {
   ELEMENTS_MAX, elementControls, insertElement, layoutOf, mirrorElement, moveElement, parseLayout, removeElement, replaceElement, resizeElement,
-  nearestAxis, rotateElement, routeLayout, shiftElement, turnElementTo, turnStep,
+  nearestAxis, rotateElement, routeLayout, setElementSize, shiftElement, turnElementTo, turnStep,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { sweep } from './helpers/slow.js';
@@ -170,6 +170,28 @@ describe('sizes set by hand', () => {
     expect(radius().value).toBeLessThan(elementControls(wider, 0).find((c) => c.key === 'radius').value);
     expect(line(wider)).toBeGreaterThan(before);
     expect(routeLayout(wider).problems).toEqual([]);
+  });
+
+  test('a typed radius lands on the 0.5 m step and the card lays the arc out on it', () => {
+    const layout = single('crescent');
+    const typed = setElementSize(layout, 0, 'radius', 6.3);
+    expect(elementControls(typed, 0).find((c) => c.key === 'radius').value).toBe(6.5);
+    const card = buildSetupSheet(routeLayout(typed).course).cards[0];
+    expect(card.arcs.map((a) => a.radius)).toEqual([6.5]);
+    expect(card.notes.join(' ')).toContain('радиус 6,5 м');
+    // Past the end of the range it takes the end.
+    expect(elementControls(setElementSize(layout, 0, 'radius', 30), 0).find((c) => c.key === 'radius').value).toBe(8);
+  });
+
+  test('a typed size never goes below the bike-class minimum, and a count or a non-number changes nothing', () => {
+    const pivot = single('pivot-turn');
+    expect(elementControls(setElementSize(pivot, 0, 'radius', 1), 0).find((c) => c.key === 'radius').value).toBe(5);
+    const slalom = single('straight-slalom');
+    expect(setElementSize(slalom, 0, 'count', 5)).toBe(slalom);
+    expect(setElementSize(slalom, 0, 'step', Number.NaN)).toBe(slalom);
+    // A size shown doubled (between the rows of an offset slalom) is typed as shown.
+    const offset = single('offset-slalom');
+    expect(elementControls(setElementSize(offset, 0, 'shift', 3), 0).find((c) => c.key === 'shift').value).toBe(3);
   });
 
   test('resizing changes the element on the course and keeps its anchor', () => {
@@ -619,7 +641,10 @@ describe('the setup sheet of an edited course', () => {
     const sheet = buildSetupSheet(course);
     expect(sheet.cards.map((c) => c.type)).toEqual(course.elements.map((e) => e.type));
     expect(sheet.coneList.tallBlue + sheet.coneList.tallRed + sheet.coneList.low).toBe(course.cones.length);
-    sheet.cards.forEach((card, i) => expect([card.anchor.x, card.anchor.y]).toEqual([layout.elements[i].x, layout.elements[i].y]));
+    // A ring is measured from its centre; every other element from the layout's anchor.
+    sheet.cards.forEach((card, i) => {
+      if (!card.anchorAtCentre) expect([card.anchor.x, card.anchor.y]).toEqual([layout.elements[i].x, layout.elements[i].y]);
+    });
   });
 
   test('cones of an edited course stay on the 0.5 m grid, anchors on whole metres, elements inside their zones', () => {

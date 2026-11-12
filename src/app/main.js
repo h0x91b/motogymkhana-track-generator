@@ -767,6 +767,8 @@ function coneDot(cone) {
 const LONG_TABLE = 16;
 
 function coneTable(card, big = false) {
+  // Rings, walls and half circles are laid out from their arcs, given in the notes.
+  if (!card.table) return '';
   const diag = card.axis.xy;
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
   const rows = card.cones.map((c) => {
@@ -805,8 +807,9 @@ function elementFacts(id) {
     head: `<p class="anchor">Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м</p>
       ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
       <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>`,
+    // Rings, walls and half circles are laid out from their arcs, given in the notes: no cone table.
     tail: `${card.notes.map((n) => `<p>${esc(n)}</p>`).join('')}
-      <details class="cones-fold"><summary>Таблица конусов: ${card.cones.length} шт.</summary><table class="cones"><tr>${head}</tr>${rows}</table>${note}</details>`,
+      ${card.table ? `<details class="cones-fold"><summary>Таблица конусов: ${card.cones.length} шт.</summary><table class="cones"><tr>${head}</tr>${rows}</table>${note}</details>` : ''}`,
   };
 }
 

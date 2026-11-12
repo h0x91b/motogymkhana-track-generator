@@ -241,8 +241,9 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       ];
     case 'keyhole':
       return [
-        `Кольцо из ${cones.length} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} к подъезду`,
-        `Въезд в проём наискосок, круг ${CLOCK[turn]} внутри, выезд через тот же проём`,
+        `Кольцо из ${cones.filter((c) => c.height === 'low').length} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} направлен к подъезду`,
+        `В центре ${colour(last)} высокий конус — якорь, от него рулеткой выставляется кольцо`,
+        `Въезд в проём наискосок, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд через тот же проём`,
       ];
     case 'crescent':
       return [
@@ -317,6 +318,154 @@ function terminal(t, byId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Arcs: the cones of a ring, a curved wall or a half circle are laid out with
+// a tape from a centre, so their card gives the centre, the radius and how many
+// cones go on the arc how far apart — not a row per cone (`arcsOf`).
+
+/** A cone counts as on an arc this close to it: lattice snapping moves it up to half a 0.5 m cell's diagonal. */
+const ON_ARC = 0.36;
+const TAU = 2 * Math.PI;
+/** The angle `a` measured anticlockwise from `from`, in [0, 2π). */
+const fromStart = (a, from) => (((a - from) % TAU) + TAU) % TAU;
+/** Which of the eight directions an angle (radians, anticlockwise from +X) is nearest to, as a word. */
+const sideWord = (a) => DIR_LABELS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+
+/** «№ 1–5», «№ 1–3, 7, 9–11»: cone numbers as runs, or null when they are too scattered to help. */
+function coneRuns(ns) {
+  const sorted = [...ns].sort((a, b) => a - b);
+  const runs = [];
+  for (const n of sorted) {
+    const last = runs.at(-1);
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  }
+  if (runs.length > 3) return null;
+  return `№ ${runs.map(([a, b]) => (a === b ? a : `${a}–${b}`)).join(', ')}`;
+}
+
+const conesWord = (n) => (n % 10 === 1 && n % 100 !== 11 ? 'конус' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'конуса' : 'конусов');
+
+/**
+ * The arcs an element's cones are laid out on, one per guide radius: centre
+ * (site metres and from the anchor), radius, the cones on it in laying order,
+ * the spacing between neighbours (along the arc and as a straight tape), and
+ * where the first and last cone sit seen from the centre. A cone where two arcs
+ * meet (the snail's spiral) is on both; every card cone on some arc gets `arc`,
+ * the number of the first.
+ */
+function arcsOf(e, byId, anchor, cones) {
+  const at = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
+  const arcs = [];
+  for (const g of e.guides ?? []) {
+    // Guides keep their angles in degrees, anticlockwise from +X.
+    const from = (g.from * Math.PI) / 180;
+    const span = ((g.to - g.from) * Math.PI) / 180;
+    const full = span >= TAU - 1e-6;
+    for (const radius of g.radii) {
+      const slack = ON_ARC / radius;
+      const on = [];
+      at.forEach(([x, y], i) => {
+        if (Math.abs(Math.hypot(x - g.x, y - g.y) - radius) > ON_ARC) return;
+        const t = fromStart(Math.atan2(y - g.y, x - g.x), from);
+        // Just short of the start reads as at the start.
+        const u = t > TAU - slack ? t - TAU : t;
+        if (full || u <= span + slack) on.push({ i, u });
+      });
+      if (on.length < 2) continue;
+      on.sort((a, b) => a.u - b.u);
+      // Lay out from the lower-numbered end: the anchor end, when it is on the arc.
+      if (!full && on[0].i > on.at(-1).i) on.reverse();
+      const n = on.length;
+      const swept = full ? TAU : Math.abs(on.at(-1).u - on[0].u);
+      const gaps = full ? n : n - 1;
+      const step = (radius * swept) / gaps;
+      const chord = 2 * radius * Math.sin(swept / gaps / 2);
+      const angle = (k) => Math.atan2(at[on[k].i][1] - g.y, at[on[k].i][0] - g.x);
+      const mid = from + (on[0].u + on.at(-1).u) / 2;
+      const dx = g.x - anchor.hx / 2 + 0;
+      const dy = g.y - anchor.hy / 2 + 0;
+      arcs.push({
+        center: { x: g.x, y: g.y },
+        fromAnchor: { dx, dy },
+        radius,
+        full,
+        degrees: full ? 360 : Math.round((span * 180) / Math.PI),
+        cones: on.map((c) => cones[c.i].n),
+        count: n,
+        step: Math.round(step * 10) / 10,
+        chord: Math.round(chord * 10) / 10,
+        first: sideWord(angle(0)),
+        last: sideWord(angle(n - 1)),
+        via: sideWord(mid),
+        gap: sideWord(mid + Math.PI),
+      });
+    }
+  }
+  const signed = (v) => (v > 0 ? `+${dist(v)}` : v < 0 ? `−${dist(-v)}` : '0,0');
+  arcs.forEach((a, k) => {
+    a.n = k + 1;
+    const name = a.full ? 'Круг' : arcs.length > 1 ? `Дуга ${a.n}` : 'Дуга';
+    const runs = coneRuns(a.cones);
+    a.lines = [
+      a.fromAnchor.dx === 0 && a.fromAnchor.dy === 0
+        ? `${name} вокруг якоря, радиус ${metres(a.radius)}`
+        : `${name}: центр от якоря X ${signed(a.fromAnchor.dx)} м · Y ${signed(a.fromAnchor.dy)} м, радиус ${metres(a.radius)}`,
+      `${a.count} ${conesWord(a.count)}${runs ? ` (${runs})` : ''} через ${metres(a.step)} по дуге (${metres(a.chord)} по прямой)`
+        + (a.full
+          ? ', по всему кругу'
+          : a.degrees > 270
+            // A ring with an opening: its two ends sit close together, the opening says where.
+            ? `; проём — ${a.gap} от центра, дуга ${a.degrees}°`
+            : `; от центра первый — ${a.first}, последний — ${a.last}, дуга ${a.degrees}° через ${a.via}`),
+    ];
+    for (const n of a.cones) if (cones[n - 1].arc === undefined) cones[n - 1].arc = a.n;
+  });
+  return arcs;
+}
+
+/** One line for each cone of an arc element that is on none of its arcs: the crescent's flick cone. */
+function looseCones(e, byId, anchor, cones) {
+  const signed = (v) => (v > 0 ? `+${dist(v)}` : v < 0 ? `−${dist(-v)}` : '0,0');
+  return cones.filter((c) => c.arc === undefined).map((c) => {
+    const cone = byId.get(e.cones[c.n - 1]);
+    const dx = (cone.hx - anchor.hx) / 2 + 0;
+    const dy = (cone.hy - anchor.hy) / 2 + 0;
+    const kind = c.height === 'low' ? 'низкий' : c.color === 'blue' ? 'синий высокий' : 'красный высокий';
+    return { n: c.n, dx, dy, label: `Конус ${c.n} (${kind}): от якоря X ${signed(dx)} м · Y ${signed(dy)} м` };
+  });
+}
+
+/** Where arcs meet in a cone (the snail's spiral), that cone is set once. */
+function sharedNote(arcs) {
+  const seen = new Set();
+  for (const a of arcs) {
+    for (const n of a.cones) {
+      if (seen.has(n)) return ['Где дуги сходятся, общий конус ставится один раз'];
+      seen.add(n);
+    }
+  }
+  return [];
+}
+
+/** Rings bigger than this (degrees) are laid out from their centre, which is their anchor on the sheet. */
+const RING_DEGREES = 270;
+
+/**
+ * The point an element is measured from on the sheet: its anchor cone, or the
+ * centre of a ring (a small or fast circle, a keyhole — where a tall cone
+ * stands), since a ring is laid out with a tape swung from its centre. The
+ * layout keeps its own anchor (the element's first cone, ADR 0012); only what
+ * is measured on the asphalt moves.
+ */
+export function anchorPoint(e, byId) {
+  const g = e.guides?.length === 1 && e.guides[0].radii.length === 1 ? e.guides[0] : null;
+  // Off the lattice (ADR 0017) the centre is not on the 0.5 m grid: the anchor stays on its cone, on whole metres.
+  if (g && g.to - g.from > RING_DEGREES && e.offLattice !== true) return { x: g.x, y: g.y, ring: true };
+  const c = byId.get(e.anchor);
+  return { x: c.hx / 2, y: c.hy / 2, ring: false };
+}
+
 export function buildSetupSheet(course) {
   const byId = new Map(course.cones.map((c) => [c.id, c]));
   const color = new Map();
@@ -331,7 +480,9 @@ export function buildSetupSheet(course) {
   const coneColor = (id) => (byId.get(id).height === 'tall' ? color.get(id) : 'neutral');
 
   const cards = course.elements.map((e) => {
-    const anchor = byId.get(e.anchor);
+    const at = anchorPoint(e, byId);
+    // In half-metre steps, like the cones.
+    const anchor = { hx: at.x * 2, hy: at.y * 2 };
     // Off the lattice (ADR 0017) the element is built along a side and turned, so
     // its sizes are true lengths; its cones are laid out by X and Y like a diagonal's.
     const offLattice = e.offLattice === true;
@@ -353,29 +504,34 @@ export function buildSetupSheet(course) {
     const points = e.cones.map((id) => [byId.get(id).hx / 2, byId.get(id).hy / 2]);
     const dims = DIMENSIONS[e.type].map((d) => dimension(points, e.axis, diagonal, offLattice, d));
     const fixed = fixedSizes(e, diagonal, course.recipe);
-    const arcs = (e.guides ?? []).map((g) => ({
-      center: { x: g.x, y: g.y },
-      radii: g.radii,
-      from: g.from,
-      to: g.to,
-      label: `Центр X ${dist(g.x)} · Y ${dist(g.y)}: ${g.radii.length > 1 ? 'дуги радиусом' : 'дуга радиусом'} ${g.radii.map(dist).join('; ')} м`,
-    }));
+    const arcs = arcsOf(e, byId, anchor, cones);
+    const loose = arcs.length ? looseCones(e, byId, anchor, cones) : [];
     return {
       number: e.order,
       element: e.id,
       type: e.type,
       name: TYPE_NAMES[e.type],
-      anchor: { x: anchor.hx / 2, y: anchor.hy / 2 },
+      anchor: { x: at.x, y: at.y },
+      ...(at.ring ? { anchorAtCentre: true } : {}),
       axis: { index: e.axis, diagonal, offLattice, xy, vector: [sx, sy], label: axisLabel(e.axis, diagonal, offLattice) },
       travel: travelLabel(e.entry.dir),
       ...(pivot ? { angle: pivot.angle } : {}),
       turn,
       fixed,
       ...(e.safety ? { safety: e.safety } : {}),
-      notes: [...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims), ...arcs.map((a) => a.label)],
+      notes: [
+        ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims),
+        ...arcs.flatMap((a) => a.lines), ...sharedNote(arcs),
+        // A cone standing on the anchor (the keyhole's centre) needs no line of its own.
+        ...loose.filter((l) => l.dx || l.dy).map((l) => l.label),
+      ],
       cones,
+      // An element laid out from arcs has no cone table: its cones are given by
+      // the arcs and the lines for the cones off them (`loose`).
+      table: !arcs.length,
       dims,
       arcs,
+      loose,
     };
   });
 
