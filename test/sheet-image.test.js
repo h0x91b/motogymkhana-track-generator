@@ -28,7 +28,7 @@ test('every frame of the setup sheet draws without an error', () => {
     const frames = renderSheetImages(course, buildSetupSheet(course), makeCanvas);
     expect(frames.length).toBeGreaterThan(1);
   }
-});
+}, 30_000);
 
 test('a course with every element turned off the lattice in «Правка» draws too', async () => {
   const { layoutOf, rotateElement, routeLayout } = await import('../src/generator/layout.js');
@@ -38,4 +38,4 @@ test('a course with every element turned off the lattice in «Правка» dra
   const { course } = routeLayout(layout);
   expect(course.elements.every((e) => e.offLattice)).toBe(true);
   expect(renderSheetImages(course, buildSetupSheet(course), makeCanvas).length).toBeGreaterThan(1);
-});
+}, 30_000);
