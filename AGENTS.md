@@ -21,12 +21,14 @@ Mobile-first generator of motogymkhana training courses: form + seed → course 
 
 ## Commands
 
-- `bun test` — unit tests (the generator seam `generateCourse`, the setup-sheet seam `buildSetupSheet` and the editor seam `routeLayout`): repeatability, invariants and statistics over many seeds.
+- `bun test` — unit tests (the generator seam `generateCourse`, the setup-sheet seam `buildSetupSheet`, the editor seam `routeLayout` and the file seam `readCourseFile`/`conesCsv`): repeatability, invariants and statistics over many seeds.
 - `bun run build` — writes the single self-contained `dist/motogymkhana-constructor.html` (and `dist/index.html`), stamped with the build id (short commit hash + date) shown in the form.
+- `bun scripts/bench.mjs` — mean elements placed over seeds 1–100 for the field tester's lots and the default course.
 - `bun run dev` — dev server on `PORT`/`DEV3_PORT` (default 5173), bound to all interfaces for testing on a phone.
 
 ## Layout
 
 - `src/generator/` — recipe and seed parsing, PRNG streams, catalog of element types, Dubins connectors, search, canonical JSON, and `layout.js`: the editor's model (a layout, its edits, `routeLayout`). Public API in `index.js`.
+- `src/file/` — the course file (`.json`, ADR 0013) and the cone table (`.csv`), no DOM.
 - `src/sheet/` — setup-sheet data model. `src/render/` — canvas scene (plan/3D) and the setup-sheet PNG.
 - `src/app/` — UI, storage, worker, HTML template and CSS; `editor.js` is «Правка» (edit panel, type picker, undo history). `scripts/` — build and dev server.

@@ -1,7 +1,8 @@
 import {
-  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, SHAPE_NAMES, SIZE_OPTIONS, sizeDefault,
-  sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
+  BIG_ELEMENT_AREA, canonicalJSON, ELEMENT_TYPES, LOOPED_TYPES, parseLayout, parseRecipe, parseSeed, problemsWord, routeLayout, SHAPE_NAMES, SIZE_OPTIONS,
+  sizeDefault, sizeMinimum, sizeValues, TYPE_LEVELS, TYPE_NAMES,
 } from '../generator/index.js';
+import { conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile } from '../file/course-file.js';
 import { buildSetupSheet, fmt } from '../sheet/setup-sheet.js';
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
@@ -48,6 +49,7 @@ const state = {
   problems: [], // what an edited course has wrong (generator/layout.js)
   marks: null, // the same, as the sets the renderer marks in red
   adopt: null, // an edited layout to put back once the course it was made from is generated
+  opening: null, // { name, edited, layout, kept }: a course file being opened, until its course is generated
   sheet: null,
   stale: false,
   selected: null,
@@ -266,6 +268,7 @@ function onFormChange(immediate = false) {
     const v = validate(raw);
     showErrors(v.errors);
     if (!v.ok) {
+      state.opening = null;
       state.stale = !!state.course;
       showBanner(state.course ? 'Исправьте ошибки в форме — показана предыдущая трасса' : 'Исправьте ошибки в форме', 'error');
       renderSummary();
@@ -280,9 +283,21 @@ function onFormChange(immediate = false) {
 
 // ---------------------------------------------------------------- generation
 
-const generator = createGenerator(({ id, result }) => {
+const generator = createGenerator(({ id, result: generated }) => {
+  let result = generated;
   if (id !== state.requestId) return; // a newer request is on its way
   state.shownId = id;
+  const opening = state.opening;
+  state.opening = null;
+  // A file holds its elements: if this build cannot generate a course for its
+  // recipe and seed any more, the file's course is still shown as it was saved.
+  const unbuilt = !result.ok && result.error.code !== 'invalid-input' && !!opening?.layout;
+  let unbuiltProblems = [];
+  if (unbuilt) {
+    const { course, problems } = routeLayout(opening.layout);
+    unbuiltProblems = problems;
+    result = { ok: true, course: { ...course, requested: opening.layout.recipe.elements, placed: opening.layout.elements.length } };
+  }
   const wanted = state.setupWanted;
   const editWanted = state.editWanted;
   state.setupWanted = false;
@@ -308,10 +323,12 @@ const generator = createGenerator(({ id, result }) => {
   const same = !!state.course && key === state.courseKey;
   // Edits made to this very recipe and seed go back on top of the course: kept
   // from the last visit, brought back by «↶», or on screen behind a form error.
-  const adopt = state.adopt && layoutKey(state.adopt) === key ? state.adopt : same && editor.edited ? editor.layout : null;
+  // An opened file brings its own course, edited or not.
+  const adopt = state.adopt && layoutKey(state.adopt) === key ? state.adopt : same && editor.edited && !opening ? editor.layout : null;
   state.adopt = null;
   // Same recipe and seed is the same course: keep the view, selection and setup step.
-  if (same && !state.stale && (!adopt || adopt === editor.layout)) {
+  if (same && !state.stale && (!adopt || adopt === editor.layout) && !(opening && editor.edited)) {
+    if (opening) toast(openedText(opening, { unbuilt, replaced: false }), 6000);
     renderSummary();
     if (wanted) enterSetup();
     if (editWanted) enterEdit();
@@ -331,7 +348,7 @@ const generator = createGenerator(({ id, result }) => {
   state.generated = course;
   const shown = editor.load(course, adopt);
   state.course = shown.course;
-  setProblems(shown.problems);
+  setProblems(unbuilt ? unbuiltProblems : shown.problems);
   state.sheet = buildSetupSheet(shown.course);
   state.courseRev++;
   saveEdit(editor.edited ? editor.layout : null);
@@ -344,7 +361,8 @@ const generator = createGenerator(({ id, result }) => {
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
   // Not over the open form: the form says it in its own status line.
-  if (replaced) toast('Трасса с правками заменена новой. «↶» вернёт её', 6000);
+  if (opening) toast(openedText(opening, { unbuilt, replaced }), 9000);
+  else if (replaced) toast('Трасса с правками заменена новой. «↶» вернёт её', 6000);
   else if (!editor.edited && course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
   renderSummary();
   invalidate();
@@ -449,6 +467,8 @@ function renderSummary() {
   } else if (c && !state.stale) {
     const count = c.limitedBy === 'big-elements' ? `${c.placed} из ${c.requested} эл.: большой один` : `влезло ${c.placed} из ${c.requested} эл.`;
     parts.push({ text: short ? count : `${c.placed} из ${c.requested} эл.`, warn: short });
+    // Only a course opened from a file this build cannot generate has problems here.
+    if (state.problems.length) parts.push({ text: problemsWord(state.problems.length), warn: true });
   }
   parts.push({ text: DIFFICULTY_NAMES[f.difficulty] ?? '' });
   parts.push({ text: BIKE_NAMES[f.bike] ?? '' });
@@ -1039,6 +1059,132 @@ function renderRideButton() {
   renderSpeedButton();
 }
 
+// ---------------------------------------------------------------- course file
+
+function fileStatus(text, kind = '') {
+  const p = $('file-status');
+  p.textContent = text;
+  p.className = `form-status ${kind}`;
+}
+
+/** The shown course as a course file and as its cone list; null, with the reason shown, when there is none to save. */
+function courseFiles() {
+  if (!state.course || !editor.layout) {
+    fileStatus('Сначала нужна трасса', 'error');
+    return null;
+  }
+  if (state.stale) {
+    fileStatus('Исправьте ошибки в форме: сохраняется трасса этого рецепта', 'error');
+    return null;
+  }
+  const { layout } = editor;
+  const doc = courseDocument(layout, { build: $('version').textContent.trim(), edited: editor.edited });
+  return {
+    json: new File([courseFileText(doc)], courseFileName(layout.recipe, layout.seed, 'json'), { type: 'application/json' }),
+    csv: new File([conesCsv(state.course, state.sheet)], courseFileName(layout.recipe, layout.seed, 'csv'), { type: 'text/csv' }),
+  };
+}
+
+/** Downloads one file right in the tap, so no browser takes it for an unasked download. */
+function downloadNow(file) {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+function saveFile(kind) {
+  const files = courseFiles();
+  if (!files) return;
+  downloadNow(files[kind]);
+  // Whether it was saved only the browser knows: say what was handed to it.
+  fileStatus(`Скачивание: ${files[kind].name}`);
+}
+
+async function shareFile(kind) {
+  const files = courseFiles();
+  if (!files) return;
+  try {
+    await navigator.share({ files: [files[kind]] });
+    fileStatus('');
+  } catch (e) {
+    // Cancelling the share sheet is not an error.
+    if (e && e.name !== 'AbortError') fileStatus('Не удалось открыть «Поделиться». Скачайте файл', 'error');
+  }
+}
+
+/** «Отправить» only where the device shares files of that kind (Chrome on Android shares no .json). */
+function renderFileButtons() {
+  $('share-json').hidden = !canShareFiles([new File(['{}'], 'trassa.json', { type: 'application/json' })]);
+  $('share-csv').hidden = !canShareFiles([new File([';'], 'konusy.csv', { type: 'text/csv' })]);
+}
+
+const FILE_MAX = 1_000_000; // bytes; a course file is a few kilobytes
+
+async function onFilePicked() {
+  const input = $('open-file');
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  if (file.size > FILE_MAX) {
+    fileStatus('Это не файл трассы: он слишком большой', 'error');
+    return;
+  }
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    fileStatus('Не удалось прочитать файл', 'error');
+    return;
+  }
+  const read = readCourseFile(text);
+  if (!read.ok) {
+    fileStatus(read.error, 'error');
+    return;
+  }
+  openCourse(read, file.name);
+}
+
+/** The form a recipe and seed are shown in: the recipe's own fields, so a field added to it travels too. */
+const formOf = (recipe, seed) => ({ ...DEFAULT_FORM, ...recipe, seed: String(seed), sizes: recipe.sizes ?? {} });
+
+/** Puts an opened course file on screen: its recipe and seed in the form, its elements on top of the course they give. */
+function openCourse(read, name) {
+  stopRide();
+  if (state.setupStep !== null) exitSetup();
+  if (editor.active) exitEdit();
+  // Edits to this very recipe and seed would be lost without a trace: «↶» keeps them.
+  const key = canonicalJSON({ recipe: read.recipe, seed: read.seed });
+  const kept = editor.edited && key === state.courseKey && JSON.stringify(read.layout?.elements) !== JSON.stringify(editor.layout.elements);
+  if (kept) {
+    state.seedHistory.push({ layout: editor.layout, form: state.courseForm });
+    if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
+    renderSeedBack();
+  }
+  writeForm(formOf(read.recipe, read.seed));
+  state.adopt = read.layout;
+  state.opening = { name, edited: read.edited, layout: read.layout, kept };
+  fileStatus('');
+  if (formOpen) closeForm();
+  else onFormChange(true);
+}
+
+/** What the toast says once an opened file is on screen. */
+function openedText(opening, { unbuilt, replaced }) {
+  let text = `Открыт файл «${opening.name}»`;
+  if (unbuilt) text += '. По его рецепту и seed эта сборка трассу не строит — показана трасса из файла';
+  // Saved unedited, but this build generates another course for the seed (ADR 0009).
+  else if (opening.layout && !opening.edited && editor.edited) {
+    text += '. Эта сборка по тому же seed строит другую трассу — показана трасса из файла, как трасса с правками';
+  }
+  if (replaced || opening.kept) text += '. Прежнюю трассу с правками вернёт «↶»';
+  return text;
+}
+
 // ---------------------------------------------------------------- picture
 
 function makeCanvas(w, h) {
@@ -1368,6 +1514,13 @@ function start() {
     }
   });
   $('share').addEventListener('click', openPicture);
+  $('save-json').addEventListener('click', () => saveFile('json'));
+  $('save-csv').addEventListener('click', () => saveFile('csv'));
+  $('share-json').addEventListener('click', () => shareFile('json'));
+  $('share-csv').addEventListener('click', () => shareFile('csv'));
+  $('open-json').addEventListener('click', () => $('open-file').click());
+  $('open-file').addEventListener('change', onFilePicked);
+  renderFileButtons();
   $('close-picture').addEventListener('click', closePicture);
   $('picture-sheet').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePicture();

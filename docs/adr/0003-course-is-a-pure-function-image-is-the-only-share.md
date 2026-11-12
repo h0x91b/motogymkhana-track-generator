@@ -11,3 +11,5 @@ A course is always regenerated from its recipe and seed: v1 has no manual editin
 ADR 0009 drops the cross-engine part: a course is a pure function of recipe + seed within one build and browser engine.
 
 ADR 0012 adds manual editing: a course edited in «Правка» is its layout, no longer recipe + seed alone. Sharing is still image-only.
+
+ADR 0013 adds saving a course to a JSON file and opening it back, and a CSV of the cones. Sharing in a chat is still by image; there are still no links.

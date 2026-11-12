@@ -365,6 +365,14 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .bike-hint { margin: 6px 0 0; }
 .check:has(input:disabled) { color: var(--muted); }
 .wide { width: 100%; margin-top: 16px; }
+/* «Файл трассы»: save and open the course, export the cones. */
+.file-box { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 10px; }
+.file-box h3 { margin: 0; font-size: 15px; }
+.file-box > p { margin: 4px 0 8px; font-size: 13px; text-wrap: pretty; }
+.file-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.file-actions > * { padding-inline: 6px; }
+.file-actions .span2 { grid-column: 1 / -1; }
+#file-status { margin-top: 6px; }
 .toast {
   position: fixed;
   /* Over the top of the plan, clear of the view toggle, the zoom and «Проезд». */

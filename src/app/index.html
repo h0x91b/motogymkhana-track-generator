@@ -134,6 +134,18 @@
         <p class="err" id="err-types" data-for="types"></p>
         <p class="err" id="err-sizes" data-for="sizes"></p>
       </details>
+      <section class="file-box" aria-labelledby="file-title" aria-describedby="file-hint">
+        <h3 id="file-title">Файл трассы</h3>
+        <p class="muted" id="file-hint">В .json — площадка, рецепт, seed и правки: открыв файл, получите ту же трассу. В .csv — каждый конус с X и Y от угла A.</p>
+        <div class="file-actions">
+          <button type="button" id="save-json">Сохранить .json</button>
+          <button type="button" id="share-json" hidden>Отправить .json</button>
+          <button type="button" id="save-csv">Конусы .csv</button>
+          <button type="button" id="share-csv" hidden>Отправить .csv</button>
+          <button type="button" id="open-json" class="span2">Открыть .json</button>
+        </div>
+        <p class="form-status" id="file-status" role="status"></p>
+      </section>
       <div class="sheet-foot">
         <button type="button" id="close-form" class="primary wide">Готово</button>
       </div>
@@ -162,6 +174,7 @@
     <div class="type-grid" id="type-grid"></div>
   </section>
   <div class="toast" id="toast" role="status" hidden></div>
+  <input type="file" id="open-file" accept=".json,application/json" hidden>
 </main>
 <script type="text/plain" id="worker-src">/*WORKER*/</script>
 <script type="module">/*APP*/</script>
