@@ -4,7 +4,7 @@
 // the catalog, the generator's connector check and a routed layout.
 
 import { describe, expect, test } from 'bun:test';
-import { CROSSABLE_TYPES, crossable, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse, WAYPOINT, ZONE_PAD } from '../src/generator/index.js';
+import { CROSSABLE_TYPES, crossable, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse, parseRecipe, WAYPOINT, ZONE_PAD } from '../src/generator/index.js';
 import { elementParams, instantiate } from '../src/generator/catalog.js';
 import { pathClear, placeTemplate } from '../src/generator/generate.js';
 import { layoutOf, routeLayout } from '../src/generator/layout.js';
@@ -12,7 +12,7 @@ import { pointsBounds } from '../src/generator/geometry.js';
 import { densify, distanceToPath, polylineEnters } from './helpers/course-geometry.js';
 
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed' };
-const recipe = generateCourse(ANTON, 1).course.recipe;
+const recipe = parseRecipe(ANTON).recipe;
 const routed = (elements, r = recipe) => routeLayout({ recipe: r, seed: 1, elements });
 const codes = (result) => result.problems.map((p) => p.code);
 

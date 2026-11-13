@@ -6,7 +6,7 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
   generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, uTurnRadius,
 } from '../src/generator/index.js';
-import { sweep } from './helpers/slow.js';
+import { sweep, timeout } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
 const SEEDS = [1, 2];
@@ -56,7 +56,7 @@ describe('size options', () => {
           }
         }
         expect(seen).toBeGreaterThan(0);
-      }, 30_000);
+      }, timeout(30_000));
     }
   }
 
@@ -101,7 +101,7 @@ describe('size options', () => {
         }
       }
     }
-  }, 30_000);
+  }, timeout(30_000));
 
   test('the bike class raises a U-turn that is too tight, and the recipe keeps the chosen value', () => {
     const recipe = { ...SITE, elements: 1, difficulty: 'hard', bike: 'cruiser', types: ['u-turn'], sizes: { 'u-turn': { width: 8 } } };
@@ -163,7 +163,7 @@ describe('size options', () => {
       expect({ ...direct, requested: 0 }).toEqual({ ...full, requested: 0, recipe: { ...full.recipe, elements: full.placed } });
     }
     expect(simplified).toBeGreaterThan(sweep(3, 1));
-  }, 30_000);
+  }, timeout(30_000));
 
   test('the setup sheet card says which sizes the recipe fixed and what the class raised', () => {
     const recipe = {
