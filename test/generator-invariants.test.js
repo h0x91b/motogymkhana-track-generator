@@ -11,7 +11,7 @@ import {
 // Types whose U-turns are sized by the bike class (the rest keep difficulty sizes).
 const CLASS_SIZED_TYPES = ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'figure-eight'];
 import {
-  coneXY, conesById, densify, distanceToFootprint, distanceToPath, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
+  coneXY, conesById, densify, distanceToFootprint, distanceToPath, distanceToPolygon, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
   turns,
 } from './helpers/course-geometry.js';
 import { SLOW, slowTest, sweep } from './helpers/slow.js';
@@ -276,7 +276,7 @@ describe('placement', () => {
           if (other === e) continue;
           const fp = footprintOf(c, other);
           for (const p of [...fp.cones, ...fp.segments.flatMap((s) => densify(s, 0.1))]) {
-            expect(insidePolygon(e.runOff, p, -(ZONE_PAD - 0.03)), `${label(c)} ${other.id} in the run-off of ${e.id}`).toBe(false);
+            expect(distanceToPolygon(e.runOff, p), `${label(c)} ${other.id} in the run-off of ${e.id}`).toBeGreaterThanOrEqual(ZONE_PAD - 0.03);
           }
         }
         // Start and finish lines stay out, except the element's own.
@@ -681,7 +681,11 @@ describe('element shapes', () => {
 
   test('pivot angles follow the difficulty: easy 270°, hard 360° or two laps', () => {
     for (const { recipe, courses } of generated) {
-      const angles = courses.flatMap((c) => c.passes.filter((p) => p.angle).map((p) => p.angle));
+      // The small U-turn's pass says its 180° too (ADR 0024): only the pivot turn's angle follows the difficulty.
+      const angles = courses.flatMap((c) => {
+        const pivots = new Set(c.elements.filter((e) => e.type === 'pivot-turn').map((e) => e.id));
+        return c.passes.filter((p) => pivots.has(p.element)).map((p) => p.angle);
+      });
       if (recipe.difficulty === 'easy') expect(angles.every((a) => a === 270)).toBe(true);
       if (recipe.difficulty === 'hard') expect(angles.every((a) => a === 360 || a === 720)).toBe(true);
     }
