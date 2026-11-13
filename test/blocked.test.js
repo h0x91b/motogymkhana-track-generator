@@ -233,6 +233,8 @@ describe('«Правка»', () => {
   });
 
   test('an element within an obstacle\'s own margin is a problem that names the obstacle and its margin', () => {
+    // Elements without a run-off, so the margin round the element's own core is what meets the obstacle.
+    const layout = layoutOf(generateCourse({ ...plain, types: ['straight-slalom', 'gate', 'tunnel'] }, 5).course);
     const el = layout.elements[0];
     const placed = routeLayout(layout).course.elements[0];
     const xs = placed.path.map((p) => p[0]);

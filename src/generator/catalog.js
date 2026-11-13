@@ -39,7 +39,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [4.5],
     tunnelGap: [5], tunnelShift: [1.5], zigzagStep: [4], zigzagShift: [1.5], zigzagWidth: [2.5],
     snakeWidth: [5], snakeStep: [3.5], crescentRadius: [7], flickRadius: 3.5, swerveWidth: [2.5], swerveRun: [8],
-    snailCorridor: [3], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3.5], keyholeOpening: [3], eightDistance: [10],
+    snailCorridor: [3], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3.5], keyholeOpening: [3], eightDistance: [10], keyholeGap: [4.5],
   },
   medium: {
     slalomStep: [4], offsetStep: [4, 5], offsetShift: [1.5, 2], gateWidth: [2], laneShift: [2.5, 3],
@@ -47,7 +47,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2, 3], gateTurnWidth: [4],
     tunnelGap: [4.5], tunnelShift: [2], zigzagStep: [3.5], zigzagShift: [2], zigzagWidth: [2],
     snakeWidth: [4.5], snakeStep: [3], crescentRadius: [6], flickRadius: 3, swerveWidth: [2], swerveRun: [7],
-    snailCorridor: [2.5], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3], keyholeOpening: [2.5], eightDistance: [8],
+    snailCorridor: [2.5], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [3], keyholeOpening: [2.5], eightDistance: [8], keyholeGap: [4],
   },
   hard: {
     slalomStep: [4], offsetStep: [4], offsetShift: [2, 2.5], gateWidth: [1.5], laneShift: [3, 3.5],
@@ -55,7 +55,7 @@ export const DIFFICULTY_TABLE = {
     circleRadius: [4], circleStretch: [0, 2], gateTurnWidth: [3.5],
     tunnelGap: [4], tunnelShift: [2.5], zigzagStep: [3], zigzagShift: [2.5], zigzagWidth: [1.5],
     snakeWidth: [4], snakeStep: [3], crescentRadius: [5], flickRadius: 2.5, swerveWidth: [2], swerveRun: [6],
-    snailCorridor: [2], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [2.5], keyholeOpening: [2], eightDistance: [6.5],
+    snailCorridor: [2], boxEightDistance: [6], boxEightWidth: [8], boxEightGate: [2.5], keyholeOpening: [2], eightDistance: [6.5], keyholeGap: [3.5],
   },
 };
 
@@ -68,6 +68,11 @@ export const BIKE_TURN_RADIUS = { sport: 3.75, cruiser: 4.5 };
 // Ring radius of a keyhole, by bike class rather than difficulty: the sizes the
 // organiser measured on the asphalt (4 m, 4.5 m under a cruiser).
 export const KEYHOLE_RADIUS = { sport: 4, cruiser: 4.5 };
+
+// The neck of a keyhole: this many low cones on each side of the opening, this
+// many metres apart, outwards in line with the ring's end cones.
+export const KEYHOLE_NECK_CONES = 2;
+export const KEYHOLE_NECK = 0.5;
 
 // Ring radius of a fast circle, the same at every difficulty and for both bike
 // classes (organiser's figure).
@@ -104,6 +109,11 @@ export const SIZE_OPTIONS = {
     { key: 'step', table: 'snakeStep', name: 'Шаг перегородок', short: 'шаг змейки', min: 2.5, max: 5 },
   ],
   keyhole: [{ key: 'radius', table: 'keyholeRadius', name: 'Радиус кольца', short: 'замочная скважина', min: 3, max: 4.5 }],
+  'double-keyhole': [
+    { key: 'radius', table: 'keyholeRadius', name: 'Радиус колец', short: 'радиус двойной скважины', min: 3, max: 4.5 },
+    { key: 'opening', table: 'keyholeOpening', name: 'Проём', short: 'проём двойной скважины', min: 2, max: 3 },
+    { key: 'gap', table: 'keyholeGap', name: 'Между горловинами', short: 'между горловинами двойной скважины', min: 2.5, max: 7 },
+  ],
   crescent: [{ key: 'radius', table: 'crescentRadius', name: 'Радиус', short: 'месяц', min: 4, max: 8 }],
   // A radius round one cone, in plain metres on any axis (`plain`): no lattice length.
   'pivot-turn': [{ key: 'radius', table: 'pivotRadius', name: 'Свободный радиус', short: 'свободный радиус вращения', min: 3, max: 8, plain: true }],
@@ -122,23 +132,37 @@ export const sizeValues = (option) => Array.from({ length: (option.max - option.
  * or null when the class sets no minimum: a U-turn inside walls of low cones is
  * ridden on at least `uTurnRadius` (ADR 0006).
  */
-export function sizeMinimum(type, key, difficulty, bike) {
+export function sizeMinimum(type, key, difficulty, bike, sizes) {
   const turn = uTurnRadius(difficulty, bike);
   if ((type === 'u-turn' && key === 'width') || (type === 'box' && key === 'size')) return 2 * (turn + WALL);
+  if (type === 'double-keyhole' && key === 'gap') {
+    const radius = sizes?.[type]?.radius ?? KEYHOLE_RADIUS[bike];
+    const opening = sizes?.[type]?.opening ?? DIFFICULTY_TABLE[difficulty].keyholeOpening[0];
+    return keyholeGapMin(radius, Math.min(opening, radius - KEYHOLE_OPENING_MARGIN));
+  }
   return null;
 }
 
 /**
- * What a size option takes when the recipe leaves it free, in metres: the
- * difficulty's range [lo, hi] (lo = hi for a single value), or for a U-turn
- * the class minimum.
+ * The narrowest gap between the necks of a double keyhole with rings of this
+ * radius and opening, metres: the turns from the gap into a neck are on the
+ * loop radius and must clear the other neck's end cones, which stand further
+ * out the wider the opening.
  */
-export function sizeDefault(type, key, difficulty, bike) {
-  const min = sizeMinimum(type, key, difficulty, bike);
-  if (min !== null) return [min, min];
+export const keyholeGapMin = (radius, opening) => radius + opening - KEYHOLE_GAP_MARGIN;
+
+/**
+ * What a size option takes when the recipe leaves it free, in metres: the
+ * difficulty's range [lo, hi] (lo = hi for a single value), raised to the
+ * class minimum where there is one; for a U-turn the class minimum itself.
+ */
+export function sizeDefault(type, key, difficulty, bike, sizes) {
+  const min = sizeMinimum(type, key, difficulty, bike, sizes);
   const option = SIZE_OPTIONS[type].find((o) => o.key === key);
   const range = sizeTable(difficulty, bike)[option.table];
-  return [range[0], range[range.length - 1]];
+  if (!range) return [min, min];
+  const lo = (v) => (min === null ? v : Math.max(v, min));
+  return [lo(range[0]), lo(range[range.length - 1])];
 }
 
 /**
@@ -182,6 +206,7 @@ export const RUN_OFF_TYPES = {
   'fast-circle': 'loop',
   snail: 'loop',
   'box-eight': 'loop',
+  'double-keyhole': 'loop',
   'small-turn': 'turnaround',
 };
 
@@ -215,7 +240,8 @@ export const runOffFor = (type, runOff) => (SINGLE_CONE_TYPES.includes(type) ? M
 // without the clearance) covers this many square metres or more at the sizes
 // it was given. A course has at most one. A snail, a crescent and a figure
 // eight (two round loops on the U-turn radius) and both circles (the small
-// one's core is exactly 120 m²) are always big; a box, a pivot turn, a mirror
+// one's core is exactly 120 m²) are always big, and so is a double keyhole,
+// even on small rings: two rings take the place of one; a box, a pivot turn, a mirror
 // and a gate turn depending on the U-turn radius (on a cruiser mostly); an
 // offset slalom often.
 export const BIG_ELEMENT_AREA = 120;
@@ -223,8 +249,8 @@ export const BIG_ELEMENT_AREA = 120;
 /** Area of a template's core in square metres. */
 export const coreArea = (tpl) => (tpl.core[2] - tpl.core[0]) * (tpl.core[3] - tpl.core[1]) * tpl.unit * tpl.unit;
 
-/** Is an element of this template a big element? */
-export const isBig = (tpl) => coreArea(tpl) >= BIG_ELEMENT_AREA;
+/** Is an element of this template a big element? A type marked `big` always is, at any size. */
+export const isBig = (tpl) => TYPES[tpl.type].big === true || coreArea(tpl) >= BIG_ELEMENT_AREA;
 
 export const TYPE_NAMES = {
   'straight-slalom': 'Прямой слалом',
@@ -245,6 +271,7 @@ export const TYPE_NAMES = {
   'corridor-slalom': 'Змейка в коридоре',
   'box-eight': 'Восьмёрка в габарите',
   keyhole: 'Замочная скважина',
+  'double-keyhole': 'Двойная замочная скважина',
   crescent: 'Месяц',
   swerve: 'Лосиный тест',
   'pass-left': 'Конус слева',
@@ -270,7 +297,9 @@ const SNAIL_CORE = 4; // snail: the central S spans this many metres
 const ZIGZAG_SEGMENTS = 3;
 const BOX_EIGHT_MARGIN = 1; // licence-test eight: rectangle this far outside the loops
 const KEYHOLE_CLEAR = 1.2; // keyhole: the loop inside runs this far inside the ring
-const KEYHOLE_TURN = 2; // keyhole: radius of the turns onto and off the slants
+const KEYHOLE_SPREAD = 1.5; // keyhole: past the neck the passes part to this far either side of the axis
+const KEYHOLE_TURN = 2; // keyhole: radius of the turns that part them
+const KEYHOLE_GAP_MARGIN = 2.5; // double keyhole: the gap between the necks is at least ring radius + opening less this
 const KEYHOLE_CONES = 12;
 const KEYHOLE_OPENING_MARGIN = 1; // keyhole: the opening is at most the ring radius less this
 const SWERVE_PAIR = 3; // moose test: corridor pairs this far apart
@@ -812,38 +841,35 @@ const TYPES = {
       opening: latticeChoices([Math.min(t.keyholeOpening[0], t.keyholeRadius[0] - KEYHOLE_OPENING_MARGIN)], unit),
     }),
     build({ radius, opening }, unit) {
-      // A ring of low cones with one opening towards the approach. In through
-      // the opening on a slant, a loop round inside, out through the same
-      // opening on the other slant: the two passes cross in the opening.
-      const k = [radius, 0];
-      const rho = radius - KEYHOLE_CLEAR / unit;
-      const beta = Math.atan2(rho, Math.sqrt(radius * radius - rho * rho));
-      const t0 = 1 / unit;
-      const ro = KEYHOLE_TURN / unit;
-      const cb = Math.cos(beta);
-      const sb = Math.sin(beta);
-      const c1 = [-t0 * cb - ro * sb, -t0 * sb + ro * cb];
-      const c2 = [c1[0], -c1[1]];
-      const half = opening / 2;
-      const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
-      const ring = arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1);
-      // A tall cone at the centre: the loop inside goes round it (clockwise, so
-      // it stays on the right and is red; blue when mirrored), and the ring is
-      // laid out from it with a tape.
-      const cones = [...conesAt(ring, 'low'), { a: k[0], b: k[1], height: 'tall' }];
+      // A ring of low cones with one opening towards the approach and a neck in
+      // front of it: in up the neck, a loop round the centre cone, out down it.
+      // The tall centre cone: the loop goes round it clockwise, so it stays on
+      // the right and is red (blue when mirrored), and the ring is laid out
+      // from it with a tape.
+      const k = keyholeShape(radius, opening, unit);
+      const cones = [...k.ring, ...k.neck, { a: k.centre[0], b: k.centre[1], height: 'tall' }];
       return rebase({
         cones,
         passes: [{ kind: 'cone', cone: cones.length - 1, side: 'right' }],
-        path: [
-          ...arcPoints(c1, ro, -PI / 2, beta, ARC),
-          ...arcPoints(k, rho, PI / 2 + beta, -(PI + 2 * beta), ARC),
-          ...arcPoints(c2, ro, PI / 2 - beta, beta, ARC),
-        ],
-        guides: [{ center: k, radii: [radius], from: PI + gap, to: 3 * PI - gap }],
+        path: k.path,
+        guides: [k.guide],
         entryDir: [1, 0],
         exitDir: [-1, 0],
       });
     },
+  },
+
+  'double-keyhole': {
+    sideOnly: true,
+    big: true,
+    // Two keyholes, their necks `gap` apart, the opening of each capped like the keyhole's.
+    options: (t, unit) => ({
+      radius: latticeChoices(t.keyholeRadius, unit),
+      opening: latticeChoices([Math.min(t.keyholeOpening[0], t.keyholeRadius[0] - KEYHOLE_OPENING_MARGIN)], unit),
+      // At least the narrowest the rings allow (`keyholeGapMin`).
+      gap: latticeAtLeast(Math.max(t.keyholeGap[0], keyholeGapMin(t.keyholeRadius[0], Math.min(t.keyholeOpening[0], t.keyholeRadius[0] - KEYHOLE_OPENING_MARGIN))), unit),
+    }),
+    build: (params, unit) => doubleKeyhole(params, unit),
   },
 
   crescent: {
@@ -939,6 +965,132 @@ const TYPES = {
     },
   },
 };
+
+/**
+ * A keyhole in its own frame: the middle of the opening at the origin, the
+ * ring's centre on +a. The ring of KEYHOLE_CONES low cones is closed but for
+ * the opening; in front of the opening a neck of KEYHOLE_NECK_CONES low cones
+ * on each side, in line with the ring's end cones, outwards along −a.
+ *
+ * The line comes up the neck just right of its middle, turns left onto the
+ * straight that touches the loop (KEYHOLE_CLEAR inside the ring) and goes
+ * clockwise round the centre cone, then back down the other side of the neck,
+ * the mirror image. The turn into the ring is on the loop's own radius and its
+ * middle is in the middle of the opening: the two passes cross there at half
+ * the turn's angle and run down the neck nearly parallel, a few tenths of a
+ * metre either side of its middle (`lane`). Past the neck, when `parted`, they
+ * part to KEYHOLE_SPREAD either side.
+ *
+ * `path` runs from the start of the way in (heading +a) to the end of the way
+ * out (heading −a).
+ */
+function keyholeShape(radius, opening, unit, parted = true) {
+  const k = [radius, 0];
+  const rho = radius - KEYHOLE_CLEAR / unit;
+  // The turn into the ring: its middle at the origin heading at gamma / 2, its
+  // end on the straight that touches the loop with the centre on its right.
+  const end = (g) => [rho * (Math.sin(g) - Math.sin(g / 2)), rho * (Math.cos(g / 2) - Math.cos(g))];
+  const miss = (g) => {
+    const [ea, eb] = end(g);
+    return (k[0] - ea) * Math.sin(g) + eb * Math.cos(g) - rho;
+  };
+  let lo = 0;
+  let hi = PI / 2;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (miss(mid) < 0) lo = mid;
+    else hi = mid;
+  }
+  const gamma = (lo + hi) / 2;
+  const turn = [-rho * Math.sin(gamma / 2), rho * Math.cos(gamma / 2)];
+  const lane = rho - turn[1];
+  // In and half round, to the far side of the loop; the way back is its mirror image.
+  const way = [...arcPoints(turn, rho, -PI / 2, gamma, ARC), ...arcPoints(k, rho, PI / 2 + gamma, -(PI / 2 + gamma), ARC)];
+  const half = opening / 2;
+  const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
+  const ring = conesAt(arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1), 'low');
+  const step = Math.round(KEYHOLE_NECK / unit);
+  const neck = [];
+  for (const c of [ring[0], ring[ring.length - 1]]) {
+    for (let i = 1; i <= KEYHOLE_NECK_CONES; i++) neck.push({ a: c.a - i * step, b: c.b, height: 'low' });
+  }
+  // Past the neck the two passes part: an S of two KEYHOLE_TURN arcs from the
+  // lane out to KEYHOLE_SPREAD either side of the axis, so the connectors into
+  // and out of the keyhole are not one on top of the other.
+  if (parted) {
+    const spread = KEYHOLE_SPREAD / unit;
+    const r = KEYHOLE_TURN / unit;
+    const length = 2 * r * Math.sin(Math.acos(1 - (spread - lane) / (2 * r)));
+    const out = Math.min(...neck.map((c) => c.a));
+    way.unshift(...sBend(out - length, -spread, length, -lane).slice(0, -1));
+  }
+  const back = way.slice(0, -1).reverse().map(([a, b]) => [a, -b]);
+  return {
+    centre: k,
+    ring,
+    neck,
+    path: [...way, ...back],
+    lane,
+    guide: { center: k, radii: [radius], from: PI + gap, to: 3 * PI - gap },
+  };
+}
+
+/**
+ * «Двойная замочная скважина»: two keyholes (`keyholeShape`), A on the left of
+ * the axis and B on the right, their necks towards each other `gap` apart
+ * (between the necks' end cones); B is A mirrored across the middle of the gap.
+ * In from the side into the gap, a left turn up A's neck, the loop clockwise
+ * round A's centre cone, down the neck, straight across the gap into B's
+ * neck, the loop anticlockwise round B's, out of its neck and a right turn on
+ * through the gap the same way. The straight across goes from one side of the
+ * middle to the other, so the way in crosses it and so does the way out: the
+ * passes cross in the gap like an eight. The turns in the gap are on the
+ * loops' radius: nothing in the element is tighter than the loops.
+ */
+function doubleKeyhole({ radius, opening, gap }, unit) {
+  const k = keyholeShape(radius, opening, unit, false);
+  const rho = radius - KEYHOLE_CLEAR / unit;
+  // A's frame turned a quarter left, A's centre at the origin: +a of the keyhole
+  // (into the ring) is +b here, and its neck's end cones are gap / 2 above the
+  // middle of the gap at b = −centre.
+  const end = Math.min(...k.neck.map((c) => c.a));
+  const centre = gap / 2 + k.centre[0] - end;
+  const toA = ([a, b]) => [-b, a - k.centre[0]];
+  const toB = ([a, b]) => [a, -b - 2 * centre];
+  const lowA = [...k.ring, ...k.neck].map((c) => toA([c.a, c.b]));
+  const lowB = lowA.map(toB);
+  const inA = k.path.map(toA);
+  const inB = inA.map(toB);
+  // The turns end and start level with the necks' end cones, or where the
+  // keyhole's own line begins if that is further out: up and down a neck the
+  // line is straight.
+  const ea = inA[0][0];
+  const xa = inB.at(-1)[0];
+  const eb = Math.min(-centre + gap / 2, inA[0][1]);
+  const path = chain(
+    ...arcPoints([ea - rho, eb], rho, -PI / 2, PI / 2, ARC),
+    ...inA,
+    ...inB,
+    ...arcPoints([xa + rho, -eb - 2 * centre], rho, PI, -PI / 2, ARC),
+  );
+  const cones = [
+    { a: 0, b: 0, height: 'tall' }, ...conesAt(lowA, 'low'),
+    { a: 0, b: -2 * centre, height: 'tall' }, ...conesAt(lowB, 'low'),
+  ];
+  // A's guide turned a quarter left, B's that mirrored.
+  const g = { from: k.guide.from + PI / 2, to: k.guide.to + PI / 2 };
+  return {
+    cones,
+    passes: [{ kind: 'cone', cone: 0, side: 'right' }, { kind: 'cone', cone: lowA.length + 1, side: 'left' }],
+    path,
+    guides: [
+      { center: [0, 0], radii: [radius], ...g },
+      { center: [0, -2 * centre], radii: [radius], from: -g.to, to: -g.from },
+    ],
+    entryDir: [1, 0],
+    exitDir: [1, 0],
+  };
+}
 
 /**
  * «Опорная точка»: a point of the route put by hand in «Правка», no cone and
@@ -1254,6 +1406,11 @@ export const SIZE_SPECS = {
   keyhole: [
     { key: 'radius', name: 'Радиус кольца', kind: 'length', min: 3, max: 4.5 },
     { key: 'opening', name: 'Проём', kind: 'length', min: 2, max: 3 },
+  ],
+  'double-keyhole': [
+    { key: 'radius', name: 'Радиус колец', kind: 'length', min: 3, max: 4.5 },
+    { key: 'opening', name: 'Проём', kind: 'length', min: 2, max: 3 },
+    { key: 'gap', name: 'Между горловинами', kind: 'length', min: (bike, sizes) => keyholeGapMin(sizes.radius, sizes.opening), max: 7 },
   ],
   crescent: [
     { key: 'radius', name: 'Радиус полукруга', kind: 'length', min: 4, max: 8 },

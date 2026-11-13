@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { keepsFixedSize, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
+import { keepsFixedSize, KEYHOLE_NECK, KEYHOLE_NECK_CONES, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
 import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
@@ -104,6 +104,7 @@ const DIMENSIONS = {
   'corridor-slalom': [['along', 0, 1], ['across', 1, 2], ['along', 0, 4], ['across', 4, 5]],
   'box-eight': [['along', 0, 1], ['across', 2, 3], ['along', 4, 5], ['across', 5, 6]],
   keyhole: [],
+  'double-keyhole': [],
   crescent: [],
   swerve: [['across', 0, 1], ['along', 0, 4], ['along', 4, 6]],
   'pass-left': [],
@@ -139,6 +140,7 @@ function dimension(points, axis, diagonal, offLattice, [kind, i, j]) {
 }
 
 const CLOCK = { left: 'против часовой стрелки', right: 'по часовой стрелке' };
+const NECK = `Горловина перед проёмом: по ${KEYHOLE_NECK_CONES} низких конуса с каждой стороны, через ${metres(KEYHOLE_NECK)} наружу, на одной линии с крайними конусами кольца`;
 const TURN = { left: 'налево', right: 'направо' };
 
 /** Diameter in metres of the round loops of a figure eight `distance` lattice steps across (D = 2√2 r). */
@@ -258,10 +260,23 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       ];
     case 'keyhole':
       return [
-        `Кольцо из ${cones.filter((c) => c.height === 'low').length} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} направлен к подъезду`,
+        `Кольцо из ${cones.filter((c) => c.height === 'low').length - 2 * KEYHOLE_NECK_CONES} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} направлен к подъезду`,
+        NECK,
         `В центре ${colour(last)} высокий конус — якорь, от него рулеткой выставляется кольцо`,
-        `Въезд в проём наискосок, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд через тот же проём`,
+        `Въезд по горловине, проходы перекрещиваются в проёме, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд по горловине обратно`,
       ];
+    case 'double-keyhole': {
+      // The first cone is ring A's centre, the anchor; ring B's centre follows A's ring and neck.
+      const second = cones.find((c, i) => i > 0 && c.height === 'tall');
+      const side = (c) => (c.color === 'blue' ? 'left' : 'right');
+      const ring = cones.filter((c) => c.height === 'low').length / 2 - 2 * KEYHOLE_NECK_CONES;
+      return [
+        `Две замочные скважины горловинами друг к другу: кольца по ${ring} низких конусов радиусом ${len(p.radius)}, проёмы по ${len(p.opening)}, между концами горловин ${len(p.gap)}`,
+        `${NECK} — у каждого кольца`,
+        `В центрах высокие конусы: ${colour(first)} — якорь, ${colour(second)} — центр второго кольца; от них рулеткой выставляются кольца`,
+        `Въезд сбоку в просвет между горловинами, поворот в горловину кольца с ${colourOf(first)} конусом, круг ${CLOCK[side(first)]}, по горловине обратно и прямо через просвет в другую, круг ${CLOCK[side(second)]}, из горловины поворот дальше в ту же сторону; в просвете проходы перекрещиваются восьмёркой`,
+      ];
+    }
     case 'crescent':
       return [
         `Полукруг радиусом ${len(p.radius)} снаружи пяти ${colours(first)} конусов`,
@@ -313,7 +328,7 @@ function fixedSizes({ type, params }, diagonal, recipe) {
   if (!chosen) return [];
   return SIZE_OPTIONS[type].filter((o) => chosen[o.key] !== undefined && keepsFixedSize(type, o.key, params, diagonal, recipe)).map((o) => {
     const value = chosen[o.key];
-    const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike);
+    const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike, recipe.sizes);
     const raised = min !== null && value < min ? min : null;
     return {
       key: o.key,
@@ -321,7 +336,7 @@ function fixedSizes({ type, params }, diagonal, recipe) {
       value,
       ...(raised !== null ? { raisedTo: raised } : {}),
       label: `Задано в рецепте: ${o.name.toLowerCase()} ${metres(value)}`
-        + (raised !== null ? ` — мало для мотоцикла «${BIKE_NAMES[recipe.bike]}», взято не меньше ${metres(raised)}` : ''),
+        + (raised !== null ? ` — мало ${type === 'double-keyhole' ? 'для таких колец' : `для мотоцикла «${BIKE_NAMES[recipe.bike]}»`}, взято не меньше ${metres(raised)}` : ''),
     };
   });
 }

@@ -189,12 +189,14 @@ function syncSizes() {
   for (const note of form.querySelectorAll('.size-note')) {
     const { type, key } = note.dataset;
     const chosen = sizeChoice(type, key);
-    const min = sizeMinimum(type, key, difficulty, bike);
-    const auto = sizeDefault(type, key, difficulty, bike);
+    // The other sizes chosen for the type: one may set this one's minimum (a double keyhole's rings its gap).
+    const own = Object.fromEntries(SIZE_OPTIONS[type].map((o) => [o.key, sizeChoice(type, o.key)]).filter(([, v]) => v !== '').map(([k, v]) => [k, Number(v)]));
+    const min = sizeMinimum(type, key, difficulty, bike, { [type]: own });
+    const auto = sizeDefault(type, key, difficulty, bike, { [type]: own });
     note.closest('.size-option').querySelector('.auto').textContent = `авто ${range(auto)}`;
     const raised = chosen !== '' && min !== null && Number(chosen) < min;
     note.textContent = raised
-      ? `Для мотоцикла «${BIKE_NAMES[bike]}» мало: будет не меньше ${fmt(min)} м`
+      ? `${type === 'double-keyhole' ? 'Для таких колец' : `Для мотоцикла «${BIKE_NAMES[bike]}»`} мало: будет не меньше ${fmt(min)} м`
       : chosen === '' ? `По сложности: ${range(auto)}` : '';
     note.classList.toggle('warn', raised);
     // Values the class raises stay choosable, but look it.

@@ -372,7 +372,8 @@ describe('setup sheet', () => {
         if (card.type === 'keyhole') {
           const centre = e.cones.map((id) => byId.get(id)).filter((c) => c.hx / 2 === card.anchor.x && c.hy / 2 === card.anchor.y);
           expect(centre.map((c) => c.height)).toEqual(['tall']);
-          expect(e.cones.filter((id) => byId.get(id).height === 'low').length).toBe(12);
+          // The ring's 12 and the neck's two each side.
+          expect(e.cones.filter((id) => byId.get(id).height === 'low').length).toBe(16);
         }
       }
     }
