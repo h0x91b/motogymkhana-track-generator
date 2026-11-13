@@ -7,7 +7,7 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { BIKE_TURN_RADIUS, chooseParams, crossable, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, chainsAhead, chooseParams, crossable, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
 import { dubinsLength, dubinsPaths } from './dubins.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
@@ -938,16 +938,21 @@ export const routePaths = (legs, placed) => [...legs, ...placed.flatMap((p) => p
 
 /**
  * The straight join of an exit to an entry that continues it (CHAIN_REACH,
- * CHAIN_ANGLE), or null when they are not chained.
+ * CHAIN_ANGLE), or null when they are not chained. When either element chains
+ * ahead (a small U-turn, `chainsAhead`) the entry may lie any distance ahead:
+ * the straight then keeps to the asphalt and out of `zones` like a connector.
  */
-export function chainLeg(prev, next) {
+export function chainLeg(prev, next, inner = null, zones = []) {
   if (Math.abs(wrapPi(dirAngle(prev.exitDir) - dirAngle(next.entryDir))) > CHAIN_RAD + 1e-9) return null;
   const dx = next.entry[0] - prev.exit[0];
   const dy = next.entry[1] - prev.exit[1];
   const d = Math.sqrt(dx * dx + dy * dy);
-  if (d > CHAIN_REACH + 1e-9) return null;
+  const far = d > CHAIN_REACH + 1e-9;
+  if (far && !(inner && (chainsAhead(prev.tpl.type) || chainsAhead(next.tpl.type)))) return null;
   if (d > 0.01 && Math.abs(wrapPi(Math.atan2(dy, dx) - dirAngle(prev.exitDir))) > CHAIN_RAD + 1e-9) return null;
-  return straightLeg(prev.exit, next.entry);
+  const leg = straightLeg(prev.exit, next.entry);
+  if (far && !(lineOnAsphalt(inner, leg.points, leg.bounds) && pathClear(leg.points, leg.bounds, zones))) return null;
+  return leg;
 }
 
 /**
@@ -1282,7 +1287,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (!isFree(cand)) {
         const out = [...paths, inLeg, ...got.p.ends];
         const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
-        let outLeg = chainLeg(got.p, cand);
+        let outLeg = chainLeg(got.p, cand, inner, [...after, cand]);
         if (outLeg && accept && !accept(outLeg.points)) continue;
         outLeg = outLeg || connect(pose(got.p.exit, got.p.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...after, cand], out, MAX_CONNECTOR_TURN, accept, coneGap);
         if (!outLeg) continue;
@@ -1313,7 +1318,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (before0 && !trainClear(before0, [inLeg.points, ridden(p)])) return null;
     } else {
       const accept = before0 && ((pts) => trainClear(before0, [pts, ridden(p)]));
-      inLeg = chainLeg(before, p);
+      inLeg = chainLeg(before, p, inner, [...base, p]);
       if (inLeg && accept && !accept(inLeg.points)) return null;
       inLeg = inLeg || connect(from, pose(p.entry, p.entryDir), radius, inner, [...base, p], paths, MAX_CONNECTOR_TURN, accept, coneGap);
       if (!inLeg) return null;
@@ -1380,7 +1385,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
       const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
       // An entry that continues the exit is joined straight, with no connector to speak of.
-      entryLeg = chainLeg(prev, cand);
+      entryLeg = chainLeg(prev, cand, inner, [...zones, cand]);
       if (entryLeg && accept && !accept(entryLeg.points)) return null;
       entryLeg = entryLeg || connect(pose(prev.exit, prev.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...zones, cand], paths, MAX_CONNECTOR_TURN, accept, coneGap);
       if (!entryLeg) return null;

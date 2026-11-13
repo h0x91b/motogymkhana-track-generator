@@ -117,12 +117,15 @@ export const SIZE_OPTIONS = {
   crescent: [{ key: 'radius', table: 'crescentRadius', name: 'Радиус', short: 'месяц', min: 4, max: 8 }],
   // A radius round one cone, in plain metres on any axis (`plain`): no lattice length.
   'pivot-turn': [{ key: 'radius', table: 'pivotRadius', name: 'Свободный радиус', short: 'свободный радиус вращения', min: 3, max: 8, plain: true }],
+  'small-turn': [{ key: 'radius', table: 'smallTurnRadius', name: 'Радиус разворота', short: 'радиус малого разворота', min: 3, max: 8, plain: true }],
 };
 
 /** Angles a pivot turn may take: every quarter turn from 90° to two laps. */
 export const PIVOT_ANGLES = [90, 180, 270, 360, 450, 540, 630, 720];
 /** The smallest free radius of a pivot turn on any bike, metres (ADR 0025). */
 export const PIVOT_RADIUS_MIN = 3;
+/** The smallest radius of a small U-turn on any bike, metres: the line round a lone cone is tighter than a connector's. */
+export const SMALL_TURN_RADIUS_MIN = 3;
 
 /** Every value a size option offers, in metres: `min` to `max` in 0.5 m steps. */
 export const sizeValues = (option) => Array.from({ length: (option.max - option.min) * 2 + 1 }, (_, i) => option.min + i / 2);
@@ -172,7 +175,7 @@ export function sizeDefault(type, key, difficulty, bike, sizes) {
  */
 function sizeTable(difficulty, bike, type, sizes) {
   const turn = uTurnRadius(difficulty, bike);
-  const table = { ...DIFFICULTY_TABLE[difficulty], turn, keyholeRadius: [KEYHOLE_RADIUS[bike]], pivotRadius: [turn + 0.5] };
+  const table = { ...DIFFICULTY_TABLE[difficulty], turn, keyholeRadius: [KEYHOLE_RADIUS[bike]], pivotRadius: [turn + 0.5], smallTurnRadius: [turn] };
   const chosen = sizes?.[type];
   if (chosen) {
     for (const o of SIZE_OPTIONS[type]) if (chosen[o.key] !== undefined) table[o.table] = [chosen[o.key]];
@@ -946,11 +949,16 @@ const TYPES = {
   'small-turn': {
     // «Малый разворот»: back round one tall cone, 180°, on at least the U-turn
     // radius; no walls, so a wider line is fine. Entered on whatever heading
-    // the route needs (`freeHeading`, ADR 0027), the cone on the inside.
+    // the route needs (`freeHeading`, ADR 0027), the cone on the inside. Ridden
+    // straight out of into an entry ahead and straight into from an exit
+    // behind, however far (`chainsAhead`).
     freeHeading: true,
     crossable: true,
+    chainsAhead: true,
     options: () => ({}),
-    extra: (t) => ({ radius: t.turn }),
+    // The radius (`smallTurnRadius`) is the U-turn radius unless the recipe or
+    // «Правка» sets a tighter one, down to SMALL_TURN_RADIUS_MIN on any bike.
+    extra: (t) => ({ radius: t.smallTurnRadius[0] }),
     build({ radius }, unit) {
       const r = radius / unit;
       return {
@@ -1118,6 +1126,9 @@ export const freeHeading = (type) => Boolean(TYPES[type].freeHeading);
  */
 export const CROSSABLE_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].crossable && t !== WAYPOINT);
 export const crossable = (type) => Boolean(TYPES[type].crossable);
+
+/** Is the type joined straight to an entry ahead of its exit, or from an exit behind its entry, at any distance (not only CHAIN_REACH)? */
+export const chainsAhead = (type) => Boolean(TYPES[type].chainsAhead);
 
 /** The type an element becomes when mirrored, for a type whose side is the type itself; else the type. */
 export const mirrorType = (type) => TYPES[type].mirrorType ?? type;
@@ -1401,7 +1412,8 @@ export const SIZE_SPECS = {
   ],
   'pass-left': [],
   'pass-right': [],
-  'small-turn': [{ key: 'radius', name: 'Радиус разворота', kind: 'radius', min: classRadius, max: 8 }],
+  // Below the class radius on purpose, like the pivot turn: the rider rounds a lone cone tighter than a connector turns.
+  'small-turn': [{ key: 'radius', name: 'Радиус разворота', kind: 'radius', min: SMALL_TURN_RADIUS_MIN, max: 8 }],
   waypoint: [],
 };
 

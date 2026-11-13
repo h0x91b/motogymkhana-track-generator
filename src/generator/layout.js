@@ -371,7 +371,7 @@ export function routeLayout(layout) {
       if (!inLeg) faults++;
     } else {
       const accept = track && ((pts) => trainClear(track, [pts, ridden(p)]));
-      const chained = chainLeg(before, p);
+      const chained = chainLeg(before, p, inner, [...zones, p]);
       if (chained && accept && !accept(chained.points)) faults++;
       else {
         inLeg = chained || connect(pose(before.exit, before.exitDir), pose(p.entry, p.entryDir), radius, inner, [...zones, p], paths, MAX_CONNECTOR_TURN, accept, coneGap);
@@ -385,7 +385,7 @@ export function routeLayout(layout) {
     const exit = pose(p.exit, p.exitDir);
     if (next && !free[k + 1]) {
       const accept = ahead && ((pts) => trainClear(ahead, [pts, ridden(next)]));
-      const chained = chainLeg(p, next);
+      const chained = chainLeg(p, next, inner, after);
       const leg = chained && accept && !accept(chained.points) ? null : chained || connect(exit, pose(next.entry, next.entryDir), radius, inner, after, out, MAX_CONNECTOR_TURN, accept, coneGap);
       if (!leg) faults++;
     } else if (!next) {
@@ -485,7 +485,7 @@ export function routeLayout(layout) {
     const zones = zonesAt(i);
     const accept = track && ((pts) => trainClear(track, [pts, ridden(cur)]));
     // An entry that continues the exit is joined straight, as the generator does.
-    const chained = chainLeg(prev, cur);
+    const chained = chainLeg(prev, cur, inner, zones);
     let leg = chained && (!accept || accept(chained.points)) ? chained : connect(from, to, radius, inner, zones, routeAt(i), MAX_CONNECTOR_TURN, accept, coneGap);
     if (!leg && track) {
       // The rules hold but for «паровозик»: is it the connector that meets the route, or the element it leads into?
