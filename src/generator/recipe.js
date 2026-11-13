@@ -2,7 +2,7 @@
 // Both accept raw form values (strings) as well as already-normalised values,
 // and never substitute a default or random value for an invalid one.
 
-import { SIZE_OPTIONS, sizeValues, TYPE_NAMES } from './catalog.js';
+import { FILLER_TYPES, SIZE_OPTIONS, sizeValues, TYPE_NAMES } from './catalog.js';
 
 export const ELEMENT_TYPES = [
   'straight-slalom',
@@ -295,6 +295,10 @@ export function parseRecipe(input) {
   if (!types || types.length === 0) errors.types = 'Отметьте хотя бы один тип элемента';
   else if (train && types.every((t) => LOOPED_TYPES.includes(t))) {
     errors.types = 'В паровозике нет элементов с петлями и встречной ездой: отметьте другой тип';
+  } else if (types.every((t) => t === 'keyhole' || FILLER_TYPES.includes(t)) && types.includes('keyhole')) {
+    // In and out of a keyhole by the same neck: the way out would run back over the start line or the way in
+    // over the finish, so it never starts or ends a course, and single cones only fill gaps between others.
+    errors.types = 'Замочная скважина не начинает и не заканчивает трассу (въезд и выезд — через одну горловину): отметьте ещё тип';
   }
 
   const sizes = parseSizes(src.sizes, types);

@@ -32,11 +32,12 @@ describe('size options', () => {
         for (const bike of ['cruiser', 'sport']) {
           for (const value of sizeValues(option)) {
             for (const seed of SEEDS) {
-              const recipe = { ...SITE, elements: 3, difficulty, bike, types: [type], sizes: { [type]: { [option.key]: value } } };
+              // A keyhole never starts or ends a course (its way out is its way in): gates either side.
+              const recipe = { ...SITE, elements: 3, difficulty, bike, types: type === 'keyhole' ? [type, 'gate'] : [type], sizes: { [type]: { [option.key]: value } } };
               const result = generateCourse(recipe, seed);
               expect(result.ok, `${bike} ${value} m seed ${seed}`).toBe(true);
               expect(result.course.recipe.sizes).toEqual({ [type]: { [option.key]: value } });
-              for (const e of result.course.elements) {
+              for (const e of result.course.elements.filter((el) => el.type === type)) {
                 const got = sizeOf(e, option);
                 const want = expected(type, option, value, difficulty, bike);
                 const label = `${bike} ${value} m seed ${seed} axis ${e.axis}`;

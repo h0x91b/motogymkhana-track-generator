@@ -71,15 +71,17 @@ describe('connector check', () => {
 
 describe('a routed layout', () => {
   // The field tester's case: a keyhole, then a 360° pivot turn the connector into it crosses.
+  // A gate first: a keyhole is ridden in and out of the same neck, so it never starts a course.
   const KEYHOLE_THEN_PIVOT = [
-    { type: 'keyhole', sizes: {}, axis: 4, mirrored: false, x: 11, y: 22 },
+    { type: 'gate', sizes: {}, axis: 2, mirrored: false, x: 24, y: 24 },
+    { type: 'keyhole', sizes: {}, axis: 4, mirrored: false, x: 12, y: 20 },
     { type: 'pivot-turn', sizes: { angle: 360, radius: 4 }, axis: 2, mirrored: false, x: 18, y: 10 },
   ];
 
   test('a keyhole, then a 360° pivot turn whose line the connector crosses: no problem', () => {
     const result = routed(KEYHOLE_THEN_PIVOT);
     expect(result.problems).toEqual([]);
-    const pivot = result.course.elements[1];
+    const pivot = result.course.elements[2];
     const leg = result.course.route.legs.find((l) => l.kind === 'connector' && l.to === pivot.id);
     // It really does come into the ridden ring's clearance, which a bounded element keeps it out of.
     const near = Math.min(...densify(leg.path, 0.05).map((p) => distanceToPath(pivot.path.slice(1, -1), p)));
