@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
-import { editAxes } from '../src/generator/catalog.js';
+import { editAxes, freeHeading } from '../src/generator/catalog.js';
 import { ELEMENT_TYPES } from '../src/generator/recipe.js';
 import { conesCsv } from '../src/file/course-file.js';
 import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
@@ -82,13 +82,13 @@ describe('setup sheet', () => {
         const onGrid = card.anchorAtCentre ? isHalf : Number.isInteger;
         expect(onGrid(card.anchor.x) && onGrid(card.anchor.y)).toBe(true);
         for (const cone of card.cones) {
-          const values = card.axis.diagonal ? [cone.dx, cone.dy] : [cone.along, cone.across];
+          const values = card.axis.xy ? [cone.dx, cone.dy] : [cone.along, cone.across];
           for (const v of values) expect(isHalf(v), `seed ${course.seed} card ${card.number}`).toBe(true);
         }
         // The anchor is the element's first listed cone, at zero offset; a ring's is its centre.
         if (card.anchorAtCentre) continue;
         const first = card.cones[0];
-        expect(card.axis.diagonal ? [first.dx, first.dy] : [first.along, first.across]).toEqual([0, 0]);
+        expect(card.axis.xy ? [first.dx, first.dy] : [first.along, first.across]).toEqual([0, 0]);
       }
     }
   });
@@ -432,7 +432,8 @@ describe('the setup sheet of an element turned by 22.5°', () => {
     for (const type of ELEMENT_TYPES) {
       let layout = replaceElement(base, 0, type);
       for (const axis of editAxes(type)) {
-        layout = turnElementTo(layout, 0, axis * 45);
+        // A free-heading type does not turn (ADR 0027): an axis saved with it, as in an old file, is ignored.
+        layout = freeHeading(type) ? { ...layout, elements: layout.elements.map((e, k) => (k ? e : { ...e, axis })) } : turnElementTo(layout, 0, axis * 45);
         expect(layout.elements[0].axis).toBe(axis);
         const { course } = routeLayout(layout);
         const sheet = buildSetupSheet(course);

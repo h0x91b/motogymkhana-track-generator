@@ -11,16 +11,17 @@
 import { parseLayout } from '../generator/layout.js';
 import { parseRecipe, parseSeed } from '../generator/recipe.js';
 import { buildSetupSheet } from '../sheet/setup-sheet.js';
-import { TYPE_NAMES, typeAxes } from '../generator/catalog.js';
+import { TYPE_NAMES, typeAxes, WAYPOINT } from '../generator/catalog.js';
 
 export const COURSE_FILE_FORMAT = 'motogymkhana-course';
 /**
  * The newest version this build reads and writes. Raised on a change an older
  * build cannot read; a reader refuses a newer version instead of half-opening
- * it. A file is written with the oldest version that can read it: 2 only for
- * a course with an element turned off the 45° lattice (ADR 0019), 1 otherwise.
+ * it. A file is written with the oldest version that can read it: 3 for a
+ * course with a waypoint (ADR 0027), 2 for one with an element turned off the
+ * 45° lattice (ADR 0019), 1 otherwise.
  */
-export const COURSE_FILE_VERSION = 2;
+export const COURSE_FILE_VERSION = 3;
 
 /** Is an axis one that version 1 knew: whole 45° steps, and only side axes for a side-only type? */
 const firstVersionAxis = (e) => typeAxes(e.type).includes(e.axis);
@@ -33,7 +34,7 @@ const firstVersionAxis = (e) => typeAxes(e.type).includes(e.axis);
 export function courseDocument(layout, { build = '', edited = false } = {}) {
   return {
     format: COURSE_FILE_FORMAT,
-    version: layout.elements.every(firstVersionAxis) ? 1 : COURSE_FILE_VERSION,
+    version: layout.elements.some((e) => e.type === WAYPOINT) ? 3 : layout.elements.every(firstVersionAxis) ? 1 : 2,
     build,
     edited,
     recipe: layout.recipe,
@@ -163,8 +164,8 @@ export function conesCsv(course, sheet = buildSetupSheet(course)) {
   const where = closed ? 'Старт и финиш' : course.route.shape === 'return' ? 'Коробка старта и финиша' : 'Старт';
   for (const id of course.route.start.cones) add(id, where, '', 'neutral');
   const orderOf = new Map(course.elements.map((e) => [e.id, e.order]));
-  course.elements.forEach((e, i) => {
-    const card = sheet.cards[i];
+  for (const card of sheet.cards) {
+    const e = course.elements.find((k) => k.id === card.element);
     e.cones.forEach((id, k) => add(id, `${e.order}. ${TYPE_NAMES[e.type]}`, card.cones[k].n, card.cones[k].color));
     for (const t of card.turnCones) {
       const pass = course.passes.find((p) => p.cone === t.cone && p.connector);
@@ -172,7 +173,7 @@ export function conesCsv(course, sheet = buildSetupSheet(course)) {
       const from = pass.connector.from === 'start' ? 'старт' : e.order;
       add(t.cone, `Связка ${from} → ${to}: конус разворота`, '', t.color);
     }
-  });
+  }
   if (!closed) for (const id of course.route.finish.cones) add(id, 'Финиш', '', 'neutral');
   // Anything the course has and the passes above missed still gets a row.
   for (const c of course.cones) add(c.id, '—', '', 'neutral');

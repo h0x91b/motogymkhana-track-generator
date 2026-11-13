@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { keepsFixedSize, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES } from '../generator/catalog.js';
+import { keepsFixedSize, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
 import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
@@ -185,12 +185,13 @@ function describe(element, cones, diagonal, turn, shift, dims) {
     case 'pass-right':
       return [
         `Один высокий конус, ${colour(first)}: объехать, оставив его ${element.type === 'pass-left' ? 'слева' : 'справа'}`,
-        'Линию выбирает гонщик; поворот к следующему элементу — какой нужен маршруту',
+        'Проезд с любой стороны подхода: линию и повороты до и после выбирает маршрут, не конус',
       ];
     case 'small-turn':
       return [
         `Разворот ${TURN[turn]} на 180° вокруг ${colourOf(first)} высокого конуса`,
         `Радиус не меньше ${metres(p.radius)}; стенок нет, шире — можно`,
+        'Заход с любой стороны подхода: откуда — решает маршрут',
       ];
     case 'figure-eight':
       return [
@@ -489,6 +490,8 @@ export function anchorPoint(e, byId) {
   const g = e.guides?.length === 1 && e.guides[0].radii.length === 1 ? e.guides[0] : null;
   // Off the lattice (ADR 0019) the centre is not on the 0.5 m grid: the anchor stays on its cone, on whole metres.
   if (g && g.to - g.from > RING_DEGREES && e.offLattice !== true) return { x: g.x, y: g.y, ring: true };
+  // A waypoint has no cone: it is where it is.
+  if (!e.anchor) return { x: e.at.x, y: e.at.y, ring: false };
   const c = byId.get(e.anchor);
   return { x: c.hx / 2, y: c.hy / 2, ring: false };
 }
@@ -506,7 +509,8 @@ export function buildSetupSheet(course) {
   }
   const coneColor = (id) => (byId.get(id).height === 'tall' ? color.get(id) : 'neutral');
 
-  const cards = course.elements.map((e) => {
+  // A waypoint (ADR 0027) is no element to lay out: a note on the route, not a card.
+  const cards = course.elements.filter((e) => e.type !== WAYPOINT).map((e) => {
     const at = anchorPoint(e, byId);
     // In half-metre steps, like the cones.
     const anchor = { hx: at.x * 2, hy: at.y * 2 };
@@ -599,6 +603,15 @@ export function buildSetupSheet(course) {
     card.fromPrevious = { from: prev.number, dx, dy, label: `От якоря ${prev.number}: X ${signed(dx)} м · Y ${signed(dy)} м` };
   });
 
+  // Each waypoint, measured from corner A, and noted on the card of the element before it (the first card for one before them all).
+  const waypoints = course.elements.filter((e) => e.type === WAYPOINT).map((e) => ({
+    number: e.order, x: e.at.x, y: e.at.y, label: `Опорная точка ${e.order}: проезд через точку X ${fmt(e.at.x)} · Y ${fmt(e.at.y)} м`,
+  }));
+  for (const w of waypoints) {
+    const card = cards.filter((c) => c.number < w.number).at(-1) ?? cards[0];
+    if (card) card.notes.push(w.number < card.number ? `До элемента: ${w.label}` : `Дальше: ${w.label}`);
+  }
+
   const coneList = { tallBlue: 0, tallRed: 0, tallStriped: 0, low: 0 };
   for (const c of course.cones) {
     if (c.height === 'low') coneList.low++;
@@ -637,6 +650,7 @@ export function buildSetupSheet(course) {
     start,
     finish,
     cards,
+    waypoints,
     coneList,
   };
 }

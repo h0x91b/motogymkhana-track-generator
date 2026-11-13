@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, CHAIN_ANGLE, DIFFICULTY_TABLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, runOffFor, TRAIN_EXEMPT_TYPES,
+  BIG_ELEMENT_AREA, FREE_HEADING_TYPES, BIKE_TURN_RADIUS, CHAIN_ANGLE, DIFFICULTY_TABLE, CHAIN_REACH, generateCourse, LOOPED_TYPES, RUN_OFF, RUN_OFF_TYPES, runOffFor, TRAIN_EXEMPT_TYPES,
   U_TURN_CONE_CLEARANCE, uTurnRadius, ZONE_PAD,
 } from '../src/generator/index.js';
 
@@ -164,16 +164,18 @@ describe('placement', () => {
     });
   });
 
-  test('element axes and zone sides are multiples of 45°', () => {
+  test('element axes and zone sides are multiples of 45°; a free-heading one\'s of 22.5°', () => {
     each((c) => {
       for (const e of c.elements) {
-        expect(Number.isInteger(e.axis) && e.axis >= 0 && e.axis <= 7).toBe(true);
+        // The route turns a free-heading element (ADR 0027) to any of sixteen headings.
+        const step = FREE_HEADING_TYPES.includes(e.type) ? 22.5 : 45;
+        expect(Number.isInteger((e.axis * 45) / step) && e.axis >= 0 && e.axis < 8).toBe(true);
         for (let i = 0; i < 4; i++) {
           const a = e.zone[i];
           const b = e.zone[(i + 1) % 4];
           const deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
           // Zone corners are published rounded to 1 cm, hence the 0.5° slack.
-          const off = Math.abs(deg - 45 * Math.round(deg / 45));
+          const off = Math.abs(deg - step * Math.round(deg / step));
           expect(off < 0.5, `${label(c)} ${e.id} zone edge at ${deg}°`).toBe(true);
         }
       }
@@ -575,6 +577,17 @@ describe('U-turn cones on connectors', () => {
   });
 });
 
+/**
+ * The line ridden past an element: its own, and for a point waypoint (a passed
+ * cone, ADR 0027), which has none, the connectors in and out joined at its point.
+ */
+function riddenPast(c, id) {
+  const e = c.elements.find((k) => k.id === id);
+  if (e.path.some(([x, y]) => x !== e.path[0][0] || y !== e.path[0][1])) return e.path;
+  const legs = c.route.legs.filter((l) => l.kind === 'connector');
+  return [...legs.find((l) => l.to === id).path, ...legs.find((l) => l.from === id).path.slice(1)];
+}
+
 describe('cone sides, from the actual geometry of the route', () => {
   test('every tall-cone pass keeps the cone on its required side; blue left, red right', () => {
     each((c) => {
@@ -582,7 +595,7 @@ describe('cone sides, from the actual geometry of the route', () => {
       const elements = new Map(c.elements.map((e) => [e.id, e]));
       const connectorPath = (k) => c.route.legs.find((l) => l.kind === 'connector' && l.from === k.from && l.to === k.to).path;
       for (const pass of c.passes.filter((p) => p.kind === 'cone')) {
-        const path = pass.connector ? connectorPath(pass.connector) : elements.get(pass.element).path;
+        const path = pass.connector ? connectorPath(pass.connector) : riddenPast(c, pass.element);
         expect(sideOf(path, coneXY(byId.get(pass.cone))), `${label(c)} ${pass.id}`).toBe(pass.side);
       }
     });

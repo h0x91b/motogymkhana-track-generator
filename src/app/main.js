@@ -759,6 +759,7 @@ function zoomBy(k, cx = canvas.clientWidth / 2, cy = canvas.clientHeight / 2) {
 const pointers = new Map();
 let gesture = null;
 const DRAG_FROM = 6; // px a pointer travels before a press becomes a drag
+const HOLD_FOR = 550; // ms a press held still on the plan in «Правка» takes to become a waypoint
 
 const canvasPoint = (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -777,6 +778,16 @@ canvas.addEventListener('pointerdown', (e) => {
     const handle = !panButton && editor.active && state.view ? hitHandle(state.hits, ...canvasPoint(e), e.pointerType === 'mouse' ? 'mouse' : 'touch') : null;
     const id = handle ? handle.element : !panButton && editor.active && state.view ? hitTest(state.hits, ...canvasPoint(e)) : null;
     if (id && (e.pointerType === 'mouse' || id === state.selected)) Object.assign(gesture, { kind: 'drag', id, handle, from: state.view.unproject(...canvasPoint(e)) });
+    // In «Правка» a press held still on the free plan puts a waypoint there.
+    else if (!panButton && !id && editor.active && state.view && state.camera.mode !== 'angle') {
+      const held = gesture;
+      const at = canvasPoint(e);
+      setTimeout(() => {
+        if (gesture !== held || held.moved || pointers.size !== 1 || !editor.active) return;
+        held.kind = 'held';
+        editor.addWaypoint(...state.view.unproject(...at));
+      }, HOLD_FOR);
+    }
   } else if (pointers.size === 2) {
     // A second finger turns a drag into a pinch: the element stays where it got to.
     if (gesture?.kind === 'drag' && gesture.moved) editor.dragEnd();
@@ -919,6 +930,13 @@ function cardHtml(card, big = false) {
  */
 function elementFacts(id) {
   const card = state.sheet?.cards.find((c) => c.element === id);
+  const waypoint = !card && state.course?.elements.find((e) => e.id === id && e.type === 'waypoint');
+  if (waypoint) {
+    return {
+      head: `<p class="anchor">Точка: X ${dist(waypoint.at.x)} м · Y ${dist(waypoint.at.y)} м</p>`,
+      tail: '<p class="muted">Конуса нет: маршрут проходит через точку, подход с любой стороны</p>',
+    };
+  }
   if (!card) return '';
   const diag = card.axis.xy;
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
@@ -938,7 +956,8 @@ function elementFacts(id) {
 function elementBounds(id) {
   const e = state.course.elements.find((x) => x.id === id);
   const points = [...e.zone];
-  const step = state.sheet.cards.find((c) => c.element === id).fromPrevious;
+  // A waypoint has no card: its zone alone.
+  const step = state.sheet.cards.find((c) => c.element === id)?.fromPrevious;
   if (step) {
     // With room for the chain's labels, which sit on the outside of the L.
     const { anchor } = state.sheet.cards.find((c) => c.number === step.from);

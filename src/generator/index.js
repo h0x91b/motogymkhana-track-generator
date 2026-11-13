@@ -8,13 +8,13 @@ export {
   parseRecipe, parseSeed, BLOCKED_KINDS, BLOCKED_MARGIN, BLOCKED_MAX, blockedMargin, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, SAFETY_DEFAULTS, SAFETY_OPTIONS, safetyOf, safetyValues, BIKES, SHAPES, SHAPE_NAMES, ELEMENT_TYPES, DIFFICULTIES, LOOPED_TYPES, SEED_MAX, TRAIN_EXEMPT_TYPES,
 } from './recipe.js';
 export {
-  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, FILLER_TYPES, mirrorType, passColor, PIVOT_ANGLES, PIVOT_RADIUS_MIN, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_RUN_OFF, SINGLE_CONE_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, ZONE_PAD,
+  BIG_ELEMENT_AREA, BIKE_TURN_RADIUS, FILLER_TYPES, FREE_HEADING_TYPES, freeHeading, WAYPOINT, mirrorType, passColor, PIVOT_ANGLES, PIVOT_RADIUS_MIN, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_RUN_OFF, SINGLE_CONE_TYPES, TYPE_NAMES, DIFFICULTY_TABLE, uTurnRadius, SIZE_OPTIONS, sizeDefault, sizeMinimum, sizeValues, ZONE_PAD,
 } from './catalog.js';
 export { canonicalJSON } from './canonical.js';
 export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
   addBlocked, BLOCKED_DEFAULT, blockedMarginOf, moveBlocked, removeBlocked, resizeBlocked, resizeBlockedSide, setBlockedMargin,
-  axisDegrees, turnStep, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
+  axisDegrees, turnStep, ELEMENTS_MAX, elementControls, elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
   removeElement, replaceElement, resetTerminal, resizeElement, rotateElement, routeLayout, setElementSafety, setElementSize, shiftElement, terminalPose, terminalsOf, turnElementTo,
 } from './layout.js';
 export { editAxes, typeAxes } from './catalog.js';

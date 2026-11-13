@@ -408,6 +408,12 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   // element's centre, as the setup sheet measures it).
   for (const e of course.elements) {
     const c = anchorPoint(e, byId);
+    if (e.type === 'waypoint') {
+      // A waypoint (ADR 0027): no cone, a small diamond on the line where the route goes through.
+      const k = e.id === selected ? 0.55 : 0.4;
+      path([[c.x + k, c.y, 0.04], [c.x, c.y + k, 0.04], [c.x - k, c.y, 0.04], [c.x, c.y - k, 0.04]], '#17232a', 0.05, PALETTE.anchor, true);
+      continue;
+    }
     const ring = [];
     for (let i = 0; i <= 40; i++) ring.push([c.x + 0.55 * Math.cos((i * TAU) / 40), c.y + 0.55 * Math.sin((i * TAU) / 40), 0.015]);
     path(ring, PALETTE.anchor, e.id === selected ? 0.09 : 0.06);
@@ -580,7 +586,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     const sel = e.id === selected;
     const tone = wrong ? { bg: sel ? '#ffe2dd' : '#7c241ce6', fill: sel ? '#6b1710' : '#ffe9e5' } : { bg: sel ? '#ddf4ec' : '#293840e6', fill: sel ? '#213e36' : '#f0f3ee' };
     // A single cone stands about the middle of its zone: its number goes above it, not over it.
-    const lift = SINGLE_CONE_TYPES.includes(e.type) ? -(Math.max(6, 0.35 * scale) + 16) : 0;
+    const lift = SINGLE_CONE_TYPES.includes(e.type) || e.type === 'waypoint' ? -(Math.max(6, 0.35 * scale) + 16) : 0;
     labels.push([text, cx, cy, { size: 13, z: 0.05, dy: lift, ...tone, hit: e.id, top: sel }]);
     if (sel) {
       // The anchor label goes on the side of the anchor away from the name, so they never overlap.

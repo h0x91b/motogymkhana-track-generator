@@ -58,27 +58,39 @@ function footprintOutlines(course, e, byId) {
   const ridden = e.path.slice(1, -1);
   for (let i = 1; i < ridden.length; i++) segments.push([ridden[i - 1], ridden[i]]);
   const all = [...cones, ...segments.flat()];
+  // A waypoint has no footprint.
+  if (!all.length) return [];
   const x0 = Math.min(...all.map((p) => p[0])) - pad - STEP;
   const y0 = Math.min(...all.map((p) => p[1])) - pad - STEP;
   const nx = Math.ceil((Math.max(...all.map((p) => p[0])) + pad + STEP - x0) / STEP) + 1;
   const ny = Math.ceil((Math.max(...all.map((p) => p[1])) + pad + STEP - y0) / STEP) + 1;
-  // Signed clearance at every grid point: > 0 inside the footprint.
+  // Signed clearance: > 0 inside the footprint.
+  const clearance = (p) => {
+    let best = Infinity;
+    for (const c of cones) best = Math.min(best, (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2);
+    for (const [a, b] of segments) if (best > 0) best = Math.min(best, pointToSegment2(p, a, b));
+    return pad - Math.sqrt(best);
+  };
   const f = new Float64Array(nx * ny);
   for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const p = [x0 + i * STEP, y0 + j * STEP];
-      let best = Infinity;
-      for (const c of cones) best = Math.min(best, (c[0] - p[0]) ** 2 + (c[1] - p[1]) ** 2);
-      for (const [a, b] of segments) if (best > 0) best = Math.min(best, pointToSegment2(p, a, b));
-      f[j * nx + i] = pad - Math.sqrt(best);
-    }
+    for (let i = 0; i < nx; i++) f[j * nx + i] = clearance([x0 + i * STEP, y0 + j * STEP]);
   }
   const at = (i, j) => f[j * nx + i];
   // Where the outline crosses a grid edge: 'h' edges run +x from (i, j), 'v' edges +y.
+  // Halved on the clearance itself, not interpolated: where the footprints of
+  // two parts meet at an angle the clearance bends between grid points.
   const cross = (kind, i, j) => {
-    const [a, b] = kind === 'h' ? [at(i, j), at(i + 1, j)] : [at(i, j), at(i, j + 1)];
-    const t = a / (a - b);
-    return kind === 'h' ? [x0 + (i + t) * STEP, y0 + j * STEP] : [x0 + i * STEP, y0 + (j + t) * STEP];
+    const p = [x0 + i * STEP, y0 + j * STEP];
+    const d = kind === 'h' ? [STEP, 0] : [0, STEP];
+    let [lo, hi] = [0, 1];
+    const inAtLo = at(i, j) > 0;
+    for (let k = 0; k < 10; k++) {
+      const t = (lo + hi) / 2;
+      if (clearance([p[0] + d[0] * t, p[1] + d[1] * t]) > 0 === inAtLo) lo = t;
+      else hi = t;
+    }
+    const t = (lo + hi) / 2;
+    return [p[0] + d[0] * t, p[1] + d[1] * t];
   };
   const next = new Map(); // edge key → the edge key the outline goes on to
   const point = new Map();

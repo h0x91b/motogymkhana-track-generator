@@ -5,14 +5,15 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, generateCourse, LOOPED_TYPES, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES,
+  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, FREE_HEADING_TYPES, generateCourse, LOOPED_TYPES, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES,
 } from '../src/generator/index.js';
 import { elementParams, instantiate, SIZE_SPECS, typicalSizes } from '../src/generator/catalog.js';
 import { elementMargins, fillerLimit } from '../src/generator/generate.js';
-import { elementSafety, insertElement, layoutOf, mirrorElement, routeLayout } from '../src/generator/layout.js';
+import { elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
-import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
+import { conesCsv, courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { sweep } from './helpers/slow.js';
+import { distanceToPath, fullRoute, turns } from './helpers/course-geometry.js';
 
 const tpl = (type, sizes, { diagonal = false, mirrored = false, bike = 'sport', margins } = {}) => instantiate(type, elementParams(type, sizes, diagonal, bike), diagonal, mirrored, margins);
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport' };
@@ -20,6 +21,23 @@ const OWN = (c) => c.elements.filter((e) => !FILLER_TYPES.includes(e.type)).leng
 const FILLED = (c) => c.elements.filter((e) => FILLER_TYPES.includes(e.type)).length;
 
 describe('catalog', () => {
+  test('a passed cone and the small U-turn take their heading from the route; the pivot turn does not', () => {
+    expect(FREE_HEADING_TYPES.toSorted()).toEqual(['pass-left', 'pass-right', 'small-turn']);
+  });
+
+  test('a passed cone is a point beside it: no straight, no run-in or run-out', () => {
+    for (const type of ['pass-left', 'pass-right']) {
+      const t = tpl(type, {});
+      expect(t.point).toBe(true);
+      expect(t.path).toHaveLength(2);
+      expect(t.path[0]).toEqual(t.path[1]);
+      expect(Math.abs(t.path[0][1]) * t.unit).toBeCloseTo(1, 9);
+      // A wide clearance pushes the point out with it: the line never comes inside the cone's clearance.
+      const wide = tpl(type, {}, { margins: { pad: 1.5 } });
+      expect(Math.abs(wide.path[0][1]) * wide.unit).toBeGreaterThan(1.5);
+    }
+  });
+
   test('each is one tall cone with one pass round it, and never a big element', () => {
     for (const type of SINGLE_CONE_TYPES) {
       for (const diagonal of [false, true]) {
@@ -180,3 +198,157 @@ describe('«Правка»', () => {
     expect(elementSafety(insertElement(base, 1, 'pass-left'), 1).map((s) => s.key)).toEqual(['pad']);
   });
 });
+
+describe('a free heading (ADR 0027)', () => {
+  // The tester's case: a gate, and «Конус слева» about 6 m past it, 1 m to one side.
+  const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
+  const gate = { type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x: 10, y: 18 };
+  const gateExit = routeLayout({ recipe, seed: 0, elements: [gate] }).course.elements[0].exit;
+  const after = (type, aside, axis = 0) => ({ recipe, seed: 0, elements: [gate, { type, sizes: {}, axis, mirrored: false, x: Math.round(gateExit.x + 6), y: gateExit.y + aside }] });
+  /** Signed distance from the cone to the line ridden past it: > 0 when the cone is on the rider's left. */
+  const signedSide = (course, id) => {
+    const e = course.elements.find((k) => k.id === id);
+    const cone = course.cones.find((c) => c.id === e.anchor);
+    const p = [cone.hx / 2, cone.hy / 2];
+    const line = fullRoute(course);
+    let best = null;
+    for (let k = 1; k < line.length; k++) {
+      const [a, b] = [line[k - 1], line[k]];
+      const d = [b[0] - a[0], b[1] - a[1]];
+      const len2 = d[0] ** 2 + d[1] ** 2;
+      if (len2 < 1e-12) continue;
+      const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / len2));
+      const q = [a[0] + d[0] * t, a[1] + d[1] * t];
+      const dist = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (!best || dist < best.dist) best = { dist, sign: Math.sign(d[0] * (p[1] - q[1]) - d[1] * (p[0] - q[0])) };
+    }
+    return best.sign * best.dist;
+  };
+
+  test('the cone past a gate, on either side of its line, is ridden past without a loop and without a problem', () => {
+    for (const type of ['pass-left', 'pass-right']) {
+      for (const aside of [-1, 1]) {
+        const { course, problems } = routeLayout(after(type, aside));
+        expect(problems.map((p) => p.text), `${type} ${aside}`).toEqual([]);
+        const leg = course.route.legs.find((l) => l.kind === 'connector' && l.from === 'e1');
+        const { left, right } = turns(leg.path);
+        expect(left + right, `${type} ${aside}`).toBeLessThan(120);
+      }
+    }
+  });
+
+  // The published line is rounded to 1 cm and its arcs are chords: a few centimetres of slack.
+  test('the cone is on the side the type says, about WEAVE from the line', () => {
+    for (const aside of [-1, 0, 1, 3]) {
+      const left = signedSide(routeLayout(after('pass-left', aside)).course, 'e2');
+      const right = signedSide(routeLayout(after('pass-right', aside)).course, 'e2');
+      expect(left, `left ${aside}`).toBeGreaterThan(1 - 0.05);
+      expect(right, `right ${aside}`).toBeLessThan(-1 + 0.05);
+    }
+    for (const [, c] of filledCourses()) {
+      for (const e of c.elements.filter((k) => k.type === 'pass-left' || k.type === 'pass-right')) {
+        const d = signedSide(c, e.id);
+        expect(e.type === 'pass-left' ? d : -d, `seed ${c.seed} ${e.id}`).toBeGreaterThan(1 - 0.05);
+      }
+    }
+  });
+
+  test('the heading is the route\'s: an axis saved with the element, as in an old file, changes nothing', () => {
+    for (const type of FREE_HEADING_TYPES) {
+      const want = canonicalJSON(routeLayout(after(type, 1, 0)).course);
+      for (const axis of [1, 2.5, 4, 7.5]) expect(canonicalJSON(routeLayout(after(type, 1, axis)).course), `${type} ${axis}`).toBe(want);
+      // And routing it again gives the same heading.
+      expect(canonicalJSON(routeLayout(after(type, 1, 0)).course)).toBe(want);
+    }
+  });
+
+  test('an old course file with an axis for a passed cone opens and routes as the route wants', () => {
+    const layout = after('pass-left', -1, 6);
+    const read = readCourseFile(courseFileText(courseDocument(layout, {})));
+    expect(read.ok).toBe(true);
+    expect(read.layout.elements[1].axis).toBe(6);
+    expect(canonicalJSON(routeLayout(read.layout).course)).toBe(canonicalJSON(routeLayout(after('pass-left', -1, 0)).course));
+  });
+
+  test('a small U-turn is entered from whichever side the route comes, the cone on the inside of the turn', () => {
+    for (const aside of [-6, 6]) {
+      const layout = { recipe, seed: 0, elements: [gate, { type: 'small-turn', sizes: { radius: 4 }, axis: 4, mirrored: aside > 0, x: Math.round(gateExit.x + 10), y: gateExit.y + aside }] };
+      const { course, problems } = routeLayout(layout);
+      expect(problems.map((p) => p.text), `${aside}`).toEqual([]);
+      const e = course.elements[1];
+      const cone = course.cones.find((c) => c.id === e.anchor);
+      const ring = e.path.slice(1, -1).map((q) => Math.hypot(q[0] - cone.hx / 2, q[1] - cone.hy / 2));
+      for (const r of ring) expect(r).toBeGreaterThanOrEqual(4 - 0.01);
+      // Entered heading on, not turned round to the axis it was saved with.
+      const leg = course.route.legs.find((l) => l.kind === 'connector' && l.to === 'e2');
+      const { left, right } = turns(leg.path);
+      expect(left + right, `${aside}`).toBeLessThan(150);
+    }
+  });
+
+  test('«Правка» does not turn them; mirroring still swaps the side', () => {
+    const layout = after('pass-left', 1);
+    expect(rotateElement(layout, 1, 1)).toBe(layout);
+    expect(turnElementTo(layout, 1, 90)).toBe(layout);
+    expect(mirrorElement(layout, 1).elements[1].type).toBe('pass-right');
+  });
+});
+
+describe('«Опорная точка»', () => {
+  const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
+  const gate = (x, y) => ({ type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x, y });
+  const two = { recipe, seed: 0, elements: [gate(8, 12), gate(26, 12)] };
+  const point = { type: 'waypoint', sizes: {}, axis: 0, mirrored: false, x: 18, y: 24 };
+  const through = { ...two, elements: [two.elements[0], point, two.elements[1]] };
+  const near = (course, x, y) => distanceToPath(fullRoute(course), [x, y]);
+
+  test('the route is bent through it: the connector changes and passes within 0.1 m', () => {
+    const plain = routeLayout(two).course;
+    const { course, problems } = routeLayout(through);
+    expect(problems.map((p) => p.text)).toEqual([]);
+    expect(near(plain, 18, 24)).toBeGreaterThan(3);
+    expect(near(course, 18, 24)).toBeLessThan(0.1);
+    // Not a cone: nothing to set out, and it is still ridden through.
+    expect(course.cones.length).toBe(plain.cones.length);
+    expect(course.elements[1].at).toEqual({ x: 18, y: 24 });
+  });
+
+  test('a layout of the routed course routes to the same course', () => {
+    const { course } = routeLayout(through);
+    expect(canonicalJSON(routeLayout(layoutOf(course)).course)).toBe(canonicalJSON(course));
+  });
+
+  test('a press on the plan puts it between the elements whose connector passes nearest', () => {
+    const plain = routeLayout(two).course;
+    const leg = plain.route.legs.find((l) => l.kind === 'connector' && l.from === 'e1');
+    const [x, y] = leg.path[Math.floor(leg.path.length / 2)];
+    const next = insertWaypoint(two, x + 2, y + 3);
+    expect(next.elements.map((e) => e.type)).toEqual(['gate', 'waypoint', 'gate']);
+    expect(next.elements[1]).toMatchObject({ x: Math.round(x + 2), y: Math.round(y + 3) });
+    expect(insertElement(two, 1, 'waypoint').elements[1].type).toBe('waypoint');
+  });
+
+  test('the course file carries it at version 3; the sheet lists it as a note, not as cones', () => {
+    const doc = courseDocument(through, {});
+    expect(doc.version).toBe(3);
+    expect(courseDocument(two, {}).version).toBeLessThan(3);
+    const read = readCourseFile(courseFileText(doc));
+    expect(read.ok).toBe(true);
+    const { course } = routeLayout(read.layout);
+    expect(canonicalJSON(course)).toBe(canonicalJSON(routeLayout(through).course));
+    const sheet = buildSetupSheet(course);
+    expect(sheet.cards.some((c) => c.element === 'e2' || c.id === 'e2')).toBe(false);
+    expect(JSON.stringify(sheet)).toContain('проезд через точку');
+    expect(conesCsv(course, sheet)).toBe(conesCsv(routeLayout(two).course, buildSetupSheet(routeLayout(two).course)).replaceAll('2. Ворота', '3. Ворота'));
+  });
+});
+
+/** Generated courses of the tester's recipe that have fillers. */
+function filledCourses() {
+  const out = [];
+  for (let seed = 1; seed <= sweep(20, 6); seed++) {
+    const c = generateCourse(ANTON, seed).course;
+    if (FILLED(c)) out.push([seed, c]);
+  }
+  return out;
+}

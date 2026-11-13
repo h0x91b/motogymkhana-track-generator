@@ -12,13 +12,13 @@
 // Everything here is a pure function of the layout, so undo, redo and storage
 // keep layouts and nothing else.
 
-import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
+import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, freeHeading, instantiate, WAYPOINT, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
-  finishAt, lineOnAsphalt, MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
+  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, closingTarget, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, freeHeadings, homeBox, innerRect, inside,
+  finishAt, isFree, lineOnAsphalt, MAX_CONNECTOR_TURN, onAsphalt, pathClear, placeTemplate, pose, provisional, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones, zoneClear,
 } from './generate.js';
-import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
+import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, segmentDistance2, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
   BLOCKED_KINDS, BLOCKED_MARGIN, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
@@ -68,9 +68,12 @@ export function layoutOf(course) {
     recipe: course.recipe,
     seed: course.seed,
     elements: course.elements.map((e) => {
-      const anchor = byId.get(e.anchor);
+      const anchor = e.anchor ? byId.get(e.anchor) : { hx: 2 * e.at.x, hy: 2 * e.at.y };
       return {
-        type: e.type, sizes: elementSizes(e.type, e.params, diagonalAxis(e.type, e.axis)), axis: e.axis, mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
+        type: e.type, sizes: elementSizes(e.type, e.params, diagonalAxis(e.type, e.axis)),
+        // The route gives a free-heading element its heading (ADR 0027): the layout keeps the 45° step nearest, which any build can read.
+        axis: freeHeading(e.type) ? Math.round(e.axis) % 8 : e.axis,
+        mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
         ...(e.safety ? { safety: { ...e.safety } } : {}),
       };
     }),
@@ -89,7 +92,7 @@ export function parseLayout(raw) {
   if (raw.elements.length < 1 || raw.elements.length > ELEMENTS_MAX) return null;
   const elements = [];
   for (const e of raw.elements) {
-    if (!e || !ELEMENT_TYPES.includes(e.type) || !editAxes(e.type).includes(e.axis)) return null;
+    if (!e || !(ELEMENT_TYPES.includes(e.type) || e.type === WAYPOINT) || !editAxes(e.type).includes(e.axis)) return null;
     if (!Number.isInteger(e.x) || !Number.isInteger(e.y) || typeof e.mirrored !== 'boolean') return null;
     if (!e.sizes || !SIZE_SPECS[e.type].every((s) => Number.isFinite(e.sizes[s.key]))) return null;
     const sizes = Object.fromEntries(SIZE_SPECS[e.type].map((s) => [s.key, e.sizes[s.key]]));
@@ -137,6 +140,14 @@ export const terminalsOf = (layout) => (layout.recipe.shape === 'open' ? TERMINA
 /** The start or finish line as the generator puts it: before the first element, past the last. */
 function derivedTerminal(layout, which, placed = null) {
   const { recipe } = layout;
+  const end = which === 'start' ? layout.elements[0] : layout.elements.at(-1);
+  if (!placed && freeHeading(end.type)) {
+    // Its heading follows from the route, so the line is where the routed course has it.
+    const { course } = routeLayout({ ...layout, [which]: undefined });
+    const t = course.route[which];
+    const first = course.cones.find((c) => c.id === t.cones[0]);
+    return { cones: [[first.hx / 2, first.hy / 2]], dir: t.dir };
+  }
   if (which === 'start') return startTerminal(placed?.[0] ?? place(layout.elements[0], recipe), recipe.shape);
   return finishTerminal(placed?.[placed.length - 1] ?? place(layout.elements.at(-1), recipe));
 }
@@ -248,10 +259,311 @@ export function routeLayout(layout) {
   const placed = layout.elements.map((el) => place(el, recipe));
   const n = placed.length;
   const id = (i) => `e${i + 1}`;
-  const problems = [];
-  const report = (code, text, where = {}) => problems.push({ code, text, elements: [], connector: null, ...where });
+  // Problems come out in a fixed order — the elements, the start and finish,
+  // the route — though the route is laid first: the heading of a free element
+  // (ADR 0027) is chosen with its connectors, and the elements are checked as
+  // they then stand.
+  const placing = [];
+  const lines = [];
+  const routing = [];
+  let sink = routing;
+  const report = (code, text, where = {}) => sink.push({ code, text, elements: [], connector: null, ...where });
 
-  // Each element on its own, then every pair.
+  // A free element faces away from the one before until its connectors give it a heading.
+  const free = placed.map(isFree);
+  for (let j = 1; j < n; j++) if (free[j]) placed[j] = provisional(placed[j], placed[j - 1]);
+
+  // Start and finish lines follow from the first and the last element.
+  // A start or finish put by hand stands where it was put; the problems then say to move it, not the element.
+  // A pose that is where the generator would put the line anyway changes nothing.
+  const pinnedTerminal = (which) => {
+    if (!layout[which] || (which === 'finish' && shape !== 'open')) return null;
+    const derived = derivedTerminal(layout, which, placed);
+    return samePose(layout[which], derived) ? null : terminalAt(which, layout[which], shape);
+  };
+  let pinnedStart = free[0] ? null : pinnedTerminal('start');
+  let start = free[0] ? null : pinnedStart ?? startTerminal(placed[0], shape);
+  let pinnedFinish = shape === 'open' && !free[n - 1] ? pinnedTerminal('finish') : null;
+  // A finish by the start is found last, once the way to it is known.
+  let finish = shape === 'open' && !free[n - 1] ? pinnedFinish ?? finishTerminal(placed[n - 1]) : null;
+
+  // Everything a connector into element i keeps out of: the lines, the
+  // elements but the free ones past it, whose headings are still to come,
+  // then the U-turn cones as they appear.
+  const cones = [];
+  const standing = (i) => placed.filter((p, j) => !free[j] || j <= i);
+  const zonesAt = (i) => [...(start ? [start] : []), ...standing(i), ...(finish ? [finish] : []), ...cones];
+  const zoneName = (z) => {
+    if (z === start || (start?.inBox && z === start.inBox)) return shape === 'return' ? 'коробку старта' : 'зону старта';
+    if (z === finish) return 'зону финиша';
+    const i = placed.indexOf(z);
+    return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
+  };
+  const legs = [];
+  // The route a U-turn cone keeps clear of: the legs, and every element's run-in and run-out.
+  const routeAt = (i) => [...legs, ...standing(i).flatMap((p) => p.ends)];
+  /** A connector by the generator's rules, or the least bad one with its problem. `name` is «3 → 4». */
+  const connectorProblem = (fault, connector, name, ends) => {
+    const texts = {
+      'connector-off-site': `Связка ${name} выходит за площадку — отодвиньте элементы от края или поверните один из них`,
+      'connector-zone': `Связка ${name} проходит через ${fault.hit ? fault.hit.map(zoneName).join(' и ') : ''} — освободите ей путь или поверните один из элементов`,
+      'connector-loop': `Связка ${name} закладывает петлю — раздвиньте элементы или поверните один из них входом к другому`,
+      'connector-cone': coneGap > 0 ? `Конусу разворота на связке ${name} не хватает ${fmt(coneGap)} м свободного асфальта — раздвиньте элементы` : `Конус разворота на связке ${name} стоит в зоне — раздвиньте элементы`,
+      'connector-train': `Связка ${name} пересекает маршрут: в паровозике мотоциклы встретятся — переставьте элементы`,
+    };
+    report(fault.code, texts[fault.code], { elements: ends, connector });
+  };
+  const trainOn = recipe.train && trainGap > 0;
+  let track = trainOn ? emptyTrack(trainGap) : null;
+  const leadOut = (t) => {
+    const u = axisVector(t.dir);
+    return pose([t.center[0] + u[0] * START_LEAD_IN, t.center[1] + u[1] * START_LEAD_IN], t.dir);
+  };
+  const lineUp = (t) => {
+    const u = axisVector(t.dir);
+    return pose([t.center[0] - u[0] * radius, t.center[1] - u[1] * radius], t.dir);
+  };
+
+  /**
+   * The heading of free element k: the first of `freeHeadings` whose element,
+   * connector in and — when what follows is fixed — connector out keep every
+   * rule, as the generator chooses it, so a generated course routes back to
+   * itself. When none does, the one that breaks the fewest of the three.
+   */
+  function resolve(k, pinStart, pinFinish) {
+    const before = k > 0 ? placed[k - 1] : null;
+    const last = k === n - 1;
+    const next = last ? null : free[k + 1] ? provisional(placed[k + 1], placed[k]) : placed[k + 1];
+    const from = before ? pose(before.exit, before.exitDir) : pinStart ? leadOut(start) : null;
+    let to = null;
+    if (next) to = pose(next.entry, next.entryDir);
+    else if (shape === 'open') to = pinFinish ? lineUp(finish) : null;
+    else if (k > 0 || pinStart) to = closingTarget(shape, start, radius);
+    const others = (p) => [...(start && (k > 0 || pinStart) ? [start] : []), ...standing(k).filter((q) => q !== placed[k]), ...(finish && (!last || pinFinish) ? [finish] : []), ...cones].filter((z) => z !== p);
+    let best = null;
+    for (const p of freeHeadings(placed[k], from, to, radius)) {
+      const faults = headingFaults(k, p, before, next, others(p), pinStart, pinFinish);
+      if (faults === 0) return p;
+      if (!best || faults < best.faults) best = { p, faults };
+    }
+    return best.p;
+  }
+
+  function headingFaults(k, p, before, next, zones, pinStart, pinFinish) {
+    let faults = 0;
+    const paths = [...legs, ...zones.filter((z) => placed.includes(z)).flatMap((q) => q.ends)];
+    if (!quadOnAsphalt(inner, p.core) || (p.runOffPoly && !(p.runOffPoly.every((q) => inside(site, q)) && areaClear(inner, p.runOff))) || !zoneClear(p, zones, paths)) faults++;
+    let first = null;
+    let inLeg = null;
+    if (k === 0 && !pinStart) {
+      first = startTerminal(p, shape);
+      const u = axisVector(first.dir);
+      const ok = terminalInside(first, inner, site) && !shapesOverlap(first.footprint, p.footprint)
+        && (!closed || onAsphalt(inner, [first.center[0] - u[0] * radius, first.center[1] - u[1] * radius]))
+        && zones.every((q) => !placed.includes(q) || !(clash(first, q) || coneInKeepOut(first, q) || inRunOff(q, first)));
+      inLeg = straightLeg(first.center, p.entry);
+      if (!ok || (track && !trainClear(track, [inLeg.points, ridden(p)]))) faults++;
+    } else if (k === 0) {
+      inLeg = straightOn(start.center, start.dir, p.entry, p.entryDir, inner, zones.filter((z) => z !== start))
+        || connect(leadOut(start), pose(p.entry, p.entryDir), radius, inner, [...zones, p], paths, MAX_CONNECTOR_TURN, null, coneGap);
+      if (!inLeg) faults++;
+    } else {
+      const accept = track && ((pts) => trainClear(track, [pts, ridden(p)]));
+      const chained = chainLeg(before, p);
+      if (chained && accept && !accept(chained.points)) faults++;
+      else {
+        inLeg = chained || connect(pose(before.exit, before.exitDir), pose(p.entry, p.entryDir), radius, inner, [...zones, p], paths, MAX_CONNECTOR_TURN, accept, coneGap);
+        if (!inLeg) faults++;
+      }
+    }
+    if (!inLeg) return faults + 1;
+    const after = [...(first ? [first] : []), ...zones, p, ...inLeg.cones];
+    const out = [...paths, inLeg, ...p.ends];
+    const ahead = track && extendTrack(track, [inLeg.points, ridden(p)]);
+    const exit = pose(p.exit, p.exitDir);
+    if (next && !free[k + 1]) {
+      const accept = ahead && ((pts) => trainClear(ahead, [pts, ridden(next)]));
+      const chained = chainLeg(p, next);
+      const leg = chained && accept && !accept(chained.points) ? null : chained || connect(exit, pose(next.entry, next.entryDir), radius, inner, after, out, MAX_CONNECTOR_TURN, accept, coneGap);
+      if (!leg) faults++;
+    } else if (!next) {
+      const startT = first ?? start;
+      let ok = false;
+      if (closed) {
+        const accept = ahead && ((pts) => trainClear(ahead, [pts], true));
+        ok = CLOSING_TURN_LIMITS.some((limit) => closingLeg(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+      } else if (shape === 'return') {
+        // The way back keeps clear of the route after the first element only.
+        const accept = trainOn && ((pts) => trainClear(k === 0 ? emptyTrack(trainGap) : extendTrack(tail, [inLeg.points, ridden(p)]), [pts]));
+        ok = CLOSING_TURN_LIMITS.some((limit) => homeBox(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+      } else if (pinFinish) {
+        const rest = after.filter((z) => z !== finish);
+        ok = Boolean(straightOn(p.exit, p.exitDir, finish.center, finish.dir, inner, rest.filter((z) => z !== p))
+          || CLOSING_TURN_LIMITS.some((limit) => closingLeg(exit, finish, radius, inner, rest, out, limit, null, coneGap)));
+      } else {
+        const line = finishTerminal(p);
+        const rest = after.filter((z) => z !== p);
+        const leg = straightLeg(p.exit, line.center);
+        ok = terminalInside(line, inner, site) && zoneClear(line, rest, out) && !shapesOverlap(line.footprint, p.footprint)
+          && pathClear(leg.points, leg.bounds, rest.filter((z) => z.side)) && (!ahead || trainClear(ahead, [leg.points]));
+      }
+      if (!ok) faults++;
+    }
+    return faults;
+  }
+
+  // The first element's heading, then the start it gives.
+  if (free[0]) {
+    placed[0] = resolve(0, false, false);
+    pinnedStart = pinnedTerminal('start');
+    if (pinnedStart) {
+      start = pinnedStart;
+      placed[0] = resolve(0, true, false);
+    } else start = startTerminal(placed[0], shape);
+    if (n === 1 && shape === 'open') {
+      pinnedFinish = pinnedTerminal('finish');
+      if (pinnedFinish) {
+        finish = pinnedFinish;
+        placed[0] = resolve(0, !!pinnedStart, true);
+      } else finish = finishTerminal(placed[0]);
+    }
+  }
+
+  if (pinnedStart) {
+    // From a start put by hand: straight on to the first element when it lies ahead, as the generator joins them;
+    // else across the line and its lead-in, then a connector like any other.
+    const leg = straightOn(start.center, start.dir, placed[0].entry, placed[0].entryDir, inner, zonesAt(0).filter((z) => z !== start && z !== placed[0]));
+    if (leg) legs.push(leg);
+    else {
+      const from = leadOut(start);
+      const to = pose(placed[0].entry, placed[0].entryDir);
+      let lead = connect(from, to, radius, inner, zonesAt(0), routeAt(0), MAX_CONNECTOR_TURN, null, coneGap);
+      if (!lead) {
+        const loose = looseConnector(from, to, radius, inner, zonesAt(0), routeAt(0), MAX_CONNECTOR_TURN, null, [], coneGap);
+        lead = loose.leg;
+        connectorProblem(loose.faults[0], 0, 'старт → 1', [id(0)]);
+      }
+      const points = [start.center, ...lead.points];
+      legs.push({ ...lead, points, bounds: pointsBounds(points), length: lead.length + START_LEAD_IN });
+      cones.push(...lead.cones);
+    }
+  } else legs.push(straightLeg(start.center, placed[0].entry));
+  const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
+  if (track) {
+    if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
+    track = extendTrack(track, [legs[0].points, ridden(placed[0])]);
+  }
+  // The route after the first element: what the way back across the start line is checked against.
+  let tail = track && emptyTrack(trainGap);
+
+  for (let i = 1; i < n; i++) {
+    if (free[i]) {
+      const last = i === n - 1;
+      placed[i] = resolve(i, false, false);
+      if (last && shape === 'open') {
+        pinnedFinish = pinnedTerminal('finish');
+        if (pinnedFinish) {
+          finish = pinnedFinish;
+          placed[i] = resolve(i, false, true);
+        } else finish = finishTerminal(placed[i]);
+      }
+    }
+    const [prev, cur] = [placed[i - 1], placed[i]];
+    const from = pose(prev.exit, prev.exitDir);
+    const to = pose(cur.entry, cur.entryDir);
+    const zones = zonesAt(i);
+    const accept = track && ((pts) => trainClear(track, [pts, ridden(cur)]));
+    // An entry that continues the exit is joined straight, as the generator does.
+    const chained = chainLeg(prev, cur);
+    let leg = chained && (!accept || accept(chained.points)) ? chained : connect(from, to, radius, inner, zones, routeAt(i), MAX_CONNECTOR_TURN, accept, coneGap);
+    if (!leg && track) {
+      // The rules hold but for «паровозик»: is it the connector that meets the route, or the element it leads into?
+      leg = chained || connect(from, to, radius, inner, zones, routeAt(i), MAX_CONNECTOR_TURN, null, coneGap);
+      if (leg && trainClear(track, [leg.points])) trainProblem(i);
+      else if (leg) connectorProblem({ code: 'connector-train' }, i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
+    }
+    if (!leg) {
+      const loose = looseConnector(from, to, radius, inner, zones, routeAt(i), MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])), [], coneGap);
+      leg = loose.leg;
+      connectorProblem(loose.faults[0], i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
+    }
+    legs.push(leg);
+    cones.push(...leg.cones);
+    if (track) track = extendTrack(track, [leg.points, ridden(cur)]);
+    if (tail) tail = extendTrack(tail, [leg.points, ridden(cur)]);
+  }
+
+  const zones = zonesAt(n - 1);
+  const route = routeAt(n - 1);
+  const last = placed[n - 1];
+  if (closed) {
+    // Back to the start: lined up one turning radius before the line, then straight across it.
+    const from = pose(last.exit, last.exitDir);
+    const accept = track && ((pts) => trainClear(track, [pts], true));
+    let leg = null;
+    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, route, limit, accept, coneGap);
+    if (!leg) {
+      const loose = looseConnector(from, lineUp(start), radius, inner, zones, route, CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
+      leg = loose.leg;
+      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → старт`, [id(n - 1), id(0)]);
+    }
+    legs.push(leg);
+  } else if (shape === 'return') {
+    // Back across the start line into the box, lined up like a closing connector.
+    // In «паровозик» the whole column has ridden the start and the first
+    // element long before the leader comes back, so the way back keeps clear
+    // of the rest of the route only.
+    const from = pose(last.exit, last.exitDir);
+    const accept = tail && ((pts) => trainClear(tail, [pts]));
+    let home = null;
+    for (const limit of CLOSING_TURN_LIMITS) home = home || homeBox(from, start, radius, inner, zones, route, limit, accept, coneGap);
+    if (!home) {
+      // The least bad way back, square on unless an angle is less wrong.
+      const obstacles = zones.map((z) => (z === start ? start.inBox : z));
+      let best = null;
+      for (const entry of boxEntries(start)) {
+        const loose = looseConnector(from, pose(entry.approach, entry.dir), radius, inner, obstacles, route, CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
+        if (!best || loose.weight < best.loose.weight) best = { loose, entry };
+      }
+      const { loose, entry } = best;
+      const points = [...loose.leg.points, entry.stop];
+      home = { dir: entry.dir, stop: entry.stop, leg: { ...loose.leg, points, bounds: pointsBounds(points) } };
+      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1), id(0)]);
+    }
+    finish = boxFinish(start, home.dir, home.stop);
+    legs.push(home.leg);
+  } else if (pinnedFinish) {
+    // To a finish put by hand: lined up one turning radius before it, like the closing connector of a closed course.
+    const from = pose(last.exit, last.exitDir);
+    const others = zones.filter((z) => z !== finish);
+    let leg = straightOn(last.exit, last.exitDir, finish.center, finish.dir, inner, others.filter((z) => z !== last));
+    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, finish, radius, inner, others, route, limit, null, coneGap);
+    if (!leg) {
+      const loose = looseConnector(from, lineUp(finish), radius, inner, others, route, CLOSING_TURN_LIMITS.at(-1), null, [finish.center], coneGap);
+      leg = loose.leg;
+      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1)]);
+    }
+    if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);
+    legs.push(leg);
+  } else if (legs.length === n) {
+    const leg = straightLeg(last.exit, finish.center);
+    if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);
+    legs.push(leg);
+  }
+
+  // A connector laid before a free element had its heading does not go through it either.
+  placed.forEach((p, j) => {
+    if (!free[j]) return;
+    for (let l = 0; l < j; l++) {
+      if (!pathClear(legs[l].points, legs[l].bounds, [p])) {
+        const name = l === 0 ? `старт → 1` : `${l} → ${l + 1}`;
+        connectorProblem({ code: 'connector-zone', hit: [p] }, l, name, l === 0 ? [id(0)] : [id(l - 1), id(l)]);
+      }
+    }
+  });
+
+  // Each element on its own, then every pair, as they stand.
+  sink = placing;
   placed.forEach((p, i) => {
     if (!p.core.every((q) => inside(inner, q))) {
       report('off-site', edge > 0 ? `Элемент ${i + 1} ближе ${fmt(edge)} м к краю площадки — отодвиньте его от края` : `Элемент ${i + 1} выходит за площадку — отодвиньте его от края`, { elements: [id(i)] });
@@ -282,9 +594,8 @@ export function routeLayout(layout) {
     }
   }
 
-  // Start and finish lines follow from the first and the last element. A line
-  // may stand in the run-off zone of its own element, never of another one.
-  // A start or finish put by hand stands where it was put; the problems then say to move it, not the element.
+  // A line may stand in the run-off zone of its own element, never of another one.
+  sink = lines;
   const terminalProblems = (t, name, own, code, pinned) => {
     const lead = name === 'Старт' ? 'перед элементом 1' : `за элементом ${n}`;
     const which = name === 'Старт' ? 'старт' : 'финиш';
@@ -303,171 +614,16 @@ export function routeLayout(layout) {
       }
     });
   };
-  // A pose that is where the generator would put the line anyway changes nothing.
-  const pinnedTerminal = (which) => {
-    if (!layout[which] || (which === 'finish' && shape !== 'open')) return null;
-    const derived = derivedTerminal(layout, which, placed);
-    return samePose(layout[which], derived) ? null : terminalAt(which, layout[which], shape);
-  };
-  const pinnedStart = pinnedTerminal('start');
-  const pinnedFinish = pinnedTerminal('finish');
-  const start = pinnedStart ?? startTerminal(placed[0], shape);
   terminalProblems(start, 'Старт', 0, 'start', !!pinnedStart);
-  /** The finish line of an open course: straight past the last element, or where it was put. */
-  const finishAhead = () => {
-    const line = pinnedFinish ?? finishTerminal(placed[n - 1]);
-    terminalProblems(line, 'Финиш', n - 1, 'finish', !!pinnedFinish);
-    if (obbOverlap(line.zone, start.zone)) {
+  if (shape === 'open') {
+    terminalProblems(finish, 'Финиш', n - 1, 'finish', !!pinnedFinish);
+    if (obbOverlap(finish.zone, start.zone)) {
       report('finish-overlap', pinnedStart || pinnedFinish ? 'Финиш накладывается на старт — отодвиньте одну из линий' : 'Финиш накладывается на старт — раздвиньте первый и последний элементы', { elements: [id(0), id(n - 1)] });
-    }
-    return line;
-  };
-  // A finish by the start is found last, once the way to it is known.
-  let finish = shape === 'open' ? finishAhead() : null;
-
-  // Everything a connector keeps out of: zones of the elements and the lines, then the U-turn cones as they appear.
-  const zones = [start, ...placed, ...(finish ? [finish] : [])];
-  const zoneName = (z) => {
-    if (z === start || (start.inBox && z === start.inBox)) return shape === 'return' ? 'коробку старта' : 'зону старта';
-    if (z === finish) return 'зону финиша';
-    const i = placed.indexOf(z);
-    return i >= 0 ? `элемент ${i + 1}` : 'место у конуса разворота другой связки';
-  };
-  const legs = [];
-  // The route a U-turn cone keeps clear of: the legs, and every element's run-in and run-out.
-  const ends = placed.flatMap((p) => p.ends);
-  const route = () => [...legs, ...ends];
-  /** A connector by the generator's rules, or the least bad one with its problem. `name` is «3 → 4». */
-  const connectorProblem = (fault, connector, name, ends) => {
-    const texts = {
-      'connector-off-site': `Связка ${name} выходит за площадку — отодвиньте элементы от края или поверните один из них`,
-      'connector-zone': `Связка ${name} проходит через ${fault.hit ? fault.hit.map(zoneName).join(' и ') : ''} — освободите ей путь или поверните один из элементов`,
-      'connector-loop': `Связка ${name} закладывает петлю — раздвиньте элементы или поверните один из них входом к другому`,
-      'connector-cone': coneGap > 0 ? `Конусу разворота на связке ${name} не хватает ${fmt(coneGap)} м свободного асфальта — раздвиньте элементы` : `Конус разворота на связке ${name} стоит в зоне — раздвиньте элементы`,
-      'connector-train': `Связка ${name} пересекает маршрут: в паровозике мотоциклы встретятся — переставьте элементы`,
-    };
-    report(fault.code, texts[fault.code], { elements: ends, connector });
-  };
-
-  if (pinnedStart) {
-    // From a start put by hand: straight on to the first element when it lies ahead, as the generator joins them;
-    // else across the line and its lead-in, then a connector like any other.
-    const leg = straightOn(start.center, start.dir, placed[0].entry, placed[0].entryDir, inner, zones.filter((z) => z !== start && z !== placed[0]));
-    if (leg) legs.push(leg);
-    else {
-      const u = axisVector(start.dir);
-      const out = [start.center[0] + u[0] * START_LEAD_IN, start.center[1] + u[1] * START_LEAD_IN];
-      const from = pose(out, start.dir);
-      const to = pose(placed[0].entry, placed[0].entryDir);
-      let lead = connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, coneGap);
-      if (!lead) {
-        const loose = looseConnector(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, [], coneGap);
-        lead = loose.leg;
-        connectorProblem(loose.faults[0], 0, 'старт → 1', [id(0)]);
-      }
-      const points = [start.center, ...lead.points];
-      legs.push({ ...lead, points, bounds: pointsBounds(points), length: lead.length + START_LEAD_IN });
-      zones.push(...lead.cones);
-    }
-  } else legs.push(straightLeg(start.center, placed[0].entry));
-  let track = recipe.train && trainGap > 0 ? emptyTrack(trainGap) : null;
-  const trainProblem = (i) => report('train', `Элемент ${i + 1} пересекает маршрут: в паровозике мотоциклы встретятся — отодвиньте его или замените`, { elements: [id(i)] });
-  if (track) {
-    if (!trainClear(track, [legs[0].points, ridden(placed[0])])) trainProblem(0);
-    track = extendTrack(track, [legs[0].points, ridden(placed[0])]);
-  }
-  // The route after the first element: what the way back across the start line is checked against.
-  let tail = track && emptyTrack(trainGap);
-
-  for (let i = 1; i < n; i++) {
-    const [prev, cur] = [placed[i - 1], placed[i]];
-    const from = pose(prev.exit, prev.exitDir);
-    const to = pose(cur.entry, cur.entryDir);
-    const accept = track && ((pts) => trainClear(track, [pts, ridden(cur)]));
-    // An entry that continues the exit is joined straight, as the generator does.
-    const chained = chainLeg(prev, cur);
-    let leg = chained && (!accept || accept(chained.points)) ? chained : connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, accept, coneGap);
-    if (!leg && track) {
-      // The rules hold but for «паровозик»: is it the connector that meets the route, or the element it leads into?
-      leg = chained || connect(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, null, coneGap);
-      if (leg && trainClear(track, [leg.points])) trainProblem(i);
-      else if (leg) connectorProblem({ code: 'connector-train' }, i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
-    }
-    if (!leg) {
-      const loose = looseConnector(from, to, radius, inner, zones, route(), MAX_CONNECTOR_TURN, track && ((pts) => trainClear(track, [pts])), [], coneGap);
-      leg = loose.leg;
-      connectorProblem(loose.faults[0], i, `${i} → ${i + 1}`, [id(i - 1), id(i)]);
-    }
-    legs.push(leg);
-    zones.push(...leg.cones);
-    if (track) track = extendTrack(track, [leg.points, ridden(cur)]);
-    if (tail) tail = extendTrack(tail, [leg.points, ridden(cur)]);
-  }
-
-  const last = placed[n - 1];
-  if (closed) {
-    // Back to the start: lined up one turning radius before the line, then straight across it.
-    const from = pose(last.exit, last.exitDir);
-    const accept = track && ((pts) => trainClear(track, [pts], true));
-    let leg = null;
-    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, start, radius, inner, zones, route(), limit, accept, coneGap);
-    if (!leg) {
-      const u = axisVector(start.dir);
-      const approach = [start.center[0] - u[0] * radius, start.center[1] - u[1] * radius];
-      const loose = looseConnector(from, pose(approach, start.dir), radius, inner, zones, route(), CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
-      leg = loose.leg;
-      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → старт`, [id(n - 1), id(0)]);
-    }
-    legs.push(leg);
-  } else if (shape === 'return') {
-    // Back across the start line into the box, lined up like a closing connector.
-    // In «паровозик» the whole column has ridden the start and the first
-    // element long before the leader comes back, so the way back keeps clear
-    // of the rest of the route only.
-    const from = pose(last.exit, last.exitDir);
-    const accept = tail && ((pts) => trainClear(tail, [pts]));
-    let home = null;
-    for (const limit of CLOSING_TURN_LIMITS) home = home || homeBox(from, start, radius, inner, zones, route(), limit, accept, coneGap);
-    if (!home) {
-      // The least bad way back, square on unless an angle is less wrong.
-      const obstacles = zones.map((z) => (z === start ? start.inBox : z));
-      let best = null;
-      for (const entry of boxEntries(start)) {
-        const loose = looseConnector(from, pose(entry.approach, entry.dir), radius, inner, obstacles, route(), CLOSING_TURN_LIMITS.at(-1), accept, [start.center], coneGap);
-        if (!best || loose.weight < best.loose.weight) best = { loose, entry };
-      }
-      const { loose, entry } = best;
-      const points = [...loose.leg.points, entry.stop];
-      home = { dir: entry.dir, stop: entry.stop, leg: { ...loose.leg, points, bounds: pointsBounds(points) } };
-      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1), id(0)]);
-    }
-    finish = boxFinish(start, home.dir, home.stop);
-    legs.push(home.leg);
-  } else if (pinnedFinish) {
-    // To a finish put by hand: lined up one turning radius before it, like the closing connector of a closed course.
-    const from = pose(last.exit, last.exitDir);
-    const others = zones.filter((z) => z !== finish);
-    let leg = straightOn(last.exit, last.exitDir, finish.center, finish.dir, inner, others.filter((z) => z !== last));
-    for (const limit of CLOSING_TURN_LIMITS) leg = leg || closingLeg(from, finish, radius, inner, others, route(), limit, null, coneGap);
-    if (!leg) {
-      const u = axisVector(finish.dir);
-      const approach = [finish.center[0] - u[0] * radius, finish.center[1] - u[1] * radius];
-      const loose = looseConnector(from, pose(approach, finish.dir), radius, inner, others, route(), CLOSING_TURN_LIMITS.at(-1), null, [finish.center], coneGap);
-      leg = loose.leg;
-      connectorProblem(loose.faults[0] ?? { code: 'connector-zone' }, n, `${n} → финиш`, [id(n - 1)]);
-    }
-    if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);
-    legs.push(leg);
-  } else {
-    if (legs.length === n) {
-      const leg = straightLeg(last.exit, finish.center);
-      if (track && !trainClear(track, [leg.points])) connectorProblem({ code: 'connector-train' }, n, `${n} → финиш`, [id(n - 1)]);
-      legs.push(leg);
     }
   }
 
   const course = assemble(recipe, layout.seed, placed, legs, start, finish);
-  return { course: { ...course, requested: n, placed: n, edited: true }, problems };
+  return { course: { ...course, requested: n, placed: n, edited: true }, problems: [...placing, ...lines, ...routing] };
 }
 
 /** «3 проблемы» for a count of problems. */
@@ -591,6 +747,8 @@ export function rotateElement(layout, i, dir) {
     return turnedTerminal(layout, i, TERMINAL_AXES[(k + dir + TERMINAL_AXES.length) % TERMINAL_AXES.length]);
   }
   const el = layout.elements[i];
+  // The route turns a free-heading element itself (ADR 0027).
+  if (freeHeading(el.type)) return layout;
   const axes = editAxes(el.type);
   return turned(layout, i, { axis: axes[(axes.indexOf(el.axis) + dir + axes.length) % axes.length] });
 }
@@ -628,6 +786,7 @@ export function turnElementTo(layout, i, degrees) {
     return axis === null || axis === now ? layout : turnedTerminal(layout, i, axis);
   }
   const el = layout.elements[i];
+  if (freeHeading(el.type)) return layout;
   const axis = nearestAxis(el.type, degrees, el.axis);
   return axis === null || axis === el.axis ? layout : turned(layout, i, { axis });
 }
@@ -770,6 +929,7 @@ export function insertElement(layout, at, type) {
     : prev ? along(prev.exit, prev.exitDir, AHEAD)
       : next ? along(next.entry, next.entryDir, -AHEAD)
         : [recipe.width / 2, recipe.length / 2];
+  if (type === WAYPOINT) return withWaypoint(layout, at, ideal[0], ideal[1]);
   const el = { type, sizes: startingSizes(type, recipe), axis: 0, mirrored: false, x: 0, y: 0 };
   const turn = (a, b) => Math.abs(wrapPi(a - b));
   const bearing = (from, to) => Math.atan2(to[1] - from[1], to[0] - from[0]);
@@ -816,6 +976,40 @@ export function insertElement(layout, at, type) {
     if (!best || count < best.count) best = { count, candidate };
   }
   return best.candidate;
+}
+
+/** The layout with a waypoint at (x, y), on whole metres inside the margin, put at index `at`. */
+function withWaypoint(layout, at, x, y) {
+  const [x0, y0, x1, y1] = innerRect(layout.recipe);
+  const el = { type: WAYPOINT, sizes: {}, axis: 0, mirrored: false, x: clampTo(x, Math.ceil(x0), Math.floor(x1)), y: clampTo(y, Math.ceil(y0), Math.floor(y1)) };
+  const elements = [...layout.elements];
+  elements.splice(at, 0, el);
+  return { ...layout, elements };
+}
+
+/**
+ * Adds a waypoint where the user tapped the plan: at (x, y), in the list
+ * between the two elements whose connector passes nearest the point, so the
+ * route bends through it instead of jumping elsewhere first.
+ */
+export function insertWaypoint(layout, x, y) {
+  if (layout.elements.length >= ELEMENTS_MAX) return layout;
+  const { course } = routeLayout(layout);
+  const index = new Map(course.elements.map((e, i) => [e.id, i]));
+  const point = [x, y];
+  let at = layout.elements.length;
+  let best = Infinity;
+  for (const leg of course.route.legs) {
+    if (!leg.path) continue;
+    for (let k = 1; k < leg.path.length; k++) {
+      const d = segmentDistance2(leg.path[k - 1], leg.path[k], point, point);
+      if (d < best) {
+        best = d;
+        at = index.get(leg.to) ?? layout.elements.length;
+      }
+    }
+  }
+  return withWaypoint(layout, at, x, y);
 }
 
 // ---------------------------------------------------------------- blocked areas
