@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { canonicalJSON, ELEMENT_TYPES, generateCourse, LOOPED_TYPES } from '../src/generator/index.js';
 import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, KEYHOLE_SPREAD, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { elementControls, insertElement, layoutOf, mirrorElement, routeLayout } from '../src/generator/layout.js';
-import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
+import { buildSetupSheet, metres as metreLabel } from '../src/sheet/setup-sheet.js';
 import { loopArrow } from '../src/render/loops.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { sweepAround } from './helpers/course-geometry.js';
@@ -343,5 +343,27 @@ describe('the loop arrow', () => {
       for (const [x, y] of points) expect(Math.hypot(x - 3, y + 2)).toBeCloseTo(2.2, 6);
       expect(turn(loop)).toBe(clockwise ? -1 : 1);
     }
+  });
+});
+
+describe('ring measures on the plan', () => {
+  const measured = (recipe, type) => {
+    const { course } = generateCourse(recipe, 1);
+    return buildSetupSheet(course).cards.find((c) => c.type === type).measures;
+  };
+  test('each ring gets one radius line to the ring, labelled with its radius; a keyhole neck its width', () => {
+    const base = { width: 40, length: 40, elements: 2, difficulty: 'medium', bike: 'sport', shape: 'open', train: false };
+    for (const [type, radii] of [['circle', 1], ['snail', 3], ['keyhole', 1]]) {
+      const ms = measured({ ...base, types: [type, 'gate'] }, type);
+      const rs = ms.filter((m) => m.kind === 'radius');
+      expect(rs, type).toHaveLength(radii);
+      expect(new Set(rs.map((m) => m.label)).size, type).toBe(radii);
+      for (const m of rs) expect(m.label).toBe(`R ${metreLabel(Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y))}`);
+      expect(ms.filter((m) => m.kind === 'width'), type).toHaveLength(type === 'keyhole' ? 1 : 0);
+    }
+  });
+  test('the double keyhole: a radius and a neck width per ring', () => {
+    const ms = measured({ width: 40, length: 60, elements: 2, difficulty: 'medium', bike: 'sport', shape: 'open', train: false, types: [TYPE, 'gate'] }, TYPE);
+    expect(ms.map((m) => m.kind).sort()).toEqual(['radius', 'radius', 'width', 'width']);
   });
 });

@@ -155,6 +155,43 @@ export const LOOP_WAY = {
 const LOOP_TYPES = new Set(['keyhole', 'double-keyhole']);
 
 /**
+ * What a ring is laid out with, drawn on the plan: a radius line from the
+ * centre of each arc to the ring, «R 4,5 м», towards its lowest cone on the
+ * plan (below the centre the way-round arrow leaves its gap); and across each
+ * keyhole neck, between its two end cones, the neck's width. Site metres.
+ */
+function measuresOf(e, arcs, points) {
+  const out = [];
+  const seen = new Set();
+  for (const arc of arcs) {
+    // One line per ring; the snail's spiral repeats each radius on its two centres, so once per radius.
+    const key = e.type === 'snail' ? arc.radius : `${arc.center.x},${arc.center.y},${arc.radius}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [x, y] = arc.cones.map((n) => points[n - 1]).reduce((a, b) => (b[1] < a[1] - 1e-9 || (Math.abs(b[1] - a[1]) < 1e-9 && b[0] < a[0]) ? b : a));
+    const d = Math.hypot(x - arc.center.x, y - arc.center.y);
+    out.push({
+      kind: 'radius',
+      from: { ...arc.center },
+      to: { x: arc.center.x + ((x - arc.center.x) / d) * arc.radius, y: arc.center.y + ((y - arc.center.y) / d) * arc.radius },
+      label: `R ${metres(arc.radius)}`,
+    });
+  }
+  if (LOOP_TYPES.has(e.type)) {
+    // Each neck's end cones: of the low cones nearer a centre cone than any other, the two farthest from it.
+    const talls = points.filter((_, i) => e.coneHeights[i] === 'tall');
+    const lows = points.filter((_, i) => e.coneHeights[i] === 'low');
+    for (const t of talls) {
+      const far = (p) => Math.hypot(p[0] - t[0], p[1] - t[1]);
+      const own = lows.filter((p) => talls.every((u) => far(p) <= Math.hypot(p[0] - u[0], p[1] - u[1]) + 1e-9));
+      const [a, b] = own.sort((p, q) => far(q) - far(p));
+      out.push({ kind: 'width', from: { x: a[0], y: a[1] }, to: { x: b[0], y: b[1] }, label: metres(Math.round(Math.hypot(a[0] - b[0], a[1] - b[1]) * 2) / 2) });
+    }
+  }
+  return out;
+}
+
+/**
  * The loops of an element round its centre cones, in the element's cone order:
  * the cone (id and card number), where it stands, the loop's radius (how far
  * the line passes it), the side and the way round. Empty for other types.
@@ -181,7 +218,9 @@ const TURN = { left: 'налево', right: 'направо' };
  * a length of k lattice steps is k × 0.5 m along X and along Y and is stated
  * as its true slant length (`slant`); the cone table keeps the X/Y offsets.
  */
-function describe(element, cones, diagonal, turn, shift, dims) {
+function describe(element, cones, diagonal, turn, shift, dims, measures) {
+  // A keyhole's opening as laid: between its neck's end cones, on the lattice.
+  const opening = () => measures.find((m) => m.kind === 'width').label;
   const p = element.params;
   const size = (m) => metres(diagonal ? slant(m) : m);
   const len = (steps) => size(steps * 0.5);
@@ -292,7 +331,7 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       ];
     case 'keyhole':
       return [
-        `Кольцо из ${cones.filter((c) => c.height === 'low').length - 2 * KEYHOLE_NECK_CONES} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} направлен к подъезду`,
+        `Кольцо из ${cones.filter((c) => c.height === 'low').length - 2 * KEYHOLE_NECK_CONES} низких конусов радиусом ${len(p.radius)}, проём ${opening()} между центрами крайних конусов, направлен к подъезду`,
         NECK,
         `В центре ${colour(last)} высокий конус — якорь, от него рулеткой выставляется кольцо`,
         `Въезд прямо по середине горловины, в проёме поворот в кольцо, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд обратно по середине горловины, по прямой`,
@@ -303,7 +342,7 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       const side = (c) => (c.color === 'blue' ? 'left' : 'right');
       const ring = cones.filter((c) => c.height === 'low').length / 2 - 2 * KEYHOLE_NECK_CONES;
       return [
-        `Две замочные скважины горловинами друг к другу: кольца по ${ring} низких конусов радиусом ${len(p.radius)}, проёмы по ${len(p.opening)}, между концами горловин ${len(p.gap)}`,
+        `Две замочные скважины горловинами друг к другу: кольца по ${ring} низких конусов радиусом ${len(p.radius)}, проёмы по ${opening()} между центрами крайних конусов, между концами горловин ${len(p.gap)}`,
         `${NECK} — у каждого кольца`,
         `В центрах высокие конусы: ${colour(first)} — якорь, ${colour(second)} — центр второго кольца; от них рулеткой выставляются кольца`,
         `Въезд сбоку в просвет между горловинами, поворот в горловину кольца с ${first.color === 'blue' ? 'синим' : 'красным'} конусом, круг ${CLOCK[side(first)]}, по горловине обратно и прямо через просвет в другую, круг ${CLOCK[side(second)]}, из горловины поворот дальше в ту же сторону; по горловинам и через просвет — по прямой, по линии центров`,
@@ -584,6 +623,7 @@ export function buildSetupSheet(course) {
     const fixed = fixedSizes(e, diagonal, course.recipe);
     const arcs = arcsOf(e, byId, anchor, cones);
     const loose = arcs.length ? looseCones(e, byId, anchor, cones) : [];
+    const measures = measuresOf({ type: e.type, coneHeights: e.cones.map((id) => byId.get(id).height) }, arcs, points);
     const loops = loopsOf(e, course, byId).map((l, k, all) => ({
       ...l,
       label: all.length > 1
@@ -607,7 +647,7 @@ export function buildSetupSheet(course) {
       loops,
       notes: [
         ...loops.map((l) => l.label),
-        ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims),
+        ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims, measures),
         ...arcs.flatMap((a) => a.lines), ...sharedNote(arcs),
         // A cone standing on the anchor (the keyhole's centre) needs no line of its own.
         ...loose.filter((l) => l.dx || l.dy).map((l) => l.label),
@@ -618,6 +658,7 @@ export function buildSetupSheet(course) {
       table: !arcs.length,
       dims,
       arcs,
+      measures,
       loose,
     };
   });

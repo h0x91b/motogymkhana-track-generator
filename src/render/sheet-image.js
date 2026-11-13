@@ -9,7 +9,7 @@
 import { SHAPE_NAMES } from '../generator/recipe.js';
 import { anchorPoint, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
 import { loopArrow } from './loops.js';
-import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
+import { cardDimensions, placeLabel } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
 import { boxArrows, terminalPlates } from './terminals.js';
@@ -403,7 +403,7 @@ function planBlock(course, sheet, maxHeight) {
 
     // Dimension lines between cone centres, when the plan is large enough to read them.
     const dimensions = s < 10 ? [] : sheet.cards.flatMap((card) =>
-      card.dims.map((d) => ({ d, layout: dimensionLayout(d, zoneCentre(elements.get(card.element).zone)) })));
+      cardDimensions(card, elements.get(card.element).zone));
     ctx.strokeStyle = MUTED;
     for (const { layout } of dimensions) {
       for (const [seg, width] of [[layout.line, 2], ...layout.extensions.map((e) => [e, 1.2]), ...layout.ticks.map((t) => [t, 2])]) {

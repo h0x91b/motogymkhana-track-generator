@@ -60,3 +60,42 @@ export function placeLabel(layout, step, boxAt, taken) {
 
 /** Centre of an element's zone, the side dimension lines move away from. */
 export const zoneCentre = (zone) => [(zone[0][0] + zone[2][0]) / 2, (zone[0][1] + zone[2][1]) / 2];
+
+/**
+ * A ring's measure from the setup sheet (`measures`) in the same drawing: a
+ * radius runs from the centre to the ring itself, with a tick where it meets
+ * it; a keyhole neck's width is an ordinary dimension line, set off from its end
+ * cones away from the ring's centre (`from` of the radius drawn with it).
+ */
+export function measureLayout(m, centre) {
+  if (m.kind === 'width') return dimensionLayout(m, centre);
+  const dx = m.to.x - m.from.x;
+  const dy = m.to.y - m.from.y;
+  const len = Math.hypot(dx, dy);
+  const ux = dx / len;
+  const uy = dy / len;
+  const end = [m.to.x, m.to.y];
+  const tx = (ux - uy) * TICK;
+  const ty = (uy + ux) * TICK;
+  return {
+    line: [[m.from.x, m.from.y], end],
+    extensions: [],
+    ticks: [[[end[0] - tx, end[1] - ty], [end[0] + tx, end[1] + ty]]],
+    mid: [m.from.x + dx * 0.55, m.from.y + dy * 0.55],
+    normal: [-uy, ux],
+  };
+}
+
+/** Every dimension of a card, cone pairs and ring measures alike, each with its layout. */
+export function cardDimensions(card, zone) {
+  const centre = zoneCentre(zone);
+  const ring = (m) => {
+    const r = card.measures.filter((x) => x.kind === 'radius');
+    const near = r.length ? r.reduce((a, b) => (Math.hypot(b.from.x - m.from.x, b.from.y - m.from.y) < Math.hypot(a.from.x - m.from.x, a.from.y - m.from.y) ? b : a)) : null;
+    return near ? [near.from.x, near.from.y] : centre;
+  };
+  return [
+    ...card.dims.map((d) => ({ d, layout: dimensionLayout(d, centre) })),
+    ...(card.measures ?? []).map((d) => ({ d, layout: measureLayout(d, ring(d)) })),
+  ];
+}
