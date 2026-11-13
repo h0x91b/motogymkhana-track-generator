@@ -402,7 +402,7 @@ function planBlock(course, sheet, maxHeight) {
 
     // Cones (anchors ringed).
     // A ring element is anchored at its centre: ringed there, on its centre cone if it has one.
-    const points = course.elements.map((e) => anchorPoint(e, byId));
+    const points = course.elements.filter((e) => e.type !== 'waypoint').map((e) => anchorPoint(e, byId));
     const anchors = new Set(points.map((p) => `${p.x * 2},${p.y * 2}`));
     const r = Math.max(8, Math.min(12, s * 0.45));
     for (const c of course.cones) {
@@ -420,6 +420,21 @@ function planBlock(course, sheet, maxHeight) {
       ctx.lineTo(x, y + r * 0.6);
       ctx.lineWidth = 3;
       ctx.strokeStyle = ANCHOR;
+      ctx.stroke();
+    }
+    // A waypoint (ADR 0026): no cone, a diamond the route goes through.
+    for (const e of course.elements.filter((k) => k.type === 'waypoint')) {
+      const [x, y] = [X(e.at.x), Y(e.at.y)];
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x, y + r);
+      ctx.lineTo(x - r, y);
+      ctx.lineTo(x, y - r);
+      ctx.closePath();
+      ctx.fillStyle = ANCHOR;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = INK;
       ctx.stroke();
     }
 

@@ -6,7 +6,7 @@
 import {
   addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
   removeBlocked, removeElement, replaceElement, resetTerminal, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement,
-  freeHeading, SINGLE_CONE_TYPES, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
+  freeHeading, insertWaypoint, SINGLE_CONE_TYPES, WAYPOINT, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
@@ -15,6 +15,7 @@ const FREE_NOTES = {
   'pass-left': 'проезд с любой стороны подхода, конус слева',
   'pass-right': 'проезд с любой стороны подхода, конус справа',
   'small-turn': 'заход с любой стороны подхода, разворот вокруг конуса',
+  waypoint: 'конуса нет: маршрут проходит через точку, подход с любой стороны',
 };
 /** The type the picker offers first for an inserted element. */
 const SUGGESTED_INSERT = 'gate';
@@ -571,7 +572,8 @@ export function createEditor(host) {
         <span class="angle-field"><input id="edit-angle" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(axisDegrees(el.axis))}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
       </div>`;
     // The element's own margins: free asphalt round it, over the recipe's.
-    const margins = elementSafety(layout, i).map((m) => {
+    const point = el.type === WAYPOINT;
+    const margins = point ? '' : elementSafety(layout, i).map((m) => {
       const { less, more } = marginSteps(m);
       const note = m.own
         ? `<button type="button" class="link margin-reset" data-act="margin" data-arg="${m.key}:recipe" aria-label="${esc(m.name)}: как в рецепте, ${esc(marginText(m.recipe))}">как в рецепте</button>`
@@ -595,15 +597,15 @@ export function createEditor(host) {
           ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
         </span>
         <span class="tool-group" role="group" aria-label="Повернуть и отразить">
-          ${free ? '' : `${tool('rotate', '1', `Повернуть на ${turn}° против часовой`, 'ccw')}${tool('rotate', '-1', `Повернуть на ${turn}° по часовой`, 'cw')}`}${tool('mirror', null, free && el.type !== 'small-turn' ? 'Отразить: конус с другой стороны' : 'Отразить: повороты в другую сторону', 'mirror')}
+          ${free ? '' : `${tool('rotate', '1', `Повернуть на ${turn}° против часовой`, 'ccw')}${tool('rotate', '-1', `Повернуть на ${turn}° по часовой`, 'cw')}`}${point ? '' : tool('mirror', null, free && el.type !== 'small-turn' ? 'Отразить: конус с другой стороны' : 'Отразить: повороты в другую сторону', 'mirror')}
         </span>
       </div>
       <div class="edit-actions">
-        <button type="button" data-act="replace">Заменить</button>
+        ${point ? '' : '<button type="button" data-act="replace">Заменить</button>'}
         <button type="button" class="danger" data-act="remove"${n === 1 ? ' disabled title="Последний элемент трассы не удаляется"' : ''}>Удалить</button>
       </div>
       <div class="edit-sizes">${angle}${sizes}</div>
-      <div class="edit-sizes edit-margins" role="group" aria-label="Безопасность элемента">${margins}</div>
+      ${point ? '' : `<div class="edit-sizes edit-margins" role="group" aria-label="Безопасность элемента">${margins}</div>`}
       <div class="el-facts">${facts.tail}</div>`;
   }
 
@@ -797,12 +799,14 @@ export function createEditor(host) {
       ? `Сейчас это «${name(selected)}». Новый элемент встанет на то же место, размеры — по рецепту.`
       : `Встанет ${insertPlace(at)}, на свободное место у связки; маршрут пройдёт через него.`);
     const { train } = layout.recipe;
-    $('type-grid').innerHTML = ELEMENT_TYPES.map((t) => {
+    // A waypoint is no element to replace with: it is only inserted.
+    $('type-grid').innerHTML = (mode === 'insert' ? [...ELEMENT_TYPES, WAYPOINT] : ELEMENT_TYPES).map((t) => {
       const looped = train && LOOPED_TYPES.includes(t);
       const note = t === current ? '<span class="type-note">сейчас</span>'
         : looped ? '<span class="type-note">не для паровозика</span>'
           : t === suggested ? '<span class="type-note">показывают, куда ехать</span>'
-            : SINGLE_CONE_TYPES.includes(t) ? '<span class="type-note">один конус</span>' : '';
+            : SINGLE_CONE_TYPES.includes(t) ? '<span class="type-note">один конус</span>'
+              : t === WAYPOINT ? '<span class="type-note">без конуса, маршрут через точку</span>' : '';
       const mark = t === current ? ' aria-current="true"' : t === suggested && !looped ? ' class="suggested"' : '';
       return `<button type="button" data-type="${t}"${mark}${looped ? ' disabled' : ''}><span>${esc(TYPE_NAMES[t])}</span>${note}</button>`;
     }).join('');
@@ -917,6 +921,20 @@ export function createEditor(host) {
      * finger until `dragEnd`. With `handle` ({sx, sy}, a blocked area's corner or
      * side, `blockedHandles`) that side moves instead and the opposite one stays.
      */
+    /** A long press on the plan at (x, y), metres: a waypoint there, between the elements whose connector passes nearest. */
+    addWaypoint(x, y) {
+      if (!active) return false;
+      const next = insertWaypoint(layout, x, y);
+      const at = next.elements.findIndex((e, k) => e !== layout.elements[k]);
+      if (at < 0) {
+        say(`Больше ${ELEMENTS_MAX} элементов не поставить.`);
+        return false;
+      }
+      const text = `Опорная точка поставлена ${insertPlace(at)}: теперь она ${at + 1}-я по маршруту. Перетащите её, если нужно.`;
+      if (!commit(next, at, text)) return false;
+      host.reveal(idOf(selected));
+      return true;
+    },
     dragStart(id, handle = null) {
       const k = blockOf(id);
       if (k !== null) {

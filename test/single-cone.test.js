@@ -9,9 +9,9 @@ import {
 } from '../src/generator/index.js';
 import { elementParams, instantiate, SIZE_SPECS, typicalSizes } from '../src/generator/catalog.js';
 import { elementMargins, fillerLimit } from '../src/generator/generate.js';
-import { elementSafety, insertElement, layoutOf, mirrorElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
+import { elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
-import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
+import { conesCsv, courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { sweep } from './helpers/slow.js';
 import { distanceToPath, fullRoute, turns } from './helpers/course-geometry.js';
 
@@ -291,6 +291,55 @@ describe('a free heading (ADR 0026)', () => {
     expect(rotateElement(layout, 1, 1)).toBe(layout);
     expect(turnElementTo(layout, 1, 90)).toBe(layout);
     expect(mirrorElement(layout, 1).elements[1].type).toBe('pass-right');
+  });
+});
+
+describe('«Опорная точка»', () => {
+  const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
+  const gate = (x, y) => ({ type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x, y });
+  const two = { recipe, seed: 0, elements: [gate(8, 12), gate(26, 12)] };
+  const point = { type: 'waypoint', sizes: {}, axis: 0, mirrored: false, x: 18, y: 24 };
+  const through = { ...two, elements: [two.elements[0], point, two.elements[1]] };
+  const near = (course, x, y) => distanceToPath(fullRoute(course), [x, y]);
+
+  test('the route is bent through it: the connector changes and passes within 0.1 m', () => {
+    const plain = routeLayout(two).course;
+    const { course, problems } = routeLayout(through);
+    expect(problems.map((p) => p.text)).toEqual([]);
+    expect(near(plain, 18, 24)).toBeGreaterThan(3);
+    expect(near(course, 18, 24)).toBeLessThan(0.1);
+    // Not a cone: nothing to set out, and it is still ridden through.
+    expect(course.cones.length).toBe(plain.cones.length);
+    expect(course.elements[1].at).toEqual({ x: 18, y: 24 });
+  });
+
+  test('a layout of the routed course routes to the same course', () => {
+    const { course } = routeLayout(through);
+    expect(canonicalJSON(routeLayout(layoutOf(course)).course)).toBe(canonicalJSON(course));
+  });
+
+  test('a press on the plan puts it between the elements whose connector passes nearest', () => {
+    const plain = routeLayout(two).course;
+    const leg = plain.route.legs.find((l) => l.kind === 'connector' && l.from === 'e1');
+    const [x, y] = leg.path[Math.floor(leg.path.length / 2)];
+    const next = insertWaypoint(two, x + 2, y + 3);
+    expect(next.elements.map((e) => e.type)).toEqual(['gate', 'waypoint', 'gate']);
+    expect(next.elements[1]).toMatchObject({ x: Math.round(x + 2), y: Math.round(y + 3) });
+    expect(insertElement(two, 1, 'waypoint').elements[1].type).toBe('waypoint');
+  });
+
+  test('the course file carries it at version 3; the sheet lists it as a note, not as cones', () => {
+    const doc = courseDocument(through, {});
+    expect(doc.version).toBe(3);
+    expect(courseDocument(two, {}).version).toBeLessThan(3);
+    const read = readCourseFile(courseFileText(doc));
+    expect(read.ok).toBe(true);
+    const { course } = routeLayout(read.layout);
+    expect(canonicalJSON(course)).toBe(canonicalJSON(routeLayout(through).course));
+    const sheet = buildSetupSheet(course);
+    expect(sheet.cards.some((c) => c.element === 'e2' || c.id === 'e2')).toBe(false);
+    expect(JSON.stringify(sheet)).toContain('проезд через точку');
+    expect(conesCsv(course, sheet)).toBe(conesCsv(routeLayout(two).course, buildSetupSheet(routeLayout(two).course)).replaceAll('2. Ворота', '3. Ворота'));
   });
 });
 

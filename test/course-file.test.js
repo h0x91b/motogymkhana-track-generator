@@ -61,8 +61,7 @@ describe('course file', () => {
     const axis = layout.elements[0].axis;
     expect(axis).toBe(flat.elements[0].axis + 0.5);
     const doc = courseDocument(layout, { edited: true });
-    expect(doc.version).toBe(COURSE_FILE_VERSION);
-    expect(COURSE_FILE_VERSION).toBe(2);
+    expect(doc.version).toBe(2);
     const read = readCourseFile(courseFileText(doc));
     expect(read.ok).toBe(true);
     expect(read.layout.elements[0].axis).toBe(axis);

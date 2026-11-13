@@ -58,6 +58,8 @@ function footprintOutlines(course, e, byId) {
   const ridden = e.path.slice(1, -1);
   for (let i = 1; i < ridden.length; i++) segments.push([ridden[i - 1], ridden[i]]);
   const all = [...cones, ...segments.flat()];
+  // A waypoint has no footprint.
+  if (!all.length) return [];
   const x0 = Math.min(...all.map((p) => p[0])) - pad - STEP;
   const y0 = Math.min(...all.map((p) => p[1])) - pad - STEP;
   const nx = Math.ceil((Math.max(...all.map((p) => p[0])) + pad + STEP - x0) / STEP) + 1;

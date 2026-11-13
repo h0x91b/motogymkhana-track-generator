@@ -540,10 +540,10 @@ export function bearingAxis(from, to) {
 }
 
 /** Where the element before a free one leaves it, for that one's provisional heading: the exit of a fixed element, the cone of a free one. */
-export const leaving = (p) => (isFree(p) ? p.spots[0] : p.exit);
+export const leaving = (p) => (isFree(p) ? [p.ax, p.ay] : p.exit);
 
 /** A free element on its provisional heading: facing away from where the element before it is left (`leaving`). */
-export const provisional = (p, before) => turnedTo(p, bearingAxis(leaving(before), p.spots[0]));
+export const provisional = (p, before) => turnedTo(p, bearingAxis(leaving(before), [p.ax, p.ay]));
 
 // Of those, the router tries this many, best first: a heading much longer
 // than the best is never the one wanted, and each one tried is two connectors.
@@ -562,7 +562,7 @@ const axisOff = (a, b) => Math.abs((((a - b) % 8) + 12) % 8 - 4);
  * `routeLayout` alike, so a layout of a generated course routes back to it.
  */
 export function freeHeadings(p, from, to, radius) {
-  const cone = p.spots[0];
+  const cone = [p.ax, p.ay];
   const near = from ? bearingAxis(from, cone) : to ? bearingAxis(cone, to) : 0;
   if (!ALL_TURNS.has(p)) ALL_TURNS.set(p, FREE_AXES.map((axis) => turnedTo(p, axis)));
   return ALL_TURNS.get(p).map((q, k) => {
@@ -1582,7 +1582,8 @@ export function assemble(recipe, seed, placed, legs, start, finish) {
       // Turned off the half-metre lattice in «Правка» (ADR 0019): cones stand anywhere, measured by X and Y.
       ...(onLattice(p.tpl, p.axis) ? {} : { offLattice: true }),
       params: p.tpl.params,
-      anchor: ids[0],
+      // An element with no cone (a waypoint) is where its anchor point is.
+      ...(ids.length ? { anchor: ids[0] } : { at: { x: p.ax, y: p.ay } }),
       cones: ids,
       entry: { x: round2(p.entry[0]), y: round2(p.entry[1]), dir: p.entryDir },
       exit: { x: round2(p.exit[0]), y: round2(p.exit[1]), dir: p.exitDir },

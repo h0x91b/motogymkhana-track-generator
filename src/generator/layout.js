@@ -12,13 +12,13 @@
 // Everything here is a pure function of the layout, so undo, redo and storage
 // keep layouts and nothing else.
 
-import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, freeHeading, instantiate, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
+import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, freeHeading, instantiate, WAYPOINT, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
   areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, closingTarget, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, freeHeadings, homeBox, innerRect, inside,
   finishAt, isFree, lineOnAsphalt, MAX_CONNECTOR_TURN, onAsphalt, pathClear, placeTemplate, pose, provisional, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones, zoneClear,
 } from './generate.js';
-import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
+import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, segmentDistance2, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
 import {
   BLOCKED_KINDS, BLOCKED_MARGIN, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_SAFETY_KEYS, ELEMENT_TYPES, ELEMENTS_MAX, parseRecipe, parseSafetyValue, SAFETY_OPTIONS, safetyOf,
 } from './recipe.js';
@@ -68,7 +68,7 @@ export function layoutOf(course) {
     recipe: course.recipe,
     seed: course.seed,
     elements: course.elements.map((e) => {
-      const anchor = byId.get(e.anchor);
+      const anchor = e.anchor ? byId.get(e.anchor) : { hx: 2 * e.at.x, hy: 2 * e.at.y };
       return {
         type: e.type, sizes: elementSizes(e.type, e.params, diagonalAxis(e.type, e.axis)),
         // The route gives a free-heading element its heading (ADR 0026): the layout keeps the 45° step nearest, which any build can read.
@@ -92,7 +92,7 @@ export function parseLayout(raw) {
   if (raw.elements.length < 1 || raw.elements.length > ELEMENTS_MAX) return null;
   const elements = [];
   for (const e of raw.elements) {
-    if (!e || !ELEMENT_TYPES.includes(e.type) || !editAxes(e.type).includes(e.axis)) return null;
+    if (!e || !(ELEMENT_TYPES.includes(e.type) || e.type === WAYPOINT) || !editAxes(e.type).includes(e.axis)) return null;
     if (!Number.isInteger(e.x) || !Number.isInteger(e.y) || typeof e.mirrored !== 'boolean') return null;
     if (!e.sizes || !SIZE_SPECS[e.type].every((s) => Number.isFinite(e.sizes[s.key]))) return null;
     const sizes = Object.fromEntries(SIZE_SPECS[e.type].map((s) => [s.key, e.sizes[s.key]]));
@@ -929,6 +929,7 @@ export function insertElement(layout, at, type) {
     : prev ? along(prev.exit, prev.exitDir, AHEAD)
       : next ? along(next.entry, next.entryDir, -AHEAD)
         : [recipe.width / 2, recipe.length / 2];
+  if (type === WAYPOINT) return withWaypoint(layout, at, ideal[0], ideal[1]);
   const el = { type, sizes: startingSizes(type, recipe), axis: 0, mirrored: false, x: 0, y: 0 };
   const turn = (a, b) => Math.abs(wrapPi(a - b));
   const bearing = (from, to) => Math.atan2(to[1] - from[1], to[0] - from[0]);
@@ -975,6 +976,40 @@ export function insertElement(layout, at, type) {
     if (!best || count < best.count) best = { count, candidate };
   }
   return best.candidate;
+}
+
+/** The layout with a waypoint at (x, y), on whole metres inside the margin, put at index `at`. */
+function withWaypoint(layout, at, x, y) {
+  const [x0, y0, x1, y1] = innerRect(layout.recipe);
+  const el = { type: WAYPOINT, sizes: {}, axis: 0, mirrored: false, x: clampTo(x, Math.ceil(x0), Math.floor(x1)), y: clampTo(y, Math.ceil(y0), Math.floor(y1)) };
+  const elements = [...layout.elements];
+  elements.splice(at, 0, el);
+  return { ...layout, elements };
+}
+
+/**
+ * Adds a waypoint where the user tapped the plan: at (x, y), in the list
+ * between the two elements whose connector passes nearest the point, so the
+ * route bends through it instead of jumping elsewhere first.
+ */
+export function insertWaypoint(layout, x, y) {
+  if (layout.elements.length >= ELEMENTS_MAX) return layout;
+  const { course } = routeLayout(layout);
+  const index = new Map(course.elements.map((e, i) => [e.id, i]));
+  const point = [x, y];
+  let at = layout.elements.length;
+  let best = Infinity;
+  for (const leg of course.route.legs) {
+    if (!leg.path) continue;
+    for (let k = 1; k < leg.path.length; k++) {
+      const d = segmentDistance2(leg.path[k - 1], leg.path[k], point, point);
+      if (d < best) {
+        best = d;
+        at = index.get(leg.to) ?? layout.elements.length;
+      }
+    }
+  }
+  return withWaypoint(layout, at, x, y);
 }
 
 // ---------------------------------------------------------------- blocked areas

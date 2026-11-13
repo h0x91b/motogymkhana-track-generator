@@ -250,6 +250,7 @@ export const TYPE_NAMES = {
   'pass-left': 'Конус слева',
   'pass-right': 'Конус справа',
   'small-turn': 'Малый разворот',
+  waypoint: 'Опорная точка',
 };
 
 // Trajectory-hint constants (metres). Visual only, but they size the zones.
@@ -891,8 +892,8 @@ const TYPES = {
     },
   },
 
-  // A tall cone passed on the rider's left (blue) or right (red): a waypoint
-  // of the route, not a figure (ADR 0026). The line goes through a point WEAVE
+  // A tall cone passed on the rider's left (blue) or right (red): a point the
+  // route passes, not a figure (ADR 0026). The line goes through a point WEAVE
   // beside the cone on the other side, on whatever heading the route needs
   // there (`freeHeading`): no straight, no turn of its own. The side is the
   // type, so neither is mirrored: mirroring one in «Правка» makes it the other
@@ -935,6 +936,19 @@ const TYPES = {
 };
 
 /**
+ * «Опорная точка»: a point of the route put by hand in «Правка», no cone and
+ * no side (ADR 0026). The route passes through it on whatever heading suits
+ * it, like a passed cone. The generator never places one.
+ */
+const WAYPOINT_TYPE = {
+  freeHeading: true,
+  point: true,
+  fixedSide: true,
+  options: () => ({}),
+  build: () => ({ cones: [], passes: [], path: [[0, 0]], entryDir: [1, 0], exitDir: [1, 0] }),
+};
+
+/**
  * One tall cone passed on `side`: the line goes through the one point WEAVE
  * beside it, or just outside the element's clearance if that is wider, so a
  * connector turning towards the cone there still keeps it.
@@ -951,8 +965,12 @@ function passCone(side, unit, pad) {
   };
 }
 
+/** The waypoint of a layout: a route point, not an element type of the recipe. */
+export const WAYPOINT = 'waypoint';
+TYPES[WAYPOINT] = WAYPOINT_TYPE;
+
 /** Types whose heading the route chooses, not the layout (ADR 0026): the element turns to whichever of sixteen joins its connectors best. */
-export const FREE_HEADING_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].freeHeading);
+export const FREE_HEADING_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].freeHeading && t !== WAYPOINT);
 export const freeHeading = (type) => Boolean(TYPES[type].freeHeading);
 
 /** The type an element becomes when mirrored, for a type whose side is the type itself; else the type. */
@@ -1233,6 +1251,7 @@ export const SIZE_SPECS = {
   'pass-left': [],
   'pass-right': [],
   'small-turn': [{ key: 'radius', name: 'Радиус разворота', kind: 'radius', min: classRadius, max: 8 }],
+  waypoint: [],
 };
 
 /** Axes 0..7 a type may stand on: curved rings and walls only along the site sides. */
