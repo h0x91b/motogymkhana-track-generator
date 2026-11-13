@@ -297,7 +297,7 @@ const SNAIL_CORE = 4; // snail: the central S spans this many metres
 const ZIGZAG_SEGMENTS = 3;
 const BOX_EIGHT_MARGIN = 1; // licence-test eight: rectangle this far outside the loops
 const KEYHOLE_CLEAR = 1.2; // keyhole: the loop inside runs this far inside the ring
-const KEYHOLE_SPREAD = 1.5; // keyhole: past the neck the passes part to this far either side of the axis
+export const KEYHOLE_SPREAD = 1.4; // keyhole: past the neck the passes part to this far either side of the axis
 const KEYHOLE_TURN = 2; // keyhole: radius of the turns that part them
 const KEYHOLE_GAP_MARGIN = 2.5; // double keyhole: the gap between the necks is at least ring radius + opening less this
 const KEYHOLE_CONES = 12;
@@ -972,14 +972,13 @@ const TYPES = {
  * the opening; in front of the opening a neck of KEYHOLE_NECK_CONES low cones
  * on each side, in line with the ring's end cones, outwards along −a.
  *
- * The line comes up the neck just right of its middle, turns left onto the
- * straight that touches the loop (KEYHOLE_CLEAR inside the ring) and goes
- * clockwise round the centre cone, then back down the other side of the neck,
- * the mirror image. The turn into the ring is on the loop's own radius and its
- * middle is in the middle of the opening: the two passes cross there at half
- * the turn's angle and run down the neck nearly parallel, a few tenths of a
- * metre either side of its middle (`lane`). Past the neck, when `parted`, they
- * part to KEYHOLE_SPREAD either side.
+ * The line comes up the middle of the neck straight, then turns left on the
+ * loop's own radius until it meets the loop (KEYHOLE_CLEAR inside the ring) and
+ * goes clockwise round the centre cone, then back the mirror image: out of the
+ * loop, a turn the other way and straight down the middle of the neck. Both
+ * passes ride the neck on its centre line; the turn starts where the two
+ * circles touch, √3 loop radii short of the centre, a little before the mouth.
+ * Past the neck, when `parted`, they part to KEYHOLE_SPREAD either side.
  *
  * `path` runs from the start of the way in (heading +a) to the end of the way
  * out (heading −a).
@@ -987,25 +986,12 @@ const TYPES = {
 function keyholeShape(radius, opening, unit, parted = true) {
   const k = [radius, 0];
   const rho = radius - KEYHOLE_CLEAR / unit;
-  // The turn into the ring: its middle at the origin heading at gamma / 2, its
-  // end on the straight that touches the loop with the centre on its right.
-  const end = (g) => [rho * (Math.sin(g) - Math.sin(g / 2)), rho * (Math.cos(g / 2) - Math.cos(g))];
-  const miss = (g) => {
-    const [ea, eb] = end(g);
-    return (k[0] - ea) * Math.sin(g) + eb * Math.cos(g) - rho;
-  };
-  let lo = 0;
-  let hi = PI / 2;
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2;
-    if (miss(mid) < 0) lo = mid;
-    else hi = mid;
-  }
-  const gamma = (lo + hi) / 2;
-  const turn = [-rho * Math.sin(gamma / 2), rho * Math.cos(gamma / 2)];
-  const lane = rho - turn[1];
+  // The turn in leaves the centre line at `bend`, its circle touching the
+  // loop's: a sixth of a turn left, then the loop carries on to the right.
+  const bend = radius - Math.sqrt(3) * rho;
+  const gamma = PI / 3;
   // In and half round, to the far side of the loop; the way back is its mirror image.
-  const way = [...arcPoints(turn, rho, -PI / 2, gamma, ARC), ...arcPoints(k, rho, PI / 2 + gamma, -(PI / 2 + gamma), ARC)];
+  const way = [...arcPoints([bend, rho], rho, -PI / 2, gamma, ARC), ...arcPoints(k, rho, PI / 2 + gamma, -(PI / 2 + gamma), ARC)];
   const half = opening / 2;
   const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
   const ring = conesAt(arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1), 'low');
@@ -1014,15 +1000,17 @@ function keyholeShape(radius, opening, unit, parted = true) {
   for (const c of [ring[0], ring[ring.length - 1]]) {
     for (let i = 1; i <= KEYHOLE_NECK_CONES; i++) neck.push({ a: c.a - i * step, b: c.b, height: 'low' });
   }
+  // Straight up the middle from the neck's end, or from the turn if that starts further out.
+  const out = Math.min(bend, ...neck.map((c) => c.a));
+  if (out < bend) way.unshift([out, 0]);
   // Past the neck the two passes part: an S of two KEYHOLE_TURN arcs from the
-  // lane out to KEYHOLE_SPREAD either side of the axis, so the connectors into
-  // and out of the keyhole are not one on top of the other.
+  // centre line out to KEYHOLE_SPREAD either side, so the connectors into and
+  // out of the keyhole are not one on top of the other.
   if (parted) {
     const spread = KEYHOLE_SPREAD / unit;
     const r = KEYHOLE_TURN / unit;
-    const length = 2 * r * Math.sin(Math.acos(1 - (spread - lane) / (2 * r)));
-    const out = Math.min(...neck.map((c) => c.a));
-    way.unshift(...sBend(out - length, -spread, length, -lane).slice(0, -1));
+    const length = 2 * r * Math.sin(Math.acos(1 - spread / (2 * r)));
+    way.unshift(...sBend(out - length, -spread, length, 0).slice(0, -1));
   }
   const back = way.slice(0, -1).reverse().map(([a, b]) => [a, -b]);
   return {
@@ -1030,7 +1018,6 @@ function keyholeShape(radius, opening, unit, parted = true) {
     ring,
     neck,
     path: [...way, ...back],
-    lane,
     guide: { center: k, radii: [radius], from: PI + gap, to: 3 * PI - gap },
   };
 }
@@ -1042,9 +1029,9 @@ function keyholeShape(radius, opening, unit, parted = true) {
  * In from the side into the gap, a left turn up A's neck, the loop clockwise
  * round A's centre cone, down the neck, straight across the gap into B's
  * neck, the loop anticlockwise round B's, out of its neck and a right turn on
- * through the gap the same way. The straight across goes from one side of the
- * middle to the other, so the way in crosses it and so does the way out: the
- * passes cross in the gap like an eight. The turns in the gap are on the
+ * through the gap the same way. Up and down each neck and across the gap the
+ * line runs on the line of centres, so the way in and the way out meet it there
+ * and the passes cross on it. The turns in the gap are on the
  * loops' radius: nothing in the element is tighter than the loops.
  */
 function doubleKeyhole({ radius, opening, gap }, unit) {

@@ -27,7 +27,7 @@ const courses = RECIPES.flatMap((r) => Array.from({ length: SEEDS }, (_, seed) =
 const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
 // A single cone has no dimension line either: the card says its side or turn.
-const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'crescent', 'pass-left', 'pass-right', 'small-turn'];
+const LAID_FROM_CENTRES = ['pivot-turn', 'circle', 'fast-circle', 'snail', 'keyhole', 'double-keyhole', 'crescent', 'pass-left', 'pass-right', 'small-turn'];
 const isHalf = (v) => Number.isInteger(v * 2);
 /** A setup-sheet distance: always one decimal, decimal comma («12,0», «1,5»). */
 const d1 = (v) => v.toFixed(1).replace('.', ',');

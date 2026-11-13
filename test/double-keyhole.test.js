@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { canonicalJSON, ELEMENT_TYPES, generateCourse, LOOPED_TYPES } from '../src/generator/index.js';
-import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
+import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, KEYHOLE_SPREAD, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { elementControls, insertElement, layoutOf, mirrorElement, routeLayout } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { loopArrow } from '../src/render/loops.js';
@@ -113,25 +113,27 @@ describe('catalog', () => {
     }
   });
 
-  test('each pass crosses the other in its ring\'s opening, on the line of centres, and the passes cross in the gap', () => {
+  test('each ring is ridden in and out straight up the middle of its neck, on the line of centres', () => {
     for (const sizes of allSizes()) {
       const t = tpl(sizes);
       const m = metres(t);
-      const radius = t.params.radius * t.unit;
-      const crossings = selfCrossings(m.path);
       const [ca, cb] = m.tall.map((c) => c.p);
-      for (const c of [ca, cb]) {
-        const [x, ...rest] = crossings.filter((q) => Math.hypot(q[0] - c[0], q[1] - c[1]) < radius + 0.5);
-        expect(rest).toEqual([]);
-        expect(x[0]).toBeCloseTo(0, 1);
-        expect(Math.abs(x[1] - c[1])).toBeCloseTo(radius, 0);
+      const mid = (ca[1] + cb[1]) / 2;
+      // A neck: the four low cones nearest the gap on that side of it.
+      const necks = [(y) => y > mid, (y) => y < mid].map((side) => {
+        const ys = m.low.map((c) => c.p[1]).filter(side).sort((u, v) => Math.abs(u - mid) - Math.abs(v - mid));
+        const rows = [...new Set(ys)].slice(0, KEYHOLE_NECK_CONES);
+        return [Math.min(...rows), Math.max(...rows)];
+      });
+      for (const [lo, hi] of necks) {
+        const inNeck = m.path.filter((q) => q[1] >= lo - 1e-9 && q[1] <= hi + 1e-9);
+        expect(inNeck.length).toBeGreaterThan(0);
+        for (const q of inNeck) expect(Math.abs(q[0] - ca[0]), `${JSON.stringify(sizes)} ${q}`).toBeLessThan(0.4);
       }
-      // Between the necks: the straight across crosses the way in and the way out, like an eight.
-      const lows = m.low.map((c) => c.p[1]);
-      const bottomA = Math.min(...lows.filter((y) => y > (ca[1] + cb[1]) / 2));
-      const topB = Math.max(...lows.filter((y) => y < (ca[1] + cb[1]) / 2));
-      const inGap = crossings.filter((q) => q[1] < bottomA && q[1] > topB);
-      expect(inGap.length).toBeGreaterThanOrEqual(2);
+      // Across the gap the line is the line of centres itself, and nothing crosses it off that line.
+      const across = m.path.filter((q) => Math.abs(q[0] - ca[0]) < 1e-6 && q[1] <= necks[0][0] + 1e-9 && q[1] >= necks[1][1] - 1e-9);
+      expect(across.length).toBeGreaterThanOrEqual(2);
+      for (const q of selfCrossings(m.path)) expect(Math.abs(q[0] - ca[0])).toBeLessThan(0.4);
     }
   });
 
@@ -181,7 +183,7 @@ describe('catalog', () => {
 });
 
 describe('keyhole', () => {
-  test('a ring of 12 low cones, a neck of two cones each side, the passes crossing in the opening and leaving the neck nearly parallel', () => {
+  test('a ring of 12 low cones, a neck of two cones each side, both passes straight up and down the middle of the neck', () => {
     for (const radius of sizeValues(SIZE_SPECS.keyhole[0])) {
       for (const opening of sizeValues(SIZE_SPECS.keyhole[1])) {
         const t = instantiate('keyhole', elementParams('keyhole', { radius, opening }, false, 'sport'), false, false);
@@ -194,20 +196,20 @@ describe('keyhole', () => {
         expect(tightestBend(m.path.filter((q) => q[0] > Math.min(...m.low.map((c) => c.p[0]))))).toBeGreaterThan(loop * 0.97);
         expect(tightestBend(m.path)).toBeGreaterThan(Math.min(loop, 2) * 0.97);
         for (const c of m.low) expect(toPath(m.path, c.p), `${radius} ${opening}`).toBeGreaterThan(0.6);
-        // One crossing, in the opening: level with the ring's end cones, on the axis through the centre.
-        const crossings = selfCrossings(m.path);
-        expect(crossings).toHaveLength(1);
-        const [x] = crossings;
+        // Up and down the neck both passes ride its middle, straight, from its end on the centre line
+        // (the turn into the ring is on the loop's radius, so it starts before the mouth); past it they part to KEYHOLE_SPREAD either side.
         const ends = [m.cones[0], m.cones[11]];
-        expect(Math.abs(x[0] - ends[0].p[0])).toBeLessThan(0.75);
-        expect(x[1]).toBeCloseTo(centre[1], 0);
-        // Down the neck the way in and the way out are straight along the axis, under half a metre either side of
-        // it; past it they part to 1.5 m either side.
         const neckEnd = Math.min(...m.low.map((c) => c.p[0]));
+        // Between the neck cones: within 0.2 m of the middle; at the mouth itself under 0.5 m.
+        const neckRow = Math.max(...m.low.filter((c) => c.p[0] < ends[0].p[0]).map((c) => c.p[0]));
+        const between = m.path.filter((q) => q[0] >= neckEnd - 1e-9 && q[0] <= neckRow + 1e-9);
+        expect(between.length).toBeGreaterThan(0);
+        for (const q of between) expect(Math.abs(q[1] - centre[1]), `${radius} ${opening}`).toBeLessThan(0.2 + 1e-9);
         const inNeck = m.path.filter((q) => q[0] >= neckEnd - 1e-9 && q[0] < ends[0].p[0]);
-        expect(inNeck.length).toBeGreaterThan(0);
-        for (const q of inNeck) expect(Math.abs(q[1] - centre[1])).toBeLessThan(0.5);
-        for (const q of [m.path[0], m.path.at(-1)]) expect(Math.abs(q[1] - centre[1])).toBeCloseTo(1.5, 9);
+        for (const q of inNeck) expect(Math.abs(q[1] - centre[1]), `${radius} ${opening}`).toBeLessThan(0.5);
+        expect(m.path.filter((q) => Math.abs(q[1] - centre[1]) < 1e-6 && q[0] <= neckEnd + 0.5).length).toBeGreaterThanOrEqual(2);
+        for (const q of selfCrossings(m.path)) expect(Math.abs(q[1] - centre[1])).toBeLessThan(0.5);
+        for (const q of [m.path[0], m.path.at(-1)]) expect(Math.abs(q[1] - centre[1])).toBeCloseTo(KEYHOLE_SPREAD, 9);
         expect(t.entryDir).toEqual([1, 0]);
         expect(t.exitDir).toEqual([-1, 0]);
       }
