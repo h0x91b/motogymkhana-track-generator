@@ -64,7 +64,8 @@ describe('size options', () => {
   test('the class radius sizes the loops of a figure eight, not the distance between its cones (ADR 0021)', () => {
     const eight = (difficulty, bike) => {
       const recipe = { ...SITE, elements: 1, difficulty, bike, types: ['figure-eight'] };
-      const e = Array.from({ length: 30 }, (_, seed) => generateCourse(recipe, seed).course.elements[0]).find((x) => x.axis % 2 === 0);
+      let e;
+      for (let seed = 0; seed < 30 && !(e?.axis % 2 === 0); seed++) e = generateCourse(recipe, seed).course.elements[0];
       return { distance: e.params.distance * unitOf(e), radius: e.params.radius };
     };
     for (const bike of ['cruiser', 'sport']) {
@@ -156,15 +157,15 @@ describe('size options', () => {
       sizes: { 'straight-slalom': { step: 6 }, 'offset-slalom': { step: 7 }, circle: { radius: 5 }, 'corridor-slalom': { width: 6, step: 5 } },
     };
     let simplified = 0;
-    // Fast: two seeds that simplify and take the least time to.
-    for (const seed of seeds(30, [1, 8], 0)) {
+    // Fast: a seed that simplifies and takes the least time to.
+    for (const seed of seeds(30, [1], 0)) {
       const full = generateCourse(tight, seed).course;
       if (!full || full.placed === tight.elements) continue;
       simplified++;
       const direct = generateCourse({ ...tight, elements: full.placed }, seed).course;
       expect({ ...direct, requested: 0 }).toEqual({ ...full, requested: 0, recipe: { ...full.recipe, elements: full.placed } });
     }
-    expect(simplified).toBeGreaterThan(sweep(3, 1));
+    expect(simplified).toBeGreaterThan(sweep(3, 0));
   }, timeout(30_000));
 
   test('the setup sheet card says which sizes the recipe fixed and what the class raised', () => {

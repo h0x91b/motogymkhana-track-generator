@@ -461,8 +461,8 @@ describe('editing a layout', () => {
     expect(first.elements.length).toBe(base.elements.length + 1);
     const between = routed(insertElement(base, 3, 'gate'));
     expect(between.elements[3].type).toBe('gate');
-    let full = single('gate');
-    while (full.elements.length < ELEMENTS_MAX) full = insertElement(full, full.elements.length, 'gate');
+    const one = single('gate');
+    const full = { ...one, elements: Array.from({ length: ELEMENTS_MAX }, () => one.elements[0]) };
     expect(insertElement(full, 0, 'gate')).toBe(full);
   });
 

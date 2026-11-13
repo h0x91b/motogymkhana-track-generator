@@ -47,7 +47,7 @@ describe('the recipe', () => {
   });
 
   test('a course at defaults is the same as one with every default spelled out', () => {
-    for (const seed of seeds(3, [2])) {
+    for (const seed of seeds(3, [19])) {
       expect(canonicalJSON(course({ ...ANTON, safety: { ...SAFETY_DEFAULTS } }, seed))).toBe(canonicalJSON(course(ANTON, seed)));
     }
   }, timeout(30_000));
@@ -81,7 +81,7 @@ describe('the generated course keeps the values set', () => {
 
   test('zone padding: the zone is the cones and line grown by exactly the value set', () => {
     for (const pad of [0, 0.5, 1.5]) {
-      const c = course({ ...recipe, safety: { pad } }, 2);
+      const c = course({ ...recipe, safety: { pad } }, 12);
       // An open single cone's line is only its two ends on the zone edge: nothing inside to grow.
       for (const e of c.elements.filter((el) => el.axis % 2 === 0 && el.path.length > 2)) {
         const byId = conesById(c);

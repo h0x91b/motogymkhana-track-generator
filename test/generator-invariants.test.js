@@ -56,8 +56,8 @@ const RECIPES = [
       width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed',
       types: ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'lane-change'],
     },
-    // Fast: seeds that between them deal every type of the recipe.
-    seeds: sweep(30, [2, 5, 14]),
+    // Fast: three cheap seeds that between them deal every type of the recipe.
+    seeds: sweep(30, [113, 156, 223]),
   },
   {
     name: 'only big types',

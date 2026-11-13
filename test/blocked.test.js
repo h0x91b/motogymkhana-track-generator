@@ -292,7 +292,7 @@ describe('«Правка»', () => {
 
 describe('the setup sheet', () => {
   test('measures each blocked area from corner A: its nearest corner, then its size', () => {
-    const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [P_CUTOUT, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5 }] }, 7).course);
+    const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [P_CUTOUT, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5 }] }, 15).course);
     expect(sheet.site.blocked.map((b) => b.label.replace(/\u00a0/g, ' '))).toEqual([
       'Вырез 1: угол X 14 · Y 0 м, по X 12 м, по Y 22 м; отступ 1 м, как от края площадки',
       'Препятствие 2: угол X 3 · Y 30 м, по X 2 м, по Y 5 м; отступ 1 м, как от края площадки',
@@ -300,7 +300,7 @@ describe('the setup sheet', () => {
   });
 
   test('names an area\'s own margin in its line', () => {
-    const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [{ ...P_CUTOUT, margin: 2 }, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5, margin: 0 }] }, 7).course);
+    const sheet = buildSetupSheet(generateCourse({ ...P_LOT, blocked: [{ ...P_CUTOUT, margin: 2 }, { kind: 'obstacle', x: 3, y: 30, w: 2, h: 5, margin: 0 }] }, 15).course);
     expect(sheet.site.blocked.map((b) => b.label.replace(/\u00a0/g, ' '))).toEqual([
       'Вырез 1: угол X 14 · Y 0 м, по X 12 м, по Y 22 м; отступ 2 м',
       'Препятствие 2: угол X 3 · Y 30 м, по X 2 м, по Y 5 м; отступ нет',
