@@ -7,6 +7,7 @@ import { buildSetupSheet, CROSSING_LABELS, dist, fmt } from '../sheet/setup-shee
 import { centreOn, createCamera, drawScene, frameBounds, hitTest, makeProjector, resetCamera } from '../render/scene.js';
 import { hitHandle } from '../render/handles.js';
 import { buildRide, RIDE_SPEED, rideAt } from '../render/ride.js';
+import { renderRiderSheet } from '../render/rider-sheet.js';
 import { renderSheetImages } from '../render/sheet-image.js';
 import { createEditor } from './editor.js';
 import { createGenerator } from './generator-client.js';
@@ -68,7 +69,7 @@ const state = {
   view: null, // the projection of the last frame drawn: where a finger on the plan points
   requestId: 0,
   shownId: 0,
-  image: null, // { id, files } — the setup-sheet frames, prepared ahead of a share tap
+  image: null, // { id, files } — the rider's sheet and the setup-sheet frames ({ file, rider, width, height }), prepared ahead of a share tap
   // What «↶» brings back, newest last: seeds «Новый seed» replaced, and edited
   // courses a new one replaced, as { layout, form }. Only within one saved course.
   seedHistory: [],
@@ -1829,14 +1830,23 @@ function makeCanvas(w, h) {
   return c;
 }
 
-/** The setup sheet as numbered 9:16 PNG files, in the order they are read. */
+const toPng = (canvas, name) => new Promise((resolve) => canvas.toBlob(resolve, 'image/png')).then((blob) => {
+  if (!blob) throw new Error('png');
+  return new File([blob], name, { type: 'image/png' });
+});
+
+/**
+ * The rider's A4 sheet first, then the setup sheet as numbered 9:16 frames in
+ * the order they are read. Each with its page size, for the preview.
+ */
 async function buildImageFiles() {
+  const date = new Date().toLocaleDateString('ru-RU');
+  const rider = renderRiderSheet(state.course, state.sheet, makeCanvas, { title: currentName(), date });
   const canvases = renderSheetImages(state.course, state.sheet, makeCanvas);
-  return Promise.all(canvases.map(async (c, i) => {
-    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('png');
-    return new File([blob], `motogymkhana-skhema-${i + 1}-iz-${canvases.length}.png`, { type: 'image/png' });
-  }));
+  return Promise.all([
+    toPng(rider, 'motogymkhana-dlya-gonshchika-A4.png').then((file) => ({ file, rider: true, width: rider.width, height: rider.height })),
+    ...canvases.map((c, i) => toPng(c, `motogymkhana-skhema-${i + 1}-iz-${canvases.length}.png`).then((file) => ({ file, rider: false, width: c.width, height: c.height }))),
+  ]);
 }
 
 let imageTimer = 0;
@@ -1918,31 +1928,43 @@ async function openPicture() {
   renderFrames(files);
 }
 
-function renderFrames(files) {
+function renderFrames(pages) {
   for (const url of pictureUrls) URL.revokeObjectURL(url);
   pictureUrls = [];
   const list = $('frames');
   list.replaceChildren();
-  $('picture-actions').hidden = !files;
-  if (!files) {
+  $('picture-actions').hidden = !pages;
+  if (!pages) {
     $('picture-title').textContent = 'Картинка';
     $('picture-status').textContent = 'Рисую кадры…';
     return;
   }
-  const n = files.length;
-  $('picture-title').textContent = `Картинка · ${n} ${framesWord(n)}`;
+  // The rider's sheet first, on its own; then the setup-sheet frames, numbered among themselves.
+  const n = pages.filter((p) => !p.rider).length;
+  $('picture-title').textContent = `Картинка · лист гонщика и ${n} ${framesWord(n)}`;
   $('picture-status').textContent = '';
-  files.forEach((file, i) => {
+  let k = 0;
+  pages.forEach(({ file, rider, width, height }) => {
+    if (!rider) k++;
+    const name = rider ? 'лист для гонщика' : `кадр ${k} из ${n}`;
     const url = URL.createObjectURL(file);
     pictureUrls.push(url);
     const item = document.createElement('li');
-    item.className = 'frame';
+    item.className = rider ? `frame frame-rider${width > height ? ' landscape' : ''}` : 'frame';
     const img = document.createElement('img');
     img.src = url;
-    img.alt = `Кадр ${i + 1} из ${n}: ${i === 0 ? 'план трассы, легенда и ведомость конусов' : 'карточки элементов'}`;
+    // A portrait A4 sits in the frames' 9:16 slot (contained), so the captions and buttons line up; a landscape one gets a wide slot of its own.
+    if (width > height) img.style.aspectRatio = `${width} / ${height}`;
+    img.alt = rider
+      ? 'Лист для гонщика, A4: вся трасса одной линией со стрелками, элементы по номерам, конусы по цветам сторон, старт и финиш'
+      : `Кадр ${k} из ${n}: ${k === 1 ? 'план трассы, легенда и ведомость конусов' : 'карточки элементов'}`;
     const caption = document.createElement('p');
     caption.className = 'muted';
-    caption.textContent = `Кадр ${i + 1} из ${n}`;
+    if (rider) {
+      const strong = document.createElement('strong');
+      strong.textContent = 'Для гонщика';
+      caption.append(strong, ' · A4 для печати');
+    } else caption.textContent = `Расстановка · кадр ${k} из ${n}`;
     const row = document.createElement('div');
     row.className = 'row';
     const save = document.createElement('a');
@@ -1950,22 +1972,23 @@ function renderFrames(files) {
     save.href = url;
     save.download = file.name;
     save.textContent = 'Скачать';
-    save.setAttribute('aria-label', `Скачать кадр ${i + 1} из ${n}`);
+    save.setAttribute('aria-label', `Скачать ${name}`);
     row.append(save);
     if (canShareFiles([file])) {
       const send = document.createElement('button');
       send.type = 'button';
       send.textContent = 'Поделиться';
-      send.setAttribute('aria-label', `Поделиться кадром ${i + 1} из ${n}`);
+      send.setAttribute('aria-label', `Поделиться: ${name}`);
       send.addEventListener('click', () => shareFiles([file]));
       row.append(send);
     }
     item.append(img, caption, row);
     list.append(item);
   });
-  $('share-all').hidden = n < 2 || !canShareFiles(files);
-  $('download-all').hidden = n < 2;
-  $('picture-actions').hidden = n < 2;
+  const files = pages.map((p) => p.file);
+  $('share-all').hidden = !canShareFiles(files);
+  $('download-all').hidden = false;
+  $('picture-actions').hidden = false;
 }
 
 function closePicture() {
@@ -2215,8 +2238,8 @@ function start() {
   $('picture-sheet').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePicture();
   });
-  $('share-all').addEventListener('click', () => shareFiles(state.image.files));
-  $('download-all').addEventListener('click', () => download(state.image.files));
+  $('share-all').addEventListener('click', () => shareFiles(state.image.files.map((p) => p.file)));
+  $('download-all').addEventListener('click', () => download(state.image.files.map((p) => p.file)));
   $('ride').addEventListener('click', toggleRide);
   $('ride-speed').addEventListener('click', cycleRideSpeed);
   renderSpeedButton();

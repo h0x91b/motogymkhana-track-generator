@@ -564,8 +564,10 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 /* The next frame peeks past the edge on a phone; on a wide screen the row is centred. */
 .frame { flex: 0 0 min(58vw, 240px); display: flex; flex-direction: column; gap: 6px; scroll-snap-align: start; }
 .frame:first-child { margin-inline-start: auto; }
+/* The rider's A4 sheet: a landscape page gets a wider slot, so it reads at the same height. */
+.frame-rider.landscape { flex-basis: min(82vw, 340px); }
 .frame:last-child { margin-inline-end: auto; }
-.frame img { display: block; width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; background: #fff; outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
+.frame img { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: contain; border-radius: 10px; background: #fff; outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
 .frame p { margin: 0; font-size: 13px; }
 .frame .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
 .frame .row > * { padding-inline: 6px; }
