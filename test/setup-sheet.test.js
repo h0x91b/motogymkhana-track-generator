@@ -14,7 +14,8 @@ import { seeds, sweep } from './helpers/slow.js';
 const RECIPES = [
   [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, [0, 9]],
   [{ width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, [0, 1, 2]],
-  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, [2]],
+  // No seed in the default run: none lays out in under a fifth of a second.
+  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, []],
   [{ width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, [2, 4]],
   // Puts on the course the types whose cards have their own checks, which a few
   // seeds of the mixed recipes can miss.

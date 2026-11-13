@@ -21,8 +21,8 @@ const makeCanvas = (width, height) => ({ width, height, getContext: () => fakeCo
 
 test('every frame of the setup sheet draws without an error', () => {
   for (const [recipe, seed] of [
-    // Seed 6 lays out all eight at once; seed 1 takes three times as long.
-    [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true }, 6],
+    // Seed 17 lays out all eight at once; seed 1 takes fifty times as long.
+    [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true }, 17],
     [{ width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'open', safety: { pad: 0, coneGap: 0 } }, 1],
   ]) {
     const { course } = generateCourse(recipe, seed);

@@ -18,16 +18,22 @@ const inside = (poly, [x, y]) => {
 };
 
 const base = { width: '30', length: '45', elements: '8', difficulty: 'hard', bike: 'cruiser', closed: true, train: false };
+const made = new Map();
+/** A generated course, made once for the whole file. */
 const course = (recipe, seed) => {
-  const r = generateCourse(recipe, seed);
-  expect(r.ok).toBe(true);
-  return r.course;
+  const key = `${JSON.stringify(recipe)} ${seed}`;
+  if (!made.has(key)) {
+    const r = generateCourse(recipe, seed);
+    expect(r.ok).toBe(true);
+    made.set(key, r.course);
+  }
+  return made.get(key);
 };
 
 describe('reservedZones', () => {
   test('the outline of every element footprint, run-off zones of turning elements, one terminal on a closed course', () => {
-    // Seed 2 has turning elements, so run-off zones to draw.
-    const c = course(base, 2);
+    // Seed 14 has a turning element, so a run-off zone to draw, and U-turns on connectors (the test below).
+    const c = course(base, 14);
     const zones = reservedZones(c);
     const of = (kind) => zones.filter((z) => z.kind === kind);
     const byId = new Map(c.cones.map((k) => [k.id, k]));

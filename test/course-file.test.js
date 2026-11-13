@@ -15,7 +15,7 @@ import { sweep, timeout } from './helpers/slow.js';
 // Each recipe with the seed the default run takes, one that lays out at once;
 // the largest seed is one of them. The slow run takes all of SEEDS.
 const RECIPES = [
-  [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true }, 6],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true }, 17],
   [{ width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'open' }, 2],
   [{ width: 40, length: 60, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'return', sizes: { 'straight-slalom': { step: 4 } } }, 4294967295],
   [{ width: 28, length: 30, elements: 5, difficulty: 'easy', bike: 'sport', shape: 'closed', train: true }, 9],

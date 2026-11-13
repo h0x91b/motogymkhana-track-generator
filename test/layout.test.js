@@ -21,9 +21,10 @@ import { coneXY, conesById, distanceToPath, insidePolygon } from './helpers/cour
 // Each recipe with the seeds the default run takes: two of the first (tests edit
 // generated[1]) and one of each other, one that lays out at once.
 const RECIPES = [
-  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, [0, 1]],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, [0, 9]],
   [{ width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, [0]],
-  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, [2]],
+  // No seed in the default run: none lays out in under a fifth of a second.
+  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, []],
   [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, [6]],
   [{ width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, [0]],
   [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, [14]],

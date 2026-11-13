@@ -20,7 +20,8 @@ import { SLOW, slowTest, sweep, timeout } from './helpers/slow.js';
 const RECIPES = [
   { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, [9]) },
   { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: sweep(80, [2]) },
-  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: sweep(80, [2]) },
+  // No fast seed: none lays out in under a fifth of a second; the hard sport and small easy closed recipes cover it.
+  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: sweep(80, 0) },
   { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: sweep(60, [6]) },
   { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, seeds: sweep(80, 1) },
   {

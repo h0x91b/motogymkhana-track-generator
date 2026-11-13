@@ -145,8 +145,8 @@ describe('in «Правка»', () => {
 
   /** A course of the recipe with a turning element in it, and that element's index. */
   const withTurn = (r) => {
-    // From seed 4: the seeds before it take longer to lay out.
-    for (let seed = 4; ; seed++) {
+    // From seed 6: it lays out at once with a turning element; the seeds before it take longer or have none.
+    for (let seed = 6; ; seed++) {
       const c = course(r, seed);
       const i = c.elements.findIndex((e) => RUN_OFF_TYPES[e.type]);
       if (i >= 0) return { c, i };
