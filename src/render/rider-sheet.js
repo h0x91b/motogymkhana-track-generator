@@ -1,7 +1,8 @@
 // The rider's sheet: one A4 page with the whole course, for the person riding
 // it, not the one laying it out. What matters is the trajectory: one bold line
 // in passing order with direction arrows, each element in its own colour with
-// its number at the entry, cones in their side colours, start and finish. No
+// its number at the entry, cones in their side colours, start and finish, and
+// the fence of each element bounded by low cones with its gates. No
 // dimensions, coordinates, grid, reserved zones or anchors: the setup-sheet
 // frames carry those (SPEC, «Лист гонщика»).
 
@@ -9,6 +10,7 @@ import { SHAPE_NAMES } from '../generator/recipe.js';
 import { buildRide } from './ride.js';
 import { loopArrow } from './loops.js';
 import { boxArrows, terminalPlates } from './terminals.js';
+import { fences, gatedFence } from './fences.js';
 
 /** A4 at 300 dpi. */
 export const A4 = { short: 2480, long: 3508 };
@@ -22,6 +24,8 @@ const RED = '#cc4330';
 const STRIPE = '#f5c400';
 const LOW = '#f08a24';
 const PLATE = '#ffe14d';
+/** Fences of low cones: a dark brick red, apart from the line colours and dark in grey print. */
+export const FENCE = '#a01e14';
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 /**
  * The line's colour per element, cycled past eight. Chosen and checked with the
@@ -65,6 +69,9 @@ export function riderSizes(s) {
     arrowStep: Math.max(5, 260 / s), // metres between direction arrows
     cone: clamp(0.38 * s, 15, 34),
     badge: clamp(0.62 * s, 30, 48),
+    fence: clamp(0.11 * s, 5, 9),
+    dash: [clamp(0.8 * s, 24, 48), clamp(0.5 * s, 15, 30)],
+    post: clamp(0.9 * s, 28, 52), // a gate post's length across the fence
   };
 }
 
@@ -100,6 +107,26 @@ function coneDot(ctx, x, y, color, height, r) {
     ctx.textBaseline = 'middle';
     ctx.fillText(color === 'blue' ? 'Л' : 'П', x, y + r * 0.06);
   }
+}
+
+/** A gate post: a short bar across the fence, in the fence's colour, white-edged so it reads over a cone or a line. */
+function gatePost(ctx, x, y, a, length, width) {
+  const [ux, uy] = [-Math.sin(a), -Math.cos(a)]; // across the fence, on the page (y down)
+  ctx.lineCap = 'round';
+  for (const [colour, w] of [['#fff', width + 6], [FENCE, width]]) {
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(x - (ux * length) / 2, y - (uy * length) / 2);
+    ctx.lineTo(x + (ux * length) / 2, y + (uy * length) / 2);
+    ctx.stroke();
+  }
+}
+
+/** The legend's gate: two posts across a gap. */
+function gatePosts(ctx, x0, y0, x1, y1, length, width) {
+  gatePost(ctx, x0, y0, 0, length, width);
+  gatePost(ctx, x1, y1, 0, length, width);
 }
 
 function arrowHead(ctx, x, y, a, size, color) {
@@ -253,6 +280,22 @@ function drawFooter(ctx, page, hasPivot) {
     { glyph: (x, y) => coneDot(ctx, x, y, null, 'low', r), text: 'низкий конус' },
     {
       glyph: (x, y) => {
+        ctx.strokeStyle = FENCE;
+        ctx.lineCap = 'butt';
+        ctx.lineWidth = 7;
+        ctx.setLineDash([16, 10]);
+        ctx.beginPath();
+        ctx.moveTo(x - 26, y);
+        ctx.lineTo(x + 30, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      },
+      text: 'граница из низких конусов',
+      wide: true,
+    },
+    { glyph: (x, y) => gatePosts(ctx, x - 24, y, x + 12, y, 30, 8), text: 'ворота — въезд и выезд' },
+    {
+      glyph: (x, y) => {
         ctx.strokeStyle = INK;
         ctx.lineWidth = 9;
         ctx.lineCap = 'butt';
@@ -391,15 +434,6 @@ export function renderRiderSheet(course, sheet, makeCanvas, { title = 'Трас�
   ctx.lineWidth = size.line * 1.3;
   ctx.strokeStyle = INK;
   ctx.lineCap = 'butt';
-  if (course.route.shape === 'return') {
-    const box = course.route.start.cones.map((id) => byId.get(id));
-    ctx.lineWidth = size.line * 0.6;
-    ctx.beginPath();
-    box.forEach((c, i) => (i ? ctx.lineTo(X(c.hx / 2), Y(c.hy / 2)) : ctx.moveTo(X(c.hx / 2), Y(c.hy / 2))));
-    ctx.closePath();
-    ctx.stroke();
-    ctx.lineWidth = size.line * 1.3;
-  }
   const lines = course.route.shape === 'open' ? [course.route.start, course.route.finish] : [course.route.start];
   for (const t of lines) {
     const [a, b] = t.cones.slice(0, 2).map((id) => byId.get(id));
@@ -410,10 +444,41 @@ export function renderRiderSheet(course, sheet, makeCanvas, { title = 'Трас�
   }
   ctx.setLineDash([]);
 
-  // The riding line: one bold stroke per element's colour run.
+  // Fences of low cones (box, U-turn, keyhole, snail, corridors, the start
+  // box): bold dashes through the cones, cut where the line goes in or out,
+  // with a post either side of the gap. Under the riding line.
   const ride = buildRide(course);
   const entries = entriesOf(ride, course);
   const owners = colourOwners(ride, course, entries);
+  // An element's gates are where its own stretch of line (in its colour) goes
+  // through its fence, not where another element's connector happens to; the
+  // start box's are wherever the line goes through it.
+  const stretches = (id) => {
+    if (id === 'start') return [ride.points];
+    const out = [];
+    owners.forEach((o, i) => {
+      if (o !== id) return;
+      if (i === 0 || owners[i - 1] !== id) out.push(i ? [ride.points[i - 1]] : []);
+      out.at(-1).push(ride.points[i]);
+    });
+    return out;
+  };
+  const gated = fences(course).map((f) => gatedFence(f, stretches(f.element)));
+  ctx.setLineDash(size.dash);
+  ctx.lineCap = 'butt';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size.fence;
+  ctx.strokeStyle = FENCE;
+  for (const g of gated) {
+    for (const wall of g.walls) {
+      ctx.beginPath();
+      wall.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+      ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+
+  // The riding line: one bold stroke per element's colour run.
   const orderOf = new Map(ridden(course).map((e, i) => [e.id, i]));
   const colourOf = (id) => (id == null ? INK : LINE_COLORS[orderOf.get(id) % LINE_COLORS.length]);
   const pointAt = (d) => {
@@ -490,6 +555,8 @@ export function renderRiderSheet(course, sheet, makeCanvas, { title = 'Трас�
     e.cones.forEach((id, i) => colorOf.set(id, card.cones[i].color));
     for (const t of card.turnCones) colorOf.set(t.cone, t.color);
   }
+  // Gate posts over the line, under the cones (an opening's posts stand at its end cones): where to go in and out.
+  for (const g of gated) for (const p of g.posts) gatePost(ctx, X(p.x), Y(p.y), p.a, size.post, size.fence * 1.4);
   for (const c of course.cones) coneDot(ctx, X(c.hx / 2), Y(c.hy / 2), colorOf.get(c.id), c.height, size.cone);
 
   // Labels keep clear of the line, the cones and each other.

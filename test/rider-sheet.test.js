@@ -94,3 +94,69 @@ test('the riding line takes one colour per element, and the line crosses itself 
   // Box-eight, keyholes and the pivot turn cross their own line.
   expect(selfCrossings(buildRide(course)).length).toBeGreaterThan(3);
 });
+
+// The fences of low cones: every element bounded by low cones gets one through
+// its cones, open elements none, and a gate where its own line goes in and out.
+const { FENCED_TYPES, fences, gatedFence } = await import('../src/render/fences.js');
+const { FENCE } = await import('../src/render/rider-sheet.js');
+
+/** Strokes in the fence colour, beyond the legend's (its dashed line and two posts). */
+function fenceStrokes(course) {
+  let n = 0;
+  let style = null;
+  const ctx = new Proxy({ measureText: (t) => ({ width: String(t).length * 10 }) }, {
+    get: (t, k) => (k in t ? t[k] : k === 'stroke' ? () => { if (style === FENCE) n++; } : () => {}),
+    set: (t, k, v) => {
+      if (k === 'strokeStyle') style = v;
+      t[k] = v;
+      return true;
+    },
+  });
+  renderRiderSheet(course, buildSetupSheet(course), (width, height) => ({ width, height, getContext: () => ctx }));
+  return n - 3;
+}
+const distToPoly = (p, poly) => Math.min(...poly.slice(1).map((q, i) => {
+  const a = poly[i];
+  const [dx, dy] = [q[0] - a[0], q[1] - a[1]];
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+}));
+
+test('a fence through the low cones of every bounded element, none for an open one', () => {
+  for (const type of ELEMENT_TYPES) {
+    const { course } = generateCourse({ width: 60, length: 80, elements: 3, difficulty: 'medium', shape: 'open', types: [type, 'gate'] }, 1);
+    const own = course.elements.filter((e) => e.type === type);
+    const list = fences(course);
+    const fenced = FENCED_TYPES.includes(type);
+    expect({ type, fenced: own.every((e) => list.some((f) => f.element === e.id)) }).toEqual({ type, fenced });
+    expect({ type, drawn: fenceStrokes(course) > 0 }).toEqual({ type, drawn: fenced });
+    for (const f of list) {
+      const e = course.elements.find((x) => x.id === f.element);
+      const lines = [...f.walls, ...f.openings];
+      // Every low cone is on the fence; the box eight's gate in the middle is not part of it.
+      const low = course.cones.filter((c) => e.cones.includes(c.id) && c.height === 'low' && !(type === 'box-eight' && e.cones.indexOf(c.id) < 4));
+      for (const c of low) expect({ type, cone: c.id, on: Math.min(...lines.map((l) => distToPoly([c.hx / 2, c.hy / 2], l))) < 0.05 }).toEqual({ type, cone: c.id, on: true });
+    }
+  }
+}, timeout(20_000));
+
+test('gates where an element\'s own line goes through its fence: the box eight\'s in and out', async () => {
+  const course = await userCourse();
+  const ride = buildRide(course);
+  const box = course.elements.find((e) => e.type === 'box-eight');
+  // Its own stretch, as the sheet colours it: the way in and the element.
+  const at = course.route.legs.findIndex((l) => l.element === box.id);
+  const own = [course.route.legs[at - 1].path, box.path];
+  const f = fences(course).find((x) => x.element === box.id);
+  const { walls, posts } = gatedFence(f, own);
+  // Two gates, each a post either side (a corner cone counts): the fence in pieces between them.
+  expect(posts.length).toBe(4);
+  expect(walls.length).toBe(2);
+  // A keyhole's mouth is narrow: its end cones are the gate, nothing cut.
+  for (const k of fences(course).filter((x) => course.elements.find((e) => e.id === x.element)?.type === 'keyhole')) {
+    expect(gatedFence(k, [ride.points]).posts).toEqual([]);
+  }
+  // The start-and-finish box has a fence too.
+  expect(course.route.shape).toBe('return');
+  expect(fences(course).some((x) => x.element === 'start')).toBe(true);
+});
