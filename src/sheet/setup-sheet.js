@@ -140,6 +140,38 @@ function dimension(points, axis, diagonal, offLattice, [kind, i, j]) {
 }
 
 const CLOCK = { left: 'против часовой стрелки', right: 'по часовой стрелке' };
+
+/**
+ * The way round a loop whose direction the rider must keep, by the side the
+ * centre cone is passed on: on the right is clockwise. Short words and the
+ * symbol, for the cards, «Расстановка», «Правка» and the plan.
+ */
+export const LOOP_WAY = {
+  right: { words: 'по часовой', symbol: '↻', clockwise: true },
+  left: { words: 'против часовой', symbol: '↺', clockwise: false },
+};
+
+// Elements with a loop round a tall centre cone ridden one way only: the way round is spelt out.
+const LOOP_TYPES = new Set(['keyhole', 'double-keyhole']);
+
+/**
+ * The loops of an element round its centre cones, in the element's cone order:
+ * the cone (id and card number), where it stands, the loop's radius (how far
+ * the line passes it), the side and the way round. Empty for other types.
+ */
+export function loopsOf(e, course, byId = new Map(course.cones.map((c) => [c.id, c]))) {
+  if (!LOOP_TYPES.has(e.type)) return [];
+  return course.passes
+    .filter((p) => p.kind === 'cone' && p.element === e.id)
+    .map((p) => {
+      const c = byId.get(p.cone);
+      const x = c.hx / 2;
+      const y = c.hy / 2;
+      const radius = Math.min(...e.path.map(([px, py]) => Math.hypot(px - x, py - y)));
+      return { cone: p.cone, n: e.cones.indexOf(p.cone) + 1, x, y, radius, side: p.side, color: passColor(p), ...LOOP_WAY[p.side] };
+    })
+    .sort((a, b) => a.n - b.n);
+}
 const NECK = `Горловина перед проёмом: по ${KEYHOLE_NECK_CONES} низких конуса с каждой стороны, через ${metres(KEYHOLE_NECK)} наружу, на одной линии с крайними конусами кольца`;
 const TURN = { left: 'налево', right: 'направо' };
 
@@ -274,7 +306,7 @@ function describe(element, cones, diagonal, turn, shift, dims) {
         `Две замочные скважины горловинами друг к другу: кольца по ${ring} низких конусов радиусом ${len(p.radius)}, проёмы по ${len(p.opening)}, между концами горловин ${len(p.gap)}`,
         `${NECK} — у каждого кольца`,
         `В центрах высокие конусы: ${colour(first)} — якорь, ${colour(second)} — центр второго кольца; от них рулеткой выставляются кольца`,
-        `Въезд сбоку в просвет между горловинами, поворот в горловину кольца с ${colourOf(first)} конусом, круг ${CLOCK[side(first)]}, по горловине обратно и прямо через просвет в другую, круг ${CLOCK[side(second)]}, из горловины поворот дальше в ту же сторону; в просвете проходы перекрещиваются восьмёркой`,
+        `Въезд сбоку в просвет между горловинами, поворот в горловину кольца с ${first.color === 'blue' ? 'синим' : 'красным'} конусом, круг ${CLOCK[side(first)]}, по горловине обратно и прямо через просвет в другую, круг ${CLOCK[side(second)]}, из горловины поворот дальше в ту же сторону; в просвете проходы перекрещиваются восьмёркой`,
       ];
     }
     case 'crescent':
@@ -552,6 +584,12 @@ export function buildSetupSheet(course) {
     const fixed = fixedSizes(e, diagonal, course.recipe);
     const arcs = arcsOf(e, byId, anchor, cones);
     const loose = arcs.length ? looseCones(e, byId, anchor, cones) : [];
+    const loops = loopsOf(e, course, byId).map((l, k, all) => ({
+      ...l,
+      label: all.length > 1
+        ? `Кольцо ${k + 1} (${l.color === 'blue' ? 'синий' : 'красный'} конус): ${l.words} ${l.symbol}`
+        : `Объезд центрального конуса: ${l.words} ${l.symbol}`,
+    }));
     return {
       number: e.order,
       element: e.id,
@@ -565,7 +603,10 @@ export function buildSetupSheet(course) {
       turn,
       fixed,
       ...(e.safety ? { safety: e.safety } : {}),
+      // The way round each loop first: getting it wrong is riding another element.
+      loops,
       notes: [
+        ...loops.map((l) => l.label),
         ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims),
         ...arcs.flatMap((a) => a.lines), ...sharedNote(arcs),
         // A cone standing on the anchor (the keyhole's centre) needs no line of its own.

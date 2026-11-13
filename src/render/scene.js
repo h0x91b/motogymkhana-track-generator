@@ -3,7 +3,8 @@
 // metric scene. Draws only when asked (no animation loop).
 
 import { passColor, SINGLE_CONE_TYPES, TYPE_NAMES } from '../generator/catalog.js';
-import { anchorPoint, dist } from '../sheet/setup-sheet.js';
+import { anchorPoint, dist, loopsOf } from '../sheet/setup-sheet.js';
+import { loopArrow } from './loops.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
 import { blockedHandles } from './handles.js';
@@ -425,6 +426,17 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
 
   // Out of the start-and-finish box and back into it.
   for (const { x, y, a } of boxArrows(course.route)) arrow(x, y, a, 1, PALETTE.anchor);
+
+  // The way round a loop ridden one way only: a curved arrow round its centre cone, in the cone's colour.
+  for (const e of course.elements) {
+    const alpha = selected && !editing && e.id !== selected ? 0.28 : 1;
+    for (const loop of loopsOf(e, course, byId)) {
+      const { points, tip } = loopArrow(loop);
+      ctx.globalAlpha = alpha;
+      path(points.map(([x, y]) => [x, y, 0.035]), PALETTE[loop.color], 0.12);
+      arrow(tip.x, tip.y, tip.a, alpha, PALETTE[loop.color]);
+    }
+  }
 
   // Anchors: a ring on the ground around each element's anchor cone (a ring
   // element's centre, as the setup sheet measures it).

@@ -944,7 +944,10 @@ function elementFacts(id) {
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
   const rows = card.cones.map((c) => `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${dist(diag ? c.dx : c.along)} м</td><td>${dist(diag ? c.dy : c.across)} м</td></tr>`).join('');
   const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';
+  // The way round each loop, beside the mirror that flips it.
+  const ways = card.loops.map((l) => `<span class="loop-way ${l.color}">${l.symbol} ${l.words}</span>`).join('');
   return {
+    loops: ways && `<span class="loop-ways" aria-label="Объезд центрального конуса">${ways}</span>`,
     head: `<p class="anchor">Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м</p>
       ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
       <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>`,

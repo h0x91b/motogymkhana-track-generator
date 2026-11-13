@@ -8,6 +8,7 @@
 
 import { SHAPE_NAMES } from '../generator/recipe.js';
 import { anchorPoint, CROSSING_LABELS, dist, fmt } from '../sheet/setup-sheet.js';
+import { loopArrow } from './loops.js';
 import { dimensionLayout, placeLabel, zoneCentre } from './dimension.js';
 import { blockedOutlines, reservedZones } from './reserved.js';
 import { drawScaleBar, GRID_STEP } from './scale-bar.js';
@@ -341,6 +342,20 @@ function planBlock(course, sheet, maxHeight) {
           next += 6;
         }
         total += len;
+      }
+    }
+
+    // The way round a loop ridden one way only: a curved arrow round its centre cone, in the cone's colour.
+    for (const card of sheet.cards) {
+      for (const loop of card.loops) {
+        const { points, tip } = loopArrow(loop);
+        const colour = CONE_FILL[loop.color];
+        ctx.beginPath();
+        points.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = colour;
+        ctx.stroke();
+        arrowHead(ctx, X(tip.x), Y(tip.y), -tip.a, 13, colour);
       }
     }
 
@@ -735,8 +750,10 @@ export function renderSheetImages(course, sheet, makeCanvas) {
   const { values: safe, label: safetyLabel } = sheet.safety;
   const pad = safe.pad > 0 ? ` с запасом ${fmt(safe.pad)} м` : '';
   const cone = safe.coneGap > 0 ? `, цветной пунктир — круг ${fmt(safe.coneGap)} м вокруг конуса разворота` : '';
+  // Only when a course has a ring ridden one way, as in a keyhole.
+  const loopWay = sheet.cards.some((c) => c.loops.length) ? ' цветная дуга со стрелкой в кольце — в какую сторону объехать центральный конус,' : '';
   const legend = textBlock([
-    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Красный с жёлтым кольцом — конус вращения (на площадке красный с жёлтой полосой): полный оборот вокруг него. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент, штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды' + pad + '), мелкие серые точки — старт и финиш с местом до и после линии' + cone + '; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
+    { text: 'Л — синий высокий конус, остаётся слева от мотоцикла. П — красный высокий, остаётся справа. Красный с жёлтым кольцом — конус вращения (на площадке красный с жёлтой полосой): полный оборот вокруг него. Белый кружок — низкий конус (углы, границы, старт, финиш). Кольцо — якорь элемента. Сплошная линия со стрелками — элемент,' + loopWay + ' штрихи со стрелками — связка (крутой разворот на ней — вокруг высокого конуса, он в карточке элемента, от которого идёт связка), точки — стенки из низких конусов (не размечаются), толстая сплошная — линия мелом (зеркало: колесо должно её пересечь), толстые штрихи — линия старта и финиша. Жёлтая тень вокруг разворотов и петель — зона выката: свободный асфальт, чтобы выехать, если занесло шире; там ничего не ставить. Тонкий серый пунктир — место, которое держит каждый элемент (его конусы и линия езды' + pad + '), мелкие серые точки — старт и финиш с местом до и после линии' + cone + '; это всё тоже свободный асфальт, не разметка.', size: 20, color: '#2f3d45' },
     ...(safetyLabel ? [{ text: safetyLabel, size: 22, weight: 700, color: '#9a5b00' }] : []),
   ]);
   const blockedLines = sheet.site.blocked ?? [];

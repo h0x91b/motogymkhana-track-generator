@@ -8,6 +8,7 @@ import { canonicalJSON, ELEMENT_TYPES, generateCourse, LOOPED_TYPES } from '../s
 import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { elementControls, insertElement, layoutOf, mirrorElement, routeLayout } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
+import { loopArrow } from '../src/render/loops.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { sweepAround } from './helpers/course-geometry.js';
 
@@ -311,5 +312,34 @@ describe('«Правка»', () => {
     };
     expect(colours(layout)).toEqual(['right', 'left']);
     expect(colours(mirrorElement(layout, i))).toEqual(['left', 'right']);
+  });
+
+  test('shows the way round each ring, and mirroring flips it', () => {
+    const layout = insertElement(layoutOf(base), 1, TYPE);
+    const i = layout.elements.findIndex((e) => e.type === TYPE);
+    const ways = (l) => {
+      const course = routeLayout(l).course;
+      const card = buildSetupSheet(course).cards.find((c) => c.type === TYPE);
+      expect(card.notes.slice(0, 2)).toEqual(card.loops.map((x, k) => `Кольцо ${k + 1} (${x.color === 'blue' ? 'синий' : 'красный'} конус): ${x.words} ${x.symbol}`));
+      return card.loops.map((x) => [x.color, x.symbol]);
+    };
+    expect(ways(layout)).toEqual([['red', '↻'], ['blue', '↺']]);
+    expect(ways(mirrorElement(layout, i))).toEqual([['blue', '↺'], ['red', '↻']]);
+  });
+});
+
+describe('the loop arrow', () => {
+  // The arrow turns the way it is ridden: the cross product of radius and tip direction.
+  const turn = (loop) => {
+    const { tip } = loopArrow(loop);
+    return Math.sign((tip.x - loop.x) * Math.sin(tip.a) - (tip.y - loop.y) * Math.cos(tip.a));
+  };
+  test('runs inside the loop, three quarters round, its tip pointing the way ridden', () => {
+    for (const clockwise of [true, false]) {
+      const loop = { x: 3, y: -2, radius: 4, clockwise };
+      const { points } = loopArrow(loop);
+      for (const [x, y] of points) expect(Math.hypot(x - 3, y + 2)).toBeCloseTo(2.2, 6);
+      expect(turn(loop)).toBe(clockwise ? -1 : 1);
+    }
   });
 });

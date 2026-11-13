@@ -599,6 +599,7 @@ export function createEditor(host) {
         <span class="tool-group" role="group" aria-label="Повернуть и отразить">
           ${free ? '' : `${tool('rotate', '1', `Повернуть на ${turn}° против часовой`, 'ccw')}${tool('rotate', '-1', `Повернуть на ${turn}° по часовой`, 'cw')}`}${point ? '' : tool('mirror', null, free && el.type !== 'small-turn' ? 'Отразить: конус с другой стороны' : 'Отразить: повороты в другую сторону', 'mirror')}
         </span>
+        ${facts.loops ?? ''}
       </div>
       <div class="edit-actions">
         ${point ? '' : '<button type="button" data-act="replace">Заменить</button>'}

@@ -228,6 +228,8 @@ button:disabled:active { filter: none; scale: none; }
 }
 .edit-panel[hidden] { display: none; }
 .edit-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding-bottom: 10px; }
+/* A long element name wraps rather than squeezing «Готово». */
+.edit-head > button { flex: none; }
 .edit-head h2 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 17px; line-height: 1.2; text-wrap: balance; overflow-wrap: break-word; }
 .edit-history { display: flex; gap: 6px; }
 .edit-history button, .tool-group button { display: inline-grid; place-items: center; width: 44px; padding: 0; }
@@ -349,9 +351,14 @@ button:disabled:active { filter: none; scale: none; }
 .tool-group { display: contents; }
 .tool-group button { width: auto; min-width: 0; }
 .tool-group + .tool-group > :first-child { grid-column: 6; }
+/* Under the turn group: the way round each loop, which the mirror flips. */
+.loop-ways { grid-column: 6 / -1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.loop-way.blue { color: #2b72c4; }
+.loop-way.red { color: #cc4330; }
 @media (max-width: 359px) {
   .edit-tools { grid-template-columns: repeat(4, 44px); }
   .tool-group + .tool-group > :first-child { grid-column: 1; }
+  .loop-ways { grid-column: 1 / -1; }
 }
 .edit-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; }
 .edit-actions button { padding-inline: 6px; white-space: nowrap; }
