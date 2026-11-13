@@ -309,11 +309,15 @@ function quadObb(q) {
   const uy = q[1][1] - q[0][1];
   const vx = q[3][0] - q[0][0];
   const vy = q[3][1] - q[0][1];
-  const lu = Math.sqrt(ux * ux + uy * uy) || 1;
-  const lv = Math.sqrt(vx * vx + vy * vy) || 1;
-  return {
-    c: [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2], u: [ux / lu, uy / lu], v: [vx / lv, vy / lv], hu: lu / 2, hv: lv / 2,
-  };
+  const lu = Math.sqrt(ux * ux + uy * uy);
+  const lv = Math.sqrt(vx * vx + vy * vy);
+  // A quad flat along one side (a single cone passed straight: its cone and its
+  // line in one row) keeps that side's axis, square to the other: a zero axis
+  // would read as separating, so the quad would miss every area it stands in.
+  let v = lv ? [vx / lv, vy / lv] : null;
+  let u = lu ? [ux / lu, uy / lu] : v ? [v[1], -v[0]] : [1, 0];
+  v = v ?? [-u[1], u[0]];
+  return { c: [(q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2], u, v, hu: lu / 2, hv: lv / 2 };
 }
 
 /** An element's core (cones and trajectory) inside the margin and clear of every blocked area's margin. */
