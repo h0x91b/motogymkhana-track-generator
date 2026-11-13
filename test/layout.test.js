@@ -3,7 +3,10 @@
 // the router got there.
 
 import { describe, expect, test } from 'bun:test';
-import { canonicalJSON, ELEMENT_TYPES, generateCourse } from '../src/generator/index.js';
+import { canonicalJSON, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse } from '../src/generator/index.js';
+
+// Types whose heading the route chooses (ADR 0026): turning them by hand changes nothing.
+const TURNED_TYPES = ELEMENT_TYPES.filter((t) => !FREE_HEADING_TYPES.includes(t));
 import { editAxes, elementParams, instantiate, SIZE_OPTIONS, SIZE_SPECS, sizeControls, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { placeTemplate } from '../src/generator/generate.js';
 import { shapeParts } from '../src/generator/geometry.js';
@@ -304,7 +307,7 @@ describe('editing a layout', () => {
   });
 
   test('every type turned by 22.5° stands off the lattice: anchor on whole metres, true sizes, cones inside the zone', () => {
-    for (const type of ELEMENT_TYPES) {
+    for (const type of TURNED_TYPES) {
       const flat = single(type);
       const half = turnElementTo(flat, 0, turnStep(type));
       const { course } = routeLayout(half);
@@ -374,7 +377,15 @@ describe('editing a layout', () => {
   });
 
   test('a generated course never stands off the lattice', () => {
-    for (const course of generated) for (const e of course.elements) expect(e.offLattice).toBeUndefined();
+    for (const course of generated) {
+      for (const e of course.elements) {
+        // A free-heading element's one cone is on whole metres whatever heading the route gave it.
+        if (FREE_HEADING_TYPES.includes(e.type)) {
+          const cone = course.cones.find((c) => c.id === e.anchor);
+          expect(cone.hx % 2 === 0 && cone.hy % 2 === 0).toBe(true);
+        } else expect(e.offLattice).toBeUndefined();
+      }
+    }
   });
 
   test('a turn onto a diagonal and back keeps the sizes', () => {
@@ -398,7 +409,7 @@ describe('editing a layout', () => {
 
   test('replacing puts any type in the same place, entered the same way', () => {
     const was = routed(base).elements[2];
-    for (const type of ELEMENT_TYPES) {
+    for (const type of TURNED_TYPES) {
       const course = routed(replaceElement(base, 2, type));
       const now = course.elements[2];
       expect(now.type).toBe(type);

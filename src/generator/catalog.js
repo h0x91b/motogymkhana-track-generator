@@ -256,6 +256,8 @@ export const TYPE_NAMES = {
 const WEAVE = 1; // how far the rider passes a slalom cone
 const LEAD = 1.5; // straight run before / after gates
 const WALL = 1; // rider clearance from the low cones of a U-turn or a box
+// A passed cone's line keeps this much more than the clearance from it, for the sampled arcs of a connector turning towards it.
+const PASS_SLACK = 0.05;
 const ARC = PI / 36; // arc sampling of the new types' trajectories
 const TURN_OUT = 2; // circle: radius of the turn off the ring
 const RING_SPACING = 2.5; // about this far between the cones of a ring
@@ -889,35 +891,42 @@ const TYPES = {
     },
   },
 
-  // A tall cone passed on the rider's left (blue) or right (red), and on to
-  // the next element: the connectors turn as the route needs, on at least the
-  // class radius. The side is the type, so neither is mirrored: mirroring one
-  // in «Правка» makes it the other (`mirrorType`).
+  // A tall cone passed on the rider's left (blue) or right (red): a waypoint
+  // of the route, not a figure (ADR 0026). The line goes through a point WEAVE
+  // beside the cone on the other side, on whatever heading the route needs
+  // there (`freeHeading`): no straight, no turn of its own. The side is the
+  // type, so neither is mirrored: mirroring one in «Правка» makes it the other
+  // (`mirrorType`).
   'pass-left': {
     fixedSide: true,
+    freeHeading: true,
+    point: true,
     mirrorType: 'pass-right',
     options: () => ({}),
-    build: (params, unit) => passCone('left', unit),
+    build: (params, unit, pad) => passCone('left', unit, pad),
   },
   'pass-right': {
     fixedSide: true,
+    freeHeading: true,
+    point: true,
     mirrorType: 'pass-left',
     options: () => ({}),
-    build: (params, unit) => passCone('right', unit),
+    build: (params, unit, pad) => passCone('right', unit, pad),
   },
 
   'small-turn': {
     // «Малый разворот»: back round one tall cone, 180°, on at least the U-turn
-    // radius; no walls, so a wider line is fine.
+    // radius; no walls, so a wider line is fine. Entered on whatever heading
+    // the route needs (`freeHeading`, ADR 0026), the cone on the inside.
+    freeHeading: true,
     options: () => ({}),
     extra: (t) => ({ radius: t.turn }),
     build({ radius }, unit) {
       const r = radius / unit;
-      const lead = LEAD / unit;
       return {
         cones: [{ a: 0, b: 0, height: 'tall' }],
         passes: [{ kind: 'cone', cone: 0, side: 'left', angle: 180 }],
-        path: [[-lead, -r], ...arcPoints([0, 0], r, -PI / 2, PI), [-lead, r]],
+        path: arcPoints([0, 0], r, -PI / 2, PI),
         entryDir: [1, 0],
         exitDir: [-1, 0],
       };
@@ -925,18 +934,26 @@ const TYPES = {
   },
 };
 
-/** One tall cone passed on `side`, WEAVE away, straight on. */
-function passCone(side, unit) {
-  const b = (side === 'left' ? -WEAVE : WEAVE) / unit;
-  const lead = LEAD / unit;
+/**
+ * One tall cone passed on `side`: the line goes through the one point WEAVE
+ * beside it, or just outside the element's clearance if that is wider, so a
+ * connector turning towards the cone there still keeps it.
+ */
+function passCone(side, unit, pad) {
+  const off = Math.max(WEAVE, pad + PASS_SLACK);
+  const b = (side === 'left' ? -off : off) / unit;
   return {
     cones: [{ a: 0, b: 0, height: 'tall' }],
     passes: [{ kind: 'cone', cone: 0, side }],
-    path: [[-lead, b], [lead, b]],
+    path: [[0, b]],
     entryDir: [1, 0],
     exitDir: [1, 0],
   };
 }
+
+/** Types whose heading the route chooses, not the layout (ADR 0026): the element turns to whichever of sixteen joins its connectors best. */
+export const FREE_HEADING_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].freeHeading);
+export const freeHeading = (type) => Boolean(TYPES[type].freeHeading);
 
 /** The type an element becomes when mirrored, for a type whose side is the type itself; else the type. */
 export const mirrorType = (type) => TYPES[type].mirrorType ?? type;
@@ -1038,7 +1055,7 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
   const zonePad = margins.pad ?? ZONE_PAD;
   const runOffDistance = margins.runOff ?? RUN_OFF;
   const unit = unitFor(diagonal);
-  let g = { lines: [], guides: [], ...TYPES[type].build(params, unit) };
+  let g = { lines: [], guides: [], ...TYPES[type].build(params, unit, zonePad) };
   // A type whose side is the type itself is never mirrored.
   if (TYPES[type].fixedSide) mirrored = false;
   if (mirrored) g = mirrorGeometry(g);
@@ -1055,9 +1072,11 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
   const core = [a0, b0, a1, b1];
   const pad = zonePad / unit;
   const zone = [a0 - pad, b0 - pad, a1 + pad, b1 + pad];
-  const entry = boundaryPoint(g.path[0], g.entryDir, zone, false);
-  const exit = boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true);
-  const path = [entry, ...g.path, exit];
+  // A point waypoint is entered and left at its one point, with no run-in or run-out.
+  const point = Boolean(TYPES[type].point);
+  const path = point
+    ? [g.path[0], g.path[0]]
+    : [boundaryPoint(g.path[0], g.entryDir, zone, false), ...g.path, boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true)];
   let runOff = null;
   let runOffPoly = null;
   if (RUN_OFF_TYPES[type] && runOffDistance > 0) {
@@ -1092,6 +1111,7 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
     diagonal,
     mirrored,
     unit,
+    point,
     cones: g.cones,
     passes: g.passes,
     lines: g.lines,

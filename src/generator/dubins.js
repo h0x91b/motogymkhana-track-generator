@@ -100,9 +100,10 @@ function samplePath(from, word, segs, rho) {
 
 /**
  * All Dubins paths from pose `from` to pose `to` ([x, y, heading]), shortest
- * first; ties keep the fixed word order so the choice is stable.
+ * first; ties keep the fixed word order so the choice is stable. Paths of
+ * `below` metres or more are left out, unsampled.
  */
-export function dubinsPaths(from, to, rho) {
+export function dubinsPaths(from, to, rho, below = Infinity) {
   const dx = to[0] - from[0];
   const dy = to[1] - from[1];
   const d = Math.sqrt(dx * dx + dy * dy) / rho;
@@ -114,8 +115,24 @@ export function dubinsPaths(from, to, rho) {
     const segs = segments(word, alpha, beta, d);
     if (!segs) return;
     const length = (segs[0] + segs[1] + segs[2]) * rho;
-    found.push({ word, segs, length, order });
+    if (length < below) found.push({ word, segs, length, order });
   });
   found.sort((a, b) => a.length - b.length || a.order - b.order);
   return found.map((f) => ({ word: f.word, length: f.length, ...samplePath(from, f.word, f.segs, rho) }));
+}
+
+/** Length of the shortest Dubins path from pose `from` to pose `to`, without sampling it. */
+export function dubinsLength(from, to, rho) {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const d = Math.sqrt(dx * dx + dy * dy) / rho;
+  const theta = d > 0 ? mod2pi(Math.atan2(dy, dx)) : 0;
+  const alpha = mod2pi(from[2] - theta);
+  const beta = mod2pi(to[2] - theta);
+  let best = Infinity;
+  for (const word of WORDS) {
+    const segs = segments(word, alpha, beta, d);
+    if (segs) best = Math.min(best, (segs[0] + segs[1] + segs[2]) * rho);
+  }
+  return best;
 }

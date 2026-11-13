@@ -7,8 +7,8 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { BIKE_TURN_RADIUS, chooseParams, FILLER_TYPES, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
-import { dubinsPaths } from './dubins.js';
+import { BIKE_TURN_RADIUS, chooseParams, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
+import { dubinsLength, dubinsPaths } from './dubins.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
   PI, pointsBounds, polylineHitsObb, polylineHitsShape, polylineLength, round2, shapeOf, shapesOverlap, shiftShape, wrapPi,
@@ -490,7 +490,8 @@ export function placeTemplate(tpl, axis, ax, ay) {
   // The run-in from the entry and the run-out to the exit are ridden like a
   // connector: they belong to the route, not to the footprint.
   const end = (points) => ({ points, bounds: pointsBounds(points) });
-  const ends = [end(path.slice(0, 2)), end(path.slice(-2))];
+  // A point waypoint has none: the route arrives at its point and leaves it.
+  const ends = tpl.point ? [] : [end(path.slice(0, 2)), end(path.slice(-2))];
   return {
     tpl, axis, ax, ay, zone, footprint, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path, spots, keepOut,
     center: zone.c,
@@ -505,6 +506,93 @@ export function placeTemplate(tpl, axis, ax, ay) {
       }),
     }),
   };
+}
+
+// ---------------------------------------------------------------- free headings
+
+/** Headings a free-heading element is tried on (ADR 0026): sixteen, 22.5° apart, as «Правка» turns elements. */
+export const FREE_AXES = Array.from({ length: 16 }, (_, k) => k / 2);
+
+/** Is the heading of this placed element the route's to choose (`freeHeading`)? */
+export const isFree = (p) => freeHeading(p.tpl.type);
+
+const TURNED = new Map();
+
+/** A free-heading element turned to `axis` about its cone, which stays where it is. */
+export function turnedTo(p, axis) {
+  const { type, params, mirrored, margins } = p.tpl;
+  const diagonal = diagonalAxis(type, axis);
+  const id = `${type}|${diagonal ? 1 : 0}${mirrored ? 1 : 0}|${JSON.stringify(params)}|${margins.pad}|${margins.runOff}`;
+  if (!TURNED.has(id)) {
+    if (TURNED.size > 400) TURNED.clear();
+    TURNED.set(id, instantiate(type, params, diagonal, mirrored, margins));
+  }
+  const q = placeTemplate(TURNED.get(id), axis, p.ax, p.ay);
+  return p.override ? { ...q, override: p.override } : q;
+}
+
+/** The one of FREE_AXES nearest the bearing from `from` to `to`, 0 when they coincide. */
+export function bearingAxis(from, to) {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  if (Math.hypot(dx, dy) < 1e-9) return 0;
+  return (((Math.round(Math.atan2(dy, dx) / (PI / 8)) % 16) + 16) % 16) / 2;
+}
+
+/** Where the element before a free one leaves it, for that one's provisional heading: the exit of a fixed element, the cone of a free one. */
+export const leaving = (p) => (isFree(p) ? p.spots[0] : p.exit);
+
+/** A free element on its provisional heading: facing away from where the element before it is left (`leaving`). */
+export const provisional = (p, before) => turnedTo(p, bearingAxis(leaving(before), p.spots[0]));
+
+// Of those, the router tries this many, best first: a heading much longer
+// than the best is never the one wanted, and each one tried is two connectors.
+export const FREE_TRIES = 6;
+
+const ALL_TURNS = new WeakMap();
+
+const axisOff = (a, b) => Math.abs((((a - b) % 8) + 12) % 8 - 4);
+
+/**
+ * A free-heading element on the FREE_TRIES best of FREE_AXES, best first: by the shortest
+ * Dubins paths at `radius` from pose `from` to its entry and from its exit to
+ * pose `to`, either left out when null, with no rule checked; ties go to the
+ * heading nearest the bearing from `from` (or towards `to`), then in order.
+ * The router takes the first that keeps every rule, in the generator and in
+ * `routeLayout` alike, so a layout of a generated course routes back to it.
+ */
+export function freeHeadings(p, from, to, radius) {
+  const cone = p.spots[0];
+  const near = from ? bearingAxis(from, cone) : to ? bearingAxis(cone, to) : 0;
+  if (!ALL_TURNS.has(p)) ALL_TURNS.set(p, FREE_AXES.map((axis) => turnedTo(p, axis)));
+  return ALL_TURNS.get(p).map((q, k) => {
+    const { axis } = q;
+    let cost = 0;
+    if (from) cost += dubinsLength(from, pose(q.entry, q.entryDir), radius);
+    if (to) cost += dubinsLength(pose(q.exit, q.exitDir), to, radius);
+    return { q, cost, off: axisOff(axis, near), k };
+  })
+    .sort((a, b) => a.cost - b.cost || a.off - b.off || a.k - b.k)
+    .slice(0, FREE_TRIES)
+    .map((o) => o.q);
+}
+
+/**
+ * Where the route goes after the last element, for the order of a free last
+ * element's headings: lined up before the start line of a closed course, the
+ * first way into the box of a `return` one; null past an open course's end,
+ * whose finish follows the element.
+ */
+export function closingTarget(shape, start, radius) {
+  if (shape === 'closed') {
+    const u = axisVector(start.dir);
+    return pose([start.center[0] - u[0] * radius, start.center[1] - u[1] * radius], start.dir);
+  }
+  if (shape === 'return') {
+    const e = boxEntries(start)[0];
+    return pose(e.approach, e.dir);
+  }
+  return null;
 }
 
 /**
@@ -592,11 +680,25 @@ function lineTerminal(ideal, dir, from, to) {
  * The start before the first element: a line for an open course (with room to
  * wait behind it) and a closed one, the start-and-finish box for `return`.
  */
+/**
+ * Where an element's zone begins (`end` < 0) or ends (> 0) along its way in or
+ * out: its entry or exit, or for a point waypoint, which is entered at its
+ * point, its clearance before or past it, so a line stays off its cone.
+ */
+function zoneEdge(p, end) {
+  const at = end < 0 ? p.entry : p.exit;
+  if (!p.tpl.point) return at;
+  const u = axisVector(end < 0 ? p.entryDir : p.exitDir);
+  const d = end * p.tpl.margins.pad;
+  return [at[0] + u[0] * d, at[1] + u[1] * d];
+}
+
 export function startTerminal(first, shape) {
   const u = axisVector(first.entryDir);
-  const ideal = [first.entry[0] - u[0] * START_LEAD, first.entry[1] - u[1] * START_LEAD];
+  const entry = zoneEdge(first, -1);
+  const ideal = [entry[0] - u[0] * START_LEAD, entry[1] - u[1] * START_LEAD];
   const probe = lineTerminal(ideal, first.entryDir, 0, 0);
-  const lead = (first.entry[0] - probe.center[0]) * u[0] + (first.entry[1] - probe.center[1]) * u[1];
+  const lead = (entry[0] - probe.center[0]) * u[0] + (entry[1] - probe.center[1]) * u[1];
   if (shape === 'return') return boxTerminal(ideal, first.entryDir, lead);
   return lineTerminal(ideal, first.entryDir, shape === 'closed' ? 0 : -BEHIND_START, lead);
 }
@@ -653,9 +755,10 @@ export const FINISH_LEAD_IN = FINISH_LEAD;
 
 export function finishTerminal(last) {
   const u = axisVector(last.exitDir);
-  const ideal = [last.exit[0] + u[0] * FINISH_LEAD, last.exit[1] + u[1] * FINISH_LEAD];
+  const exit = zoneEdge(last, 1);
+  const ideal = [exit[0] + u[0] * FINISH_LEAD, exit[1] + u[1] * FINISH_LEAD];
   const probe = lineTerminal(ideal, last.exitDir, 0, 0);
-  const lead = (probe.center[0] - last.exit[0]) * u[0] + (probe.center[1] - last.exit[1]) * u[1];
+  const lead = (probe.center[0] - exit[0]) * u[0] + (probe.center[1] - exit[1]) * u[1];
   return lineTerminal(ideal, last.exitDir, -lead, RUN_OUT);
 }
 
@@ -855,8 +958,8 @@ export function connect(fromPose, toPose, radius, inner, zones, paths, maxTurn =
 const DETOUR_HEADINGS = [0, 2, 4, 6]; // headings tried at a waypoint, × 45°: along the sides of the area
 
 /** One Dubins path, checked like a connector on its own: on the asphalt and out of every zone. */
-function cleanDubins(from, to, rho, inner, zones) {
-  return dubinsPaths(from, to, rho).filter((path) => {
+function cleanDubins(from, to, rho, inner, zones, below = Infinity) {
+  return dubinsPaths(from, to, rho, below).filter((path) => {
     const bounds = pointsBounds(path.points);
     path.bounds = bounds;
     return lineOnAsphalt(inner, path.points, bounds) && pathClear(path.points, bounds, zones);
@@ -891,9 +994,11 @@ function detour(fromPose, toPose, radius, inner, zones, paths, maxTurn, accept, 
   let best = null;
   for (const { wp, est } of options) {
     if (best && est >= best.length - 1e-9) break;
-    const firsts = cleanDubins(fromPose, wp, radius, inner, zones);
+    // A leg that cannot make a pair shorter than the best so far is not even sampled.
+    const bound = best ? best.length + 1e-6 : Infinity;
+    const firsts = cleanDubins(fromPose, wp, radius, inner, zones, bound - Math.hypot(toPose[0] - wp[0], toPose[1] - wp[1]));
     if (!firsts.length) continue;
-    const seconds = cleanDubins(wp, toPose, radius, inner, zones);
+    const seconds = cleanDubins(wp, toPose, radius, inner, zones, bound - firsts[0].length);
     for (const a of firsts) {
       for (const b of seconds) {
         const length = a.length + b.length;
@@ -1054,6 +1159,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
   const legs = []; // connectors and straight legs in route order
   const zones = []; // every zone placed so far: elements and terminals
   let start = null;
+  const zonesSoFar = () => zones;
+  const startSoFar = () => start;
   let finish = null;
   let turnLeft = 0;
   let turnRight = 0;
@@ -1074,7 +1181,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         place.range(0, 1);
         if (!cand) continue;
         const result = evaluate(i, cand);
-        if (result) out.push({ ...result, cand, order: c });
+        if (result) out.push({ cand, ...result, order: c });
         continue;
       }
       // Every other candidate faces the connector that leads into it.
@@ -1099,7 +1206,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       if (ax === null || ay === null) continue;
       const cand = placeTemplate(tpl, axis, ax, ay);
       const result = evaluate(i, cand);
-      if (result) out.push({ ...result, cand, order: c });
+      if (result) out.push({ cand, ...result, order: c });
     }
     out.sort((a, b) => b.score - a.score || a.order - b.order);
     return out.slice(0, BRANCH);
@@ -1128,11 +1235,115 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     return track;
   }
 
+  // Zones before each element's own: element k's start (for the first), zone,
+  // and connector's U-turn cones follow from `marks[k]` on.
+  const marks = [];
+
+  /**
+   * The free element before element i, given its heading now that the element
+   * it leads to is known (ADR 0026): the first of `freeHeadings` whose element
+   * and connector in keep every rule, and whose connector out to `cand` does
+   * too when cand's own heading is fixed (a free one is joined when it gets
+   * its own). The same choice as `routeLayout`'s; null when none keeps them.
+   */
+  function reheaded(i, cand) {
+    const k = i - 1;
+    const base = zones.slice(0, marks[k]);
+    const paths = routePaths(legs.slice(0, k), placed.slice(0, k));
+    const before = k > 0 ? placed[k - 1] : null;
+    const from = before && pose(before.exit, before.exitDir);
+    const next = isFree(cand) ? provisional(cand, placed[k]) : cand;
+    const before0 = train ? (k === 0 ? emptyTrack(trainGap) : trackBefore(k)) : null;
+    // What comes before the free element does not depend on the candidate: worked out once per heading.
+    if (!INS.has(placed[k])) INS.set(placed[k], new Map());
+    const ins = INS.get(placed[k]);
+    for (const p of freeHeadings(placed[k], from, pose(next.entry, next.entryDir), radius)) {
+      if (!ins.has(p.axis)) ins.set(p.axis, inTo(k, p, base, paths, before, from, before0));
+      const got = ins.get(p.axis);
+      if (!got) continue;
+      const { terminal, inLeg, after, track } = got;
+      if (terminal && !isFree(cand) && !zoneClear(cand, [terminal], [])) continue;
+      if (!isFree(cand)) {
+        const out = [...paths, inLeg, ...got.p.ends];
+        const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
+        let outLeg = chainLeg(got.p, cand);
+        if (outLeg && accept && !accept(outLeg.points)) continue;
+        outLeg = outLeg || connect(pose(got.p.exit, got.p.exitDir), pose(cand.entry, cand.entryDir), radius, inner, [...after, cand], out, MAX_CONNECTOR_TURN, accept, coneGap);
+        if (!outLeg) continue;
+      }
+      return { k, placement: got.p, inLeg, start: terminal ?? start, zones: after, track };
+    }
+    return null;
+  }
+
+  // Per free element placed, its headings with the element and the connector into it checked.
+  const INS = new WeakMap();
+
+  /** Free element k turned to p, with the start or the connector into it, or null when either breaks a rule. */
+  function inTo(k, p, base, paths, before, from, before0) {
+    if (!quadOnAsphalt(inner, p.core)) return null;
+    if (p.runOffPoly && !(p.runOffPoly.every((q) => inside(site, q)) && areaClear(inner, p.runOff))) return null;
+    if (!zoneClear(p, base, paths)) return null;
+    let terminal = null;
+    let inLeg;
+    if (k === 0) {
+      terminal = startTerminal(p, recipe.shape);
+      if (!terminalInside(terminal, inner, site) || shapesOverlap(terminal.footprint, p.footprint)) return null;
+      if (closed) {
+        const u = axisVector(terminal.dir);
+        if (!onAsphalt(inner, [terminal.center[0] - u[0] * radius, terminal.center[1] - u[1] * radius])) return null;
+      }
+      inLeg = straightLeg(terminal.center, p.entry);
+      if (before0 && !trainClear(before0, [inLeg.points, ridden(p)])) return null;
+    } else {
+      const accept = before0 && ((pts) => trainClear(before0, [pts, ridden(p)]));
+      inLeg = chainLeg(before, p);
+      if (inLeg && accept && !accept(inLeg.points)) return null;
+      inLeg = inLeg || connect(from, pose(p.entry, p.entryDir), radius, inner, [...base, p], paths, MAX_CONNECTOR_TURN, accept, coneGap);
+      if (!inLeg) return null;
+    }
+    const after = [...base, ...(terminal ? [terminal] : []), p, ...inLeg.cones];
+    const track = before0 && extendTrack(before0, [inLeg.points, ridden(p)]);
+    return { p, terminal, inLeg, after, track };
+  }
+
+  // A stand-in heading is only looked for among the best few: the next element re-heads it anyway.
+  const STAND_IN_TRIES = 2;
+
   function evaluate(i, cand) {
+    const after = i > 0 && isFree(placed[i - 1]);
+    // Before re-heading the element before, what does not depend on its heading:
+    // a candidate that fails this would fail after it too, and re-heading costs connectors.
+    if (after && (!isFree(cand) || cand.tpl.point)) {
+      if (!quadOnAsphalt(inner, cand.core)) return null;
+      if (cand.runOffPoly && !(cand.runOffPoly.every((p) => inside(site, p)) && areaClear(inner, cand.runOff))) return null;
+      if (!zoneClear(cand, zones.slice(0, marks[i - 1]), routePaths(legs.slice(0, i - 1), placed.slice(0, i - 1)))) return null;
+    }
+    const rewire = after ? reheaded(i, cand) : null;
+    if (after && !rewire) return null;
+    if (!isFree(cand)) return evaluateAt(i, cand, rewire);
+    // A free element takes the first heading that keeps every rule: for the
+    // last one that is its heading, for any other a stand-in until the next
+    // element gives it its own (`reheaded`).
+    const prev = i > 0 ? (rewire ? rewire.placement : placed[i - 1]) : null;
+    const from = prev && pose(prev.exit, prev.exitDir);
+    const to = i > 0 && i === n - 1 ? closingTarget(recipe.shape, rewire ? rewire.start : start, radius) : null;
+    for (const c of freeHeadings(cand, from, to, radius).slice(0, i === n - 1 ? FREE_TRIES : STAND_IN_TRIES)) {
+      const result = evaluateAt(i, c, rewire);
+      if (result) return { ...result, cand: c };
+    }
+    return null;
+  }
+
+  function evaluateAt(i, cand, rewire) {
     if (!quadOnAsphalt(inner, cand.core)) return null;
     if (cand.runOffPoly && !(cand.runOffPoly.every((p) => inside(site, p)) && areaClear(inner, cand.runOff))) return null;
-    const track = train ? trackBefore(i) : null;
-    const paths = routePaths(legs, placed);
+    // With the element before re-headed, everything up to it as it now stands.
+    const zones = rewire ? rewire.zones : zonesSoFar();
+    const start = rewire ? rewire.start : startSoFar();
+    const prevOf = rewire ? rewire.placement : placed[i - 1];
+    const track = train ? (rewire ? rewire.track : trackBefore(i)) : null;
+    const paths = rewire ? [...routePaths(legs.slice(0, rewire.k), placed.slice(0, rewire.k)), rewire.inLeg, ...rewire.placement.ends] : routePaths(legs, placed);
     if (!zoneClear(cand, zones, paths)) return null;
     let entryLeg;
     let terminal = null;
@@ -1149,7 +1360,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       entryLeg = straightLeg(terminal.center, cand.entry);
       if (track && !trainClear(track, [entryLeg.points, ridden(cand)])) return null;
     } else {
-      const prev = placed[i - 1];
+      const prev = prevOf;
       // In «паровозик» the connector and the element it leads into keep clear of the route so far.
       const accept = track && ((pts) => trainClear(track, [pts, ridden(cand)]));
       // An entry that continues the exit is joined straight, with no connector to speak of.
@@ -1176,7 +1387,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         // column has ridden the start and the first element long before the
         // leader comes back, so the way back keeps clear of the rest of the route.
         const obstacles = i === 0 ? [cand, startT] : [...zones, cand, ...entryLeg.cones];
-        const before = track && (i === 0 ? emptyTrack(trainGap) : extendTrack(tailBefore(i), [entryLeg.points, ridden(cand)]));
+        const tail = i <= 1 ? emptyTrack(trainGap) : rewire ? extendTrack(tailBefore(rewire.k), [rewire.inLeg.points, ridden(rewire.placement)]) : tailBefore(i);
+        const before = track && (i === 0 ? emptyTrack(trainGap) : extendTrack(tail, [entryLeg.points, ridden(cand)]));
         const accept = track && ((pts) => trainClear(before, [pts]));
         const home = homeBox(pose(cand.exit, cand.exitDir), startT, radius, inner, obstacles, [...paths, ...cand.ends, entryLeg], closingTurn, accept, coneGap);
         if (!home) return null;
@@ -1194,8 +1406,9 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         if (track && !trainClear(extendTrack(track, [entryLeg.points, ridden(cand)]), [exitLeg.points])) return null;
       }
     }
-    const tl = turnLeft + entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);
-    const tr = turnRight + entryLeg.turnRight + cand.tpl.turnRight + (exitLeg ? exitLeg.turnRight : 0);
+    const turns = rewire ? reTurns(rewire) : { left: 0, right: 0 };
+    const tl = turnLeft + turns.left + entryLeg.turnLeft + cand.tpl.turnLeft + (exitLeg ? exitLeg.turnLeft : 0);
+    const tr = turnRight + turns.right + entryLeg.turnRight + cand.tpl.turnRight + (exitLeg ? exitLeg.turnRight : 0);
     const score = scorePlacement({
       center: cand.center,
       target: targets[i],
@@ -1206,7 +1419,16 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
       turnRight: tr,
       diagonal,
     });
-    return { score, entryLeg, exitLeg, terminal, finishTerminal: finishTerminalCand };
+    return { score, entryLeg, exitLeg, terminal, finishTerminal: finishTerminalCand, rewire };
+  }
+
+  /** How the turning so far changes when the element before is re-headed. */
+  function reTurns(rewire) {
+    const { k, placement, inLeg } = rewire;
+    return {
+      left: inLeg.turnLeft + placement.tpl.turnLeft - legs[k].turnLeft - placed[k].tpl.turnLeft,
+      right: inLeg.turnRight + placement.tpl.turnRight - legs[k].turnRight - placed[k].tpl.turnRight,
+    };
   }
 
   function search(i) {
@@ -1230,8 +1452,21 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     for (const type of order) {
       const filler = gap.includes(type);
       for (const option of candidates(i, type)) {
-        const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin } = option;
+        const { cand, entryLeg, exitLeg, terminal, finishTerminal: fin, rewire } = option;
         const saved = { turnLeft, turnRight, start, finish, zones: zones.length, legs: legs.length };
+        if (rewire) {
+          // The free element before takes the heading this one gives it.
+          const turns = reTurns(rewire);
+          Object.assign(saved, { zoneList: zones.slice(), placement: placed[rewire.k], leg: legs[rewire.k] });
+          placed[rewire.k] = rewire.placement;
+          legs[rewire.k] = rewire.inLeg;
+          zones.length = 0;
+          zones.push(...rewire.zones);
+          start = rewire.start;
+          turnLeft += turns.left;
+          turnRight += turns.right;
+        }
+        marks[i] = zones.length;
         if (terminal) {
           start = terminal;
           zones.push(terminal);
@@ -1254,8 +1489,13 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
         if (search(i + 1)) return true;
         if (filler) fillersUsed--;
         placed.pop();
-        zones.length = saved.zones;
         legs.length = saved.legs;
+        if (rewire) {
+          placed[rewire.k] = saved.placement;
+          legs[rewire.k] = saved.leg;
+          zones.length = 0;
+          zones.push(...saved.zoneList);
+        } else zones.length = saved.zones;
         ({ turnLeft, turnRight, start, finish } = saved);
       }
     }

@@ -82,13 +82,13 @@ describe('setup sheet', () => {
         const onGrid = card.anchorAtCentre ? isHalf : Number.isInteger;
         expect(onGrid(card.anchor.x) && onGrid(card.anchor.y)).toBe(true);
         for (const cone of card.cones) {
-          const values = card.axis.diagonal ? [cone.dx, cone.dy] : [cone.along, cone.across];
+          const values = card.axis.xy ? [cone.dx, cone.dy] : [cone.along, cone.across];
           for (const v of values) expect(isHalf(v), `seed ${course.seed} card ${card.number}`).toBe(true);
         }
         // The anchor is the element's first listed cone, at zero offset; a ring's is its centre.
         if (card.anchorAtCentre) continue;
         const first = card.cones[0];
-        expect(card.axis.diagonal ? [first.dx, first.dy] : [first.along, first.across]).toEqual([0, 0]);
+        expect(card.axis.xy ? [first.dx, first.dy] : [first.along, first.across]).toEqual([0, 0]);
       }
     }
   });
