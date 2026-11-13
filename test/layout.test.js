@@ -155,8 +155,9 @@ describe('sizes set by hand', () => {
     expect(narrowest('box', 'size', 'cruiser')).toBe(11);
     expect(narrowest('box', 'size', 'sport')).toBe(9.5);
     expect(narrowest('u-turn', 'width', 'cruiser')).toBe(11);
-    expect(narrowest('pivot-turn', 'radius', 'cruiser')).toBe(5);
-    expect(narrowest('pivot-turn', 'radius', 'sport')).toBe(4.25);
+    // The free radius of a pivot turn is the exception: 3 m on any bike (ADR 0025).
+    expect(narrowest('pivot-turn', 'radius', 'cruiser')).toBe(3);
+    expect(narrowest('pivot-turn', 'radius', 'sport')).toBe(3);
     expect(narrowest('figure-eight', 'radius', 'cruiser')).toBe(4.5);
     expect(narrowest('figure-eight', 'radius', 'sport')).toBe(3.75);
   });
@@ -196,7 +197,9 @@ describe('sizes set by hand', () => {
 
   test('a typed size never goes below the bike-class minimum, and a count or a non-number changes nothing', () => {
     const pivot = single('pivot-turn');
-    expect(elementControls(setElementSize(pivot, 0, 'radius', 1), 0).find((c) => c.key === 'radius').value).toBe(5);
+    expect(elementControls(setElementSize(pivot, 0, 'radius', 1), 0).find((c) => c.key === 'radius').value).toBe(3);
+    const eight = single('figure-eight');
+    expect(elementControls(setElementSize(eight, 0, 'radius', 1), 0).find((c) => c.key === 'radius').value).toBe(4.5);
     const slalom = single('straight-slalom');
     expect(setElementSize(slalom, 0, 'count', 5)).toBe(slalom);
     expect(setElementSize(slalom, 0, 'step', Number.NaN)).toBe(slalom);

@@ -14,7 +14,7 @@ const unitOf = (e) => (e.axis % 2 === 1 ? 0.5 * Math.SQRT2 : 0.5);
 
 /** The size an option gave this element, in metres along its axis. */
 function sizeOf(e, option) {
-  return e.params[option.key] * unitOf(e);
+  return e.params[option.key] * (option.plain ? 1 : unitOf(e));
 }
 
 /** The size an element should get for a chosen value: raised to the class minimum, then on the lattice. */
@@ -44,7 +44,7 @@ describe('size options', () => {
                   // A U-turn size is a minimum: the shortest lattice length not below it.
                   expect(got, label).toBeGreaterThanOrEqual(want - 1e-9);
                   expect(got, label).toBeLessThan(want + unitOf(e) + 1e-9);
-                } else if (e.axis % 2 === 0) {
+                } else if (e.axis % 2 === 0 || option.plain) {
                   expect(got, label).toBeCloseTo(want, 9);
                 } else {
                   // On a diagonal: the nearest lattice length, within a quarter metre (ADR 0005).

@@ -15,7 +15,7 @@
 import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, instantiate, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, CLOSING_TURN_LIMITS, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
+  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, homeBox, innerRect, inside,
   finishAt, lineOnAsphalt, MAX_CONNECTOR_TURN, pathClear, placeTemplate, pose, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones,
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
@@ -271,6 +271,9 @@ export function routeLayout(layout) {
       const [a, b] = [placed[i], placed[j]];
       if (clash(a, b)) {
         report('overlap', `Элементы ${i + 1} и ${j + 1} накладываются — раздвиньте их`, { elements: [id(i), id(j)] });
+      } else if (coneInKeepOut(a, b)) {
+        const [k, o] = a.keepOut && coneInKeepOut({ keepOut: a.keepOut }, b) ? [i, j] : [j, i];
+        report('in-free-radius', `Конус элемента ${o + 1} стоит в свободном радиусе вращения (элемент ${k + 1}) — раздвиньте их или уменьшите радиус`, { elements: [id(i), id(j)] });
       } else if (inRunOff(a, b)) {
         report('in-run-off', `Элемент ${j + 1} стоит в зоне выката элемента ${i + 1}: вокруг разворота нужно ${fmt(a.tpl.margins.runOff)} м — раздвиньте их или уменьшите выкат`, { elements: [id(i), id(j)] });
       } else if (inRunOff(b, a)) {
@@ -293,6 +296,8 @@ export function routeLayout(layout) {
       const apart = pinned ? `отодвиньте ${which} или элемент ${i + 1}` : `раздвиньте элементы ${Math.min(own, i) + 1} и ${Math.max(own, i) + 1}`;
       if (clash(t, p)) {
         report(`${code}-overlap`, `${name} накладывается на элемент ${i + 1} — ${apart}`, { elements: pinned ? [id(i)] : [id(own), id(i)] });
+      } else if (coneInKeepOut(t, p)) {
+        report(`${code}-overlap`, `Конус ${which === 'старт' ? 'старта' : 'финиша'} стоит в свободном радиусе вращения (элемент ${i + 1}) — ${apart}`, { elements: pinned ? [id(i)] : [id(own), id(i)] });
       } else if (i !== own && inRunOff(p, t)) {
         report(`${code}-overlap`, `${name} стоит в зоне выката элемента ${i + 1} — ${apart}`, { elements: pinned ? [id(i)] : [id(own), id(i)] });
       }
@@ -778,10 +783,12 @@ export function insertElement(layout, at, type) {
         const at = {
           footprint: shiftShape(origin.footprint, x, y),
           runOff: origin.runOff && shiftShape(origin.runOff, x, y),
+          spots: origin.spots.map(([px, py]) => [px + x, py + y]),
+          keepOut: origin.keepOut && { c: [origin.keepOut.c[0] + x, origin.keepOut.c[1] + y], r: origin.keepOut.r },
           ends: origin.ends.map((e) => ({ points: e.points.map(([px, py]) => [px + x, py + y]), bounds: [e.bounds[0] + x, e.bounds[1] + y, e.bounds[2] + x, e.bounds[3] + y] })),
         };
         const core = origin.core.map(([cx, cy]) => [cx + x, cy + y]);
-        const free = quadOnAsphalt(inner, core) && (!at.runOff || areaClear(inner, at.runOff)) && others.every((o) => !clash(at, o) && !inRunOff(o, at) && !inRunOff(at, o));
+        const free = quadOnAsphalt(inner, core) && (!at.runOff || areaClear(inner, at.runOff)) && others.every((o) => !clash(at, o) && !coneInKeepOut(at, o) && !inRunOff(o, at) && !inRunOff(at, o));
         const entry = [origin.entry[0] + x, origin.entry[1] + y];
         const exit = [origin.exit[0] + x, origin.exit[1] + y];
         const centre = [origin.center[0] + x, origin.center[1] + y];

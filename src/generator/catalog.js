@@ -105,7 +105,14 @@ export const SIZE_OPTIONS = {
   ],
   keyhole: [{ key: 'radius', table: 'keyholeRadius', name: 'Радиус кольца', short: 'замочная скважина', min: 3, max: 4.5 }],
   crescent: [{ key: 'radius', table: 'crescentRadius', name: 'Радиус', short: 'месяц', min: 4, max: 8 }],
+  // A radius round one cone, in plain metres on any axis (`plain`): no lattice length.
+  'pivot-turn': [{ key: 'radius', table: 'pivotRadius', name: 'Свободный радиус', short: 'свободный радиус вращения', min: 3, max: 8, plain: true }],
 };
+
+/** Angles a pivot turn may take: every quarter turn from 90° to two laps. */
+export const PIVOT_ANGLES = [90, 180, 270, 360, 450, 540, 630, 720];
+/** The smallest free radius of a pivot turn on any bike, metres (ADR 0025). */
+export const PIVOT_RADIUS_MIN = 3;
 
 /** Every value a size option offers, in metres: `min` to `max` in 0.5 m steps. */
 export const sizeValues = (option) => Array.from({ length: (option.max - option.min) * 2 + 1 }, (_, i) => option.min + i / 2);
@@ -140,7 +147,8 @@ export function sizeDefault(type, key, difficulty, bike) {
  * for this type.
  */
 function sizeTable(difficulty, bike, type, sizes) {
-  const table = { ...DIFFICULTY_TABLE[difficulty], turn: uTurnRadius(difficulty, bike), keyholeRadius: [KEYHOLE_RADIUS[bike]] };
+  const turn = uTurnRadius(difficulty, bike);
+  const table = { ...DIFFICULTY_TABLE[difficulty], turn, keyholeRadius: [KEYHOLE_RADIUS[bike]], pivotRadius: [turn + 0.5] };
   const chosen = sizes?.[type];
   if (chosen) {
     for (const o of SIZE_OPTIONS[type]) if (chosen[o.key] !== undefined) table[o.table] = [chosen[o.key]];
@@ -484,23 +492,26 @@ const TYPES = {
 
   'pivot-turn': {
     options: (t) => ({ angle: t.pivotAngles }),
-    // The free radius round the cone: the line ridden on the U-turn radius, 0.5 m slack outside it.
-    extra: (t) => ({ radius: t.turn + 0.5 }),
+    // The free radius round the cone (`pivotRadius`, by default the U-turn radius
+    // and 0.5 m slack); the line is ridden 0.5 m inside it. Only cones are kept
+    // out of the circle: lines may cross it (`keepOut`, ADR 0025).
+    extra: (t) => ({ radius: t.pivotRadius[0] }),
+    keepOut: ({ radius }) => radius,
     build({ angle, radius }, unit) {
       const r = (radius - 0.5) / unit;
       const lead = r + 1 / unit;
       const sweep = (angle * PI) / 180;
       const arc = arcPoints([0, 0], r, -PI / 2, sweep);
-      const path = [[-lead, -r], ...arc];
-      const laps = angle % 360 === 0;
-      if (laps) path.push([lead, -r]);
-      else path.push([-r, -lead]);
+      // Any multiple of 90°: the exit is the entry turned by the angle, led out 1 m past the circle.
+      const quarter = (angle / 90) % 4;
+      const exits = [[[1, 0], [lead, -r]], [[0, 1], [r, lead]], [[-1, 0], [-lead, r]], [[0, -1], [-r, -lead]]];
+      const [exitDir, out] = exits[quarter];
       return {
         cones: [{ a: 0, b: 0, height: 'tall' }],
         passes: [{ kind: 'cone', cone: 0, side: 'left', angle }],
-        path,
+        path: [[-lead, -r], ...arc, out],
         entryDir: [1, 0],
-        exitDir: laps ? [1, 0] : [0, -1],
+        exitDir,
       };
     },
   },
@@ -1093,6 +1104,8 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
     runOff,
     runOffPoly,
     margins: { pad: zonePad, runOff: runOff ? runOffDistance : 0 },
+    // Radius in metres round the first cone that no other cone may stand in, or null.
+    keepOut: TYPES[type].keepOut?.(params) ?? null,
     turnLeft: turn.left,
     turnRight: turn.right,
   };
@@ -1140,8 +1153,9 @@ export const SIZE_SPECS = {
   ],
   'u-turn': [{ key: 'width', name: 'Ширина', kind: 'length', min: classWidth, max: 16 }],
   'pivot-turn': [
-    { key: 'angle', name: 'Угол', kind: 'choice', values: [270, 360, 720] },
-    { key: 'radius', name: 'Свободный радиус', kind: 'radius', min: (bike) => classRadius(bike) + 0.5, max: 8 },
+    { key: 'angle', name: 'Угол', kind: 'choice', values: PIVOT_ANGLES },
+    // Below the class radius on purpose: the organiser's own figure (ADR 0025).
+    { key: 'radius', name: 'Свободный радиус', kind: 'radius', min: PIVOT_RADIUS_MIN, max: 8 },
   ],
   'figure-eight': [
     { key: 'distance', name: 'Между конусами', kind: 'length', min: 5, max: 12 },
@@ -1277,8 +1291,9 @@ export function elementSizes(type, params, diagonal) {
  */
 export function keepsFixedSize(type, key, params, diagonal, recipe) {
   const only = { [type]: { [key]: recipe.sizes[type][key] } };
-  const fixed = TYPES[type].options(sizeTable(recipe.difficulty, recipe.bike, type, only), unitFor(diagonal));
-  return fixed[key].includes(params[key]);
+  const table = sizeTable(recipe.difficulty, recipe.bike, type, only);
+  const fixed = TYPES[type].options(table, unitFor(diagonal))[key] ?? [TYPES[type].extra?.(table)[key]];
+  return fixed.includes(params[key]);
 }
 
 /**
@@ -1317,6 +1332,7 @@ export function sizeControls(type, sizes, diagonal, bike) {
     }
     const step = kind === 'count' ? 1 : 0.5;
     const lo = specMin(spec, bike, bounded);
-    return { key, name, kind, value: v, less: v - step >= lo - 1e-9 ? to(v - step) : null, more: v + step <= spec.max + 1e-9 ? to(v + step) : null };
+    // A value off the step (a class radius of 4.25 m) steps onto the end of the range rather than stop short of it.
+    return { key, name, kind, value: v, less: v > lo + 1e-9 ? to(Math.max(lo, v - step)) : null, more: v < spec.max - 1e-9 ? to(Math.min(spec.max, v + step)) : null };
   });
 }
