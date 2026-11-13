@@ -12,9 +12,9 @@ import {
 const UNDO_MAX = 100;
 /** What the card says instead of an angle for a type whose heading the route chooses (ADR 0027). */
 const FREE_NOTES = {
-  'pass-left': 'проезд с любой стороны подхода, конус слева',
-  'pass-right': 'проезд с любой стороны подхода, конус справа',
-  'small-turn': 'заход с любой стороны подхода, разворот вокруг конуса',
+  'pass-left': 'проезд с любой стороны подхода, конус слева; если нужно — с разворотом вокруг него до 225°',
+  'pass-right': 'проезд с любой стороны подхода, конус справа; если нужно — с разворотом вокруг него до 225°',
+  'small-turn': 'заход с любой стороны подхода, разворот вокруг конуса на 135–225°',
   waypoint: 'конуса нет: маршрут проходит через точку, подход с любой стороны',
 };
 /** The type the picker offers first for an inserted element. */

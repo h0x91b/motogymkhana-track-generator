@@ -7,7 +7,7 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { BIKE_TURN_RADIUS, chainsAhead, chooseParams, crossable, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, chainsAhead, chooseParams, CONE_TURN_KEYS, CONE_TURN_STEP, CONE_TURNS, coneTurnRadius, crossable, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, passOffset, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
 import { dubinsLength, dubinsPaths } from './dubins.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
@@ -176,7 +176,8 @@ export function trainClear(track, next, closes = false) {
 }
 
 const LOCAL_DIRS = { '1,0': 0, '0,1': 2, '-1,0': 4, '0,-1': 6 };
-const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`];
+// Off the axes (the way out of a turn round a cone, ADR 0031), the heading itself in 45° units.
+const localDirIndex = ([a, b]) => LOCAL_DIRS[`${a},${b}`] ?? Math.round(((Math.atan2(b, a) / (PI / 4) + 8) % 8) * 1e9) / 1e9;
 
 const TARGET_PUSH = 3; // a layout target in a blocked area moves this far past its margin
 
@@ -529,13 +530,17 @@ export const isFree = (p) => freeHeading(p.tpl.type);
 
 const TURNED = new Map();
 
-/** A free-heading element turned to `axis` about its cone, which stays where it is. */
-export function turnedTo(p, axis) {
-  const { type, params, mirrored, margins } = p.tpl;
+/** An element's own parameters, without the turn round its cone a route gave it. */
+const ownParams = (params) => Object.fromEntries(Object.entries(params).filter(([k]) => !CONE_TURN_KEYS.includes(k)));
+
+/** A free-heading element turned to `axis` about its cone, which stays where it is; with `turn`, turning round it so (ADR 0031). */
+export function turnedTo(p, axis, turn = null) {
+  const { type, mirrored, margins } = p.tpl;
+  const params = { ...ownParams(p.tpl.params), ...turn };
   const diagonal = diagonalAxis(type, axis);
   const id = `${type}|${diagonal ? 1 : 0}${mirrored ? 1 : 0}|${JSON.stringify(params)}|${margins.pad}|${margins.runOff}`;
   if (!TURNED.has(id)) {
-    if (TURNED.size > 400) TURNED.clear();
+    if (TURNED.size > 2000) TURNED.clear();
     TURNED.set(id, instantiate(type, params, diagonal, mirrored, margins));
   }
   const q = placeTemplate(TURNED.get(id), axis, p.ax, p.ay);
@@ -569,14 +574,17 @@ const axisOff = (a, b) => Math.abs((((a - b) % 8) + 12) % 8 - 4);
  * Dubins paths at `radius` from pose `from` to its entry and from its exit to
  * pose `to`, either left out when null, with no rule checked; ties go to the
  * heading nearest the bearing from `from` (or towards `to`), then in order.
- * The router takes the first that keeps every rule, in the generator and in
- * `routeLayout` alike, so a layout of a generated course routes back to it.
+ * Then, for a turn round a cone (CONE_TURNS) and unless `turns` is false,
+ * every other turn round it (`coneTurns`, ADR 0031): only `routeLayout` asks
+ * for them. The router takes the first that keeps every rule, in the
+ * generator and in `routeLayout` alike, so a layout of a generated course
+ * routes back to it.
  */
-export function freeHeadings(p, from, to, radius) {
+export function freeHeadings(p, from, to, radius, turns = true) {
   const cone = [p.ax, p.ay];
   const near = from ? bearingAxis(from, cone) : to ? bearingAxis(cone, to) : 0;
   if (!ALL_TURNS.has(p)) ALL_TURNS.set(p, FREE_AXES.map((axis) => turnedTo(p, axis)));
-  return ALL_TURNS.get(p).map((q, k) => {
+  const best = ALL_TURNS.get(p).map((q, k) => {
     const { axis } = q;
     let cost = 0;
     if (from) cost += dubinsLength(from, pose(q.entry, q.entryDir), radius);
@@ -586,6 +594,105 @@ export function freeHeadings(p, from, to, radius) {
     .sort((a, b) => a.cost - b.cost || a.off - b.off || a.k - b.k)
     .slice(0, FREE_TRIES)
     .map((o) => o.q);
+  return CONE_TURNS[p.tpl.type] && turns ? withTurns(best, p, from, to, radius) : best;
+}
+
+/** The headings, then the other turns round the cone, worked out only once the headings are all tried. */
+function* withTurns(best, p, from, to, radius) {
+  yield* best;
+  yield* coneTurns(p, from, to, radius);
+}
+
+const TURN_SLIDE = 0.5; // a turn's circle is slid along the way in or out in steps this long
+const TURN_ASIDE = [0.5, 1]; // and beside the way straight into the next element by these
+const CHAIN_TAN = Math.tan(CHAIN_RAD);
+
+/**
+ * The turns round the cone of free element p other than its preferred one
+ * (ADR 0031), shortest first: the Dubins path from `from`
+ * to the entry, the arc, and the Dubins path from the exit to `to`. Each is an
+ * arc of the type's radius turning towards the cone by a CONE_TURN_STEP
+ * multiple within CONE_TURNS, its circle round the cone at least the pass
+ * offset inside and the point nearest the cone on the arc:
+ * - on each of FREE_AXES, passing the cone at the offset in the middle of the
+ *   arc (a passed cone), or centred on it (a small U-turn);
+ * - leaving along `to`'s heading on the line straight into it, the circle slid
+ *   back along that line, entered on each of FREE_AXES;
+ * - entering along `from`'s heading on the line straight out of it, slid
+ *   forward along it, by each turn.
+ */
+export function coneTurns(p, from, to, radius) {
+  const { type, params, mirrored, margins } = p.tpl;
+  const spec = CONE_TURNS[type];
+  const rho = coneTurnRadius(type, ownParams(params));
+  const off = passOffset(margins.pad);
+  const left = type === 'pass-left' || (type === 'small-turn' && !mirrored);
+  const sgn = left ? 1 : -1;
+  const cone = [p.ax, p.ay];
+  const turns = [];
+  for (let d = spec.min; d <= spec.max + 1e-9; d += CONE_TURN_STEP) if (d > 0) turns.push(d);
+  const out = [];
+  const seen = new Set();
+  const add = (h, deg, c) => {
+    const dx = c[0] - cone[0];
+    const dy = c[1] - cone[1];
+    const gap = Math.hypot(dx, dy);
+    if (rho - gap < off - 1e-9) return;
+    const t = (deg * PI) / 180;
+    const start = h - (sgn * PI) / 2;
+    // The centre in the element's own frame, as for a cone on the left.
+    const cu = Math.round((dx * Math.cos(h) + dy * Math.sin(h)) * 1e6) / 1e6;
+    const cv = Math.round(sgn * (-dx * Math.sin(h) + dy * Math.cos(h)) * 1e6) / 1e6;
+    const axis = Math.round(((h / (PI / 4)) % 8 + 8) % 8 * 1e9) / 1e9;
+    const key = `${axis}|${deg}|${cu}|${cv}`;
+    if (seen.has(key) || (deg === spec.prefer && Math.abs(cu) < 1e-6 && Math.abs(cv) < 1e-6)) return;
+    seen.add(key);
+    const entry = [c[0] + rho * Math.cos(start), c[1] + rho * Math.sin(start), h];
+    const exit = [c[0] + rho * Math.cos(start + sgn * t), c[1] + rho * Math.sin(start + sgn * t), h + sgn * t];
+    let cost = rho * t;
+    if (from) cost += dubinsLength(from, entry, radius);
+    if (to) cost += dubinsLength(exit, to, radius);
+    out.push({ axis, turn: { turn: deg, cu, cv }, cost, k: out.length });
+  };
+  const normal = (h) => [-sgn * Math.sin(h), sgn * Math.cos(h)];
+  // Slid at most this far: past it the circle no longer holds the cone.
+  const reach = (q) => Math.hypot(q[0] - cone[0], q[1] - cone[1]) + rho;
+  for (const axis of FREE_AXES) {
+    const h = (axis * PI) / 4;
+    for (const deg of turns) {
+      const t = (deg * PI) / 180;
+      const mid = h - (sgn * PI) / 2 + (sgn * t) / 2;
+      add(h, deg, type === 'small-turn' ? cone : [cone[0] - (rho - off) * Math.cos(mid), cone[1] - (rho - off) * Math.sin(mid)]);
+    }
+  }
+  if (to) {
+    const n = normal(to[2]);
+    for (const axis of FREE_AXES) {
+      const h = (axis * PI) / 4;
+      const deg = Math.round(((((sgn * (to[2] - h)) % (2 * PI)) + 2 * PI) % (2 * PI)) * (180 / PI) * 1e6) / 1e6;
+      if (deg < spec.min - 1e-6 || deg > spec.max + 1e-6 || deg < 1e-6) continue;
+      for (let s = 0; s <= reach(to); s += TURN_SLIDE) {
+        // On the line, or beside it by as much as a straight in within CHAIN_ANGLE allows.
+        for (const side of [0, ...TURN_ASIDE.filter((d) => d <= s * CHAIN_TAN)]) {
+          for (const w of side ? [side, -side] : [0]) {
+            const e = [to[0] - s * Math.cos(to[2]) + w * n[0], to[1] - s * Math.sin(to[2]) + w * n[1]];
+            add(h, deg, [e[0] + rho * n[0], e[1] + rho * n[1]]);
+          }
+        }
+      }
+    }
+  }
+  if (from) {
+    const h = from[2];
+    const n = normal(h);
+    for (const deg of turns) {
+      for (let s = 0; s <= reach(from); s += TURN_SLIDE) {
+        const e = [from[0] + s * Math.cos(h), from[1] + s * Math.sin(h)];
+        add(h, deg, [e[0] + rho * n[0], e[1] + rho * n[1]]);
+      }
+    }
+  }
+  return out.sort((a, b) => a.cost - b.cost || a.k - b.k).map((o) => turnedTo(p, o.axis, o.turn));
 }
 
 /**
@@ -942,13 +1049,16 @@ export const routePaths = (legs, placed) => [...legs, ...placed.flatMap((p) => p
  * ahead (a small U-turn, `chainsAhead`) the entry may lie any distance ahead:
  * the straight then keeps to the asphalt and out of `zones` like a connector.
  */
+/** Is a placed element joined straight at any distance: a small U-turn, or a passed cone the route turns round (ADR 0031)? */
+const aheadChained = (p) => chainsAhead(p.tpl.type) || p.tpl.params?.turn > 0;
+
 export function chainLeg(prev, next, inner = null, zones = []) {
   if (Math.abs(wrapPi(dirAngle(prev.exitDir) - dirAngle(next.entryDir))) > CHAIN_RAD + 1e-9) return null;
   const dx = next.entry[0] - prev.exit[0];
   const dy = next.entry[1] - prev.exit[1];
   const d = Math.sqrt(dx * dx + dy * dy);
   const far = d > CHAIN_REACH + 1e-9;
-  if (far && !(inner && (chainsAhead(prev.tpl.type) || chainsAhead(next.tpl.type)))) return null;
+  if (far && !(inner && (aheadChained(prev) || aheadChained(next)))) return null;
   if (d > 0.01 && Math.abs(wrapPi(Math.atan2(dy, dx) - dirAngle(prev.exitDir))) > CHAIN_RAD + 1e-9) return null;
   const leg = straightLeg(prev.exit, next.entry);
   if (far && !(lineOnAsphalt(inner, leg.points, leg.bounds) && pathClear(leg.points, leg.bounds, zones))) return null;
@@ -1278,7 +1388,8 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     // What comes before the free element does not depend on the candidate: worked out once per heading.
     if (!INS.has(placed[k])) INS.set(placed[k], new Map());
     const ins = INS.get(placed[k]);
-    for (const p of freeHeadings(placed[k], from, pose(next.entry, next.entryDir), radius)) {
+    // The generator keeps the preferred turn round a lone cone (ADR 0031): a tighter one is the organiser's.
+    for (const p of freeHeadings(placed[k], from, pose(next.entry, next.entryDir), radius, false)) {
       if (!ins.has(p.axis)) ins.set(p.axis, inTo(k, p, base, paths, before, from, before0));
       const got = ins.get(p.axis);
       if (!got) continue;
@@ -1349,7 +1460,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
     const prev = i > 0 ? (rewire ? rewire.placement : placed[i - 1]) : null;
     const from = prev && pose(prev.exit, prev.exitDir);
     const to = i > 0 && i === n - 1 ? closingTarget(recipe.shape, rewire ? rewire.start : start, radius) : null;
-    for (const c of freeHeadings(cand, from, to, radius).slice(0, i === n - 1 ? FREE_TRIES : STAND_IN_TRIES)) {
+    for (const c of freeHeadings(cand, from, to, radius, false).slice(0, i === n - 1 ? FREE_TRIES : STAND_IN_TRIES)) {
       const result = evaluateAt(i, c, rewire);
       if (result) return { ...result, cand: c };
     }

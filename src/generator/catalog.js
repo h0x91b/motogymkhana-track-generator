@@ -934,7 +934,7 @@ const TYPES = {
     point: true,
     mirrorType: 'pass-right',
     options: () => ({}),
-    build: (params, unit, pad) => passCone('left', unit, pad),
+    build: (params, unit, pad) => (params.turn ? coneTurn(params, SMALL_TURN_RADIUS_MIN, unit, 'left') : passCone('left', unit, pad)),
   },
   'pass-right': {
     fixedSide: true,
@@ -943,15 +943,16 @@ const TYPES = {
     point: true,
     mirrorType: 'pass-left',
     options: () => ({}),
-    build: (params, unit, pad) => passCone('right', unit, pad),
+    build: (params, unit, pad) => (params.turn ? coneTurn(params, SMALL_TURN_RADIUS_MIN, unit, 'right') : passCone('right', unit, pad)),
   },
 
   'small-turn': {
-    // «Малый разворот»: back round one tall cone, 180°, on at least the U-turn
-    // radius; no walls, so a wider line is fine. Entered on whatever heading
-    // the route needs (`freeHeading`, ADR 0027), the cone on the inside. Ridden
-    // straight out of into an entry ahead and straight into from an exit
-    // behind, however far (`chainsAhead`).
+    // «Малый разворот»: back round one tall cone on at least the U-turn
+    // radius; no walls, so a wider line is fine. 180° centred on the cone, or
+    // as much as the route needs within CONE_TURNS (ADR 0031). Entered on
+    // whatever heading the route needs (`freeHeading`, ADR 0027), the cone on
+    // the inside. Ridden straight out of into an entry ahead and straight into
+    // from an exit behind, however far (`chainsAhead`).
     freeHeading: true,
     crossable: true,
     chainsAhead: true,
@@ -959,16 +960,7 @@ const TYPES = {
     // The radius (`smallTurnRadius`) is the U-turn radius unless the recipe or
     // «Правка» sets a tighter one, down to SMALL_TURN_RADIUS_MIN on any bike.
     extra: (t) => ({ radius: t.smallTurnRadius[0] }),
-    build({ radius }, unit) {
-      const r = radius / unit;
-      return {
-        cones: [{ a: 0, b: 0, height: 'tall' }],
-        passes: [{ kind: 'cone', cone: 0, side: 'left', angle: 180 }],
-        path: arcPoints([0, 0], r, -PI / 2, PI),
-        entryDir: [1, 0],
-        exitDir: [-1, 0],
-      };
-    },
+    build: (params, unit) => coneTurn(params, params.radius, unit, 'left'),
   },
 };
 
@@ -1099,7 +1091,7 @@ const WAYPOINT_TYPE = {
  * connector turning towards the cone there still keeps it.
  */
 function passCone(side, unit, pad) {
-  const off = Math.max(WEAVE, pad + PASS_SLACK);
+  const off = passOffset(pad);
   const b = (side === 'left' ? -off : off) / unit;
   return {
     cones: [{ a: 0, b: 0, height: 'tall' }],
@@ -1107,6 +1099,51 @@ function passCone(side, unit, pad) {
     path: [[0, b]],
     entryDir: [1, 0],
     exitDir: [1, 0],
+  };
+}
+
+/** How close the line passes a lone cone: WEAVE, or the cone's clearance when that is more. */
+export const passOffset = (pad) => Math.max(WEAVE, pad + PASS_SLACK);
+
+/**
+ * Turns round one cone (ADR 0031): how far, in degrees, the line may turn
+ * round the cone of a passed cone or a small U-turn, in CONE_TURN_STEP steps,
+ * and the turn it takes when that keeps every rule (`prefer`: straight past a
+ * passed cone, 180° round the cone of a small U-turn).
+ */
+export const CONE_TURNS = {
+  'pass-left': { min: 0, max: 225, prefer: 0 },
+  'pass-right': { min: 0, max: 225, prefer: 0 },
+  'small-turn': { min: 135, max: 225, prefer: 180 },
+};
+export const CONE_TURN_STEP = 22.5;
+/** The parameters a route gives a turn round a cone, beside the element's own sizes: the turn in degrees and the centre of its circle. */
+export const CONE_TURN_KEYS = ['turn', 'cu', 'cv'];
+/** The radius of the turn round a cone: a small U-turn's own, SMALL_TURN_RADIUS_MIN round a passed cone. */
+export const coneTurnRadius = (type, params) => (type === 'small-turn' ? params.radius : SMALL_TURN_RADIUS_MIN);
+
+/**
+ * The line round one cone, in the frame of a cone on the rider's left: entered
+ * heading +a, an arc of `radius` metres anticlockwise by `turn` degrees (180
+ * unless given) round the centre (`cu`, `cv`) metres from the cone (the cone
+ * itself unless given), which the route chooses so the cone is inside the
+ * circle. On the right it is the mirror image.
+ */
+function coneTurn(params, radius, unit, side) {
+  const { turn = 180, cu = 0, cv = 0 } = params;
+  const t = (turn * PI) / 180;
+  const flip = side === 'right' ? -1 : 1;
+  const round = (v) => Math.round(v * 1e12) / 1e12;
+  const path = arcPoints([cu / unit, cv / unit], radius / unit, -PI / 2, t).map(([a, b]) => [a, flip * b]);
+  return {
+    cones: [{ a: 0, b: 0, height: 'tall' }],
+    // A turn the route chose is no pivot: its cone keeps the colour of its side (`passColor`).
+    passes: [{ kind: 'cone', cone: 0, side, ...(params.turn === undefined ? { angle: 180 } : {}) }],
+    path,
+    entryDir: [1, 0],
+    exitDir: [round(Math.cos(t)), round(flip * Math.sin(t))],
+    // A turn the route chose is the arc alone: the connectors meet it at its ends, as at a passed cone.
+    bare: params.turn !== undefined,
   };
 }
 
@@ -1204,17 +1241,23 @@ function mirrorGeometry(g) {
     path: g.path.map(([a, b]) => [a, -b]),
     entryDir: flipDir(g.entryDir),
     exitDir: flipDir(g.exitDir),
+    bare: g.bare,
   };
 }
 
 function boundaryPoint(point, dir, box, outward) {
-  // Walk from `point` along ±dir (axis-aligned) to the zone rectangle edge.
+  // Walk from `point` along ±dir to the zone rectangle edge.
   const s = outward ? 1 : -1;
   const [da, db] = [dir[0] * s, dir[1] * s];
-  if (da > 0) return [box[2], point[1]];
-  if (da < 0) return [box[0], point[1]];
-  if (db > 0) return [point[0], box[3]];
-  return [point[0], box[1]];
+  if (db === 0 || da === 0) {
+    if (da > 0) return [box[2], point[1]];
+    if (da < 0) return [box[0], point[1]];
+    if (db > 0) return [point[0], box[3]];
+    return [point[0], box[1]];
+  }
+  // Off the axes (a turn round a cone, ADR 0031): along the heading to the first edge.
+  const t = Math.min(((da > 0 ? box[2] : box[0]) - point[0]) / da, ((db > 0 ? box[3] : box[1]) - point[1]) / db);
+  return [point[0] + da * t, point[1] + db * t];
 }
 
 /**
@@ -1248,10 +1291,11 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
   const pad = zonePad / unit;
   const zone = [a0 - pad, b0 - pad, a1 + pad, b1 + pad];
   // A point waypoint is entered and left at its one point, with no run-in or run-out.
-  const point = Boolean(TYPES[type].point);
+  const bare = Boolean(g.bare);
+  const point = Boolean(TYPES[type].point) && !bare;
   const path = point
     ? [g.path[0], g.path[0]]
-    : [boundaryPoint(g.path[0], g.entryDir, zone, false), ...g.path, boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true)];
+    : bare ? g.path : [boundaryPoint(g.path[0], g.entryDir, zone, false), ...g.path, boundaryPoint(g.path[g.path.length - 1], g.exitDir, zone, true)];
   let runOff = null;
   let runOffPoly = null;
   if (RUN_OFF_TYPES[type] && runOffDistance > 0) {
@@ -1286,7 +1330,7 @@ export function instantiate(type, params, diagonal, mirrored, margins = {}) {
     diagonal,
     mirrored,
     unit,
-    point,
+    point: point || bare,
     cones: g.cones,
     passes: g.passes,
     lines: g.lines,
