@@ -6,10 +6,16 @@
 import {
   addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
   removeBlocked, removeElement, replaceElement, resetTerminal, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement,
-  SINGLE_CONE_TYPES, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
+  freeHeading, SINGLE_CONE_TYPES, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
+/** What the card says instead of an angle for a type whose heading the route chooses (ADR 0026). */
+const FREE_NOTES = {
+  'pass-left': 'проезд с любой стороны подхода, конус слева',
+  'pass-right': 'проезд с любой стороны подхода, конус справа',
+  'small-turn': 'заход с любой стороны подхода, разворот вокруг конуса',
+};
 /** The type the picker offers first for an inserted element. */
 const SUGGESTED_INSERT = 'gate';
 
@@ -232,6 +238,10 @@ export function createEditor(host) {
     nudge: (arg) => nudge(...arg.split(',').map(Number)),
     rotate: (arg) => {
       const what = subject();
+      if (!term && freeHeading(layout.elements[selected].type)) {
+        say(`${what} не поворачивается: ${FREE_NOTES[layout.elements[selected].type]}.`);
+        return;
+      }
       const next = rotateElement(layout, target(), Number(arg));
       const axis = term ? next[term].axis : next.elements[selected].axis;
       commit(next, target(), `${what} повёрнут на ${comma(axisDegrees(axis))}°.`);
@@ -554,7 +564,9 @@ export function createEditor(host) {
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
     // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0019).
-    const angle = `<div class="size-row angle-row">
+    // A free-heading element has none: the route turns it (ADR 0026).
+    const free = freeHeading(el.type);
+    const angle = free ? `<p class="free-note muted">${esc(FREE_NOTES[el.type][0].toUpperCase() + FREE_NOTES[el.type].slice(1))}</p>` : `<div class="size-row angle-row">
         <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>
         <span class="angle-field"><input id="edit-angle" inputmode="decimal" autocomplete="off" enterkeyhint="done" value="${comma(axisDegrees(el.axis))}" aria-describedby="edit-angle-note"><span aria-hidden="true">°</span></span>
       </div>`;
@@ -583,7 +595,7 @@ export function createEditor(host) {
           ${tool('nudge', '-1,0', 'Сдвинуть на 1 м влево', 'left')}${tool('nudge', '0,1', 'Сдвинуть на 1 м вверх', 'up')}${tool('nudge', '0,-1', 'Сдвинуть на 1 м вниз', 'down')}${tool('nudge', '1,0', 'Сдвинуть на 1 м вправо', 'right')}
         </span>
         <span class="tool-group" role="group" aria-label="Повернуть и отразить">
-          ${tool('rotate', '1', `Повернуть на ${turn}° против часовой`, 'ccw')}${tool('rotate', '-1', `Повернуть на ${turn}° по часовой`, 'cw')}${tool('mirror', null, 'Отразить: повороты в другую сторону', 'mirror')}
+          ${free ? '' : `${tool('rotate', '1', `Повернуть на ${turn}° против часовой`, 'ccw')}${tool('rotate', '-1', `Повернуть на ${turn}° по часовой`, 'cw')}`}${tool('mirror', null, free && el.type !== 'small-turn' ? 'Отразить: конус с другой стороны' : 'Отразить: повороты в другую сторону', 'mirror')}
         </span>
       </div>
       <div class="edit-actions">

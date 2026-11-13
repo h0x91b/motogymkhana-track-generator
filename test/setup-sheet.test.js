@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { generateCourse } from '../src/generator/index.js';
-import { editAxes } from '../src/generator/catalog.js';
+import { editAxes, freeHeading } from '../src/generator/catalog.js';
 import { ELEMENT_TYPES } from '../src/generator/recipe.js';
 import { conesCsv } from '../src/file/course-file.js';
 import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
@@ -432,7 +432,8 @@ describe('the setup sheet of an element turned by 22.5°', () => {
     for (const type of ELEMENT_TYPES) {
       let layout = replaceElement(base, 0, type);
       for (const axis of editAxes(type)) {
-        layout = turnElementTo(layout, 0, axis * 45);
+        // A free-heading type does not turn (ADR 0026): an axis saved with it, as in an old file, is ignored.
+        layout = freeHeading(type) ? { ...layout, elements: layout.elements.map((e, k) => (k ? e : { ...e, axis })) } : turnElementTo(layout, 0, axis * 45);
         expect(layout.elements[0].axis).toBe(axis);
         const { course } = routeLayout(layout);
         const sheet = buildSetupSheet(course);

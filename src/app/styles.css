@@ -682,6 +682,8 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .chips span.below { color: var(--muted); border-style: dashed; }
 /* «Поворот»: a typed angle, snapped to the axes of the type. */
 .angle-row .size-name { display: grid; gap: 2px; }
+/* …or, for a type the route turns itself (ADR 0026), what it is ridden like. */
+.free-note { margin: 0; font-size: 14px; }
 .angle-note { font-size: 13px; font-weight: 400; line-height: 1.25; }
 .angle-field { grid-column: 2 / -1; position: relative; display: block; }
 .angle-field input {
