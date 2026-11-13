@@ -108,6 +108,15 @@ describe('recipe input', () => {
     expect(generateCourse({ ...baseRecipe, train: true, types: ['box'] }, 1).error.code).toBe('invalid-input');
   });
 
+  test('a keyhole alone, or with only single cones to fill gaps, is a types error: it never starts or ends a course', () => {
+    for (const types of [['keyhole'], ['keyhole', 'pass-left', 'small-turn']]) {
+      const result = parseRecipe({ ...baseRecipe, types });
+      expect(result.ok, types.join()).toBe(false);
+      expect(result.errors.types).toContain('Замочная скважина');
+    }
+    for (const types of [['keyhole', 'gate'], ['keyhole', 'double-keyhole'], ['pass-left']]) expect(parseRecipe({ ...baseRecipe, types }).ok, types.join()).toBe(true);
+  });
+
   test('every type is allowed by default', () => {
     const result = generateCourse(baseRecipe, 1);
     expect(result.course.recipe.types).toEqual(ELEMENT_TYPES);
@@ -120,7 +129,8 @@ describe('recipe input', () => {
     const size = { snail: 'corridor', 'box-eight': 'gate', keyhole: 'opening' };
     for (const [type, key] of Object.entries(size)) {
       const sizes = DIFFICULTIES.map((difficulty) => {
-        const recipe = { ...baseRecipe, closed: false, elements: 2, difficulty, types: [type] };
+        // A keyhole is entered and left by the same neck, so it never starts or ends a course: a gate either side.
+        const recipe = { ...baseRecipe, closed: false, elements: type === 'keyhole' ? 3 : 2, difficulty, types: type === 'keyhole' ? [type, 'gate'] : [type] };
         expect(parseRecipe(recipe).ok, `${type} ${difficulty}`).toBe(true);
         const result = generateCourse(recipe, 1);
         expect(result.ok, `${type} ${difficulty}`).toBe(true);

@@ -4,8 +4,8 @@
 // generated course, the setup sheet, «Правка» and the course file.
 
 import { describe, expect, test } from 'bun:test';
-import { canonicalJSON, ELEMENT_TYPES, generateCourse, LOOPED_TYPES } from '../src/generator/index.js';
-import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, KEYHOLE_SPREAD, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
+import { canonicalJSON, ELEMENT_TYPES, generateCourse, LOOPED_TYPES, ZONE_PAD } from '../src/generator/index.js';
+import { elementParams, instantiate, isBig, keyholeGapMin, KEYHOLE_NECK, KEYHOLE_NECK_CONES, KEYHOLE_RADIUS, SIZE_OPTIONS, SIZE_SPECS, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { elementControls, insertElement, layoutOf, mirrorElement, routeLayout } from '../src/generator/layout.js';
 import { buildSetupSheet, metres as metreLabel } from '../src/sheet/setup-sheet.js';
 import { loopArrow } from '../src/render/loops.js';
@@ -67,6 +67,14 @@ function selfCrossings(path) {
   }
   return out;
 }
+
+/**
+ * The loop's radius in a ring of this radius whose neck ends `reach` metres
+ * from its centre: KEYHOLE_CLEAR inside the ring, or tighter when the turn
+ * onto it (on its own radius, √3 loop radii short of the centre) would start
+ * past the neck's end.
+ */
+const loopRadius = (radius, reach) => Math.min(radius - KEYHOLE_CLEAR, reach / Math.sqrt(3));
 
 /** Every size of the type in its «Правка» range: the gap from the narrowest the rings allow. */
 function* allSizes() {
@@ -142,7 +150,9 @@ describe('catalog', () => {
       const t = tpl(sizes);
       const m = metres(t);
       const radius = t.params.radius * t.unit;
-      const loop = radius - KEYHOLE_CLEAR;
+      // Each neck ends half the gap from the middle of the gap.
+      const [ca, cb] = m.tall.map((c) => c.p);
+      const loop = loopRadius(radius, (ca[1] - cb[1]) / 2 - (t.params.gap * t.unit) / 2);
       expect(t.entryDir).toEqual([1, 0]);
       expect(t.exitDir).toEqual([1, 0]);
       // 0.96: the 2 m stencil reads a 1.8 m arc a little tight.
@@ -183,33 +193,46 @@ describe('catalog', () => {
 });
 
 describe('keyhole', () => {
-  test('a ring of 12 low cones, a neck of two cones each side, both passes straight up and down the middle of the neck', () => {
+  test('a ring of 12 low cones, a neck of two cones each side, both passes straight up and down the middle of the neck, nothing past it', () => {
     for (const radius of sizeValues(SIZE_SPECS.keyhole[0])) {
       for (const opening of sizeValues(SIZE_SPECS.keyhole[1])) {
         const t = instantiate('keyhole', elementParams('keyhole', { radius, opening }, false, 'sport'), false, false);
         const m = metres(t);
+        const label = `${radius} ${opening}`;
         expect(m.low).toHaveLength(12 + 2 * KEYHOLE_NECK_CONES);
         const centre = m.tall[0].p;
-        const loop = t.params.radius * t.unit - KEYHOLE_CLEAR;
-        expect(toPath(m.path, centre)).toBeCloseTo(loop, 1);
-        // The loop, the turns through the opening on the loop's radius; past the neck the passes part on 2 m turns.
-        expect(tightestBend(m.path.filter((q) => q[0] > Math.min(...m.low.map((c) => c.p[0]))))).toBeGreaterThan(loop * 0.97);
-        expect(tightestBend(m.path)).toBeGreaterThan(Math.min(loop, 2) * 0.97);
-        for (const c of m.low) expect(toPath(m.path, c.p), `${radius} ${opening}`).toBeGreaterThan(0.6);
-        // Up and down the neck both passes ride its middle, straight, from its end on the centre line
-        // (the turn into the ring is on the loop's radius, so it starts before the mouth); past it they part to KEYHOLE_SPREAD either side.
-        const ends = [m.cones[0], m.cones[11]];
         const neckEnd = Math.min(...m.low.map((c) => c.p[0]));
-        // Between the neck cones: within 0.2 m of the middle; at the mouth itself under 0.5 m.
+        const loop = loopRadius(t.params.radius * t.unit, centre[0] - neckEnd);
+        expect(loop, label).toBeGreaterThan(t.params.radius * t.unit - KEYHOLE_CLEAR - 0.45);
+        expect(toPath(m.path, centre), label).toBeCloseTo(loop, 1);
+        // Nothing in the element is tighter than its loop.
+        expect(tightestBend(m.path), label).toBeGreaterThan(loop * 0.96);
+        for (const c of m.low) expect(toPath(m.path, c.p), label).toBeGreaterThan(0.6);
+        // The line ridden ends at the neck's outer end: in and out there, on the centre line, along the axis.
+        const line = m.path.slice(1, -1);
+        for (const q of [line[0], line.at(-1)]) {
+          expect(q[0], label).toBeCloseTo(neckEnd, 9);
+          expect(q[1], label).toBeCloseTo(centre[1], 9);
+        }
+        for (const q of line) expect(q[0], label).toBeGreaterThanOrEqual(neckEnd - 1e-9);
+        // Up and down the neck both passes ride its middle: between the neck cones within 0.2 m of it
+        // (the turn into the ring is on the loop's radius, so it can start inside the neck), at the mouth under 0.5 m.
+        const ends = [m.cones[0], m.cones[11]];
         const neckRow = Math.max(...m.low.filter((c) => c.p[0] < ends[0].p[0]).map((c) => c.p[0]));
         const between = m.path.filter((q) => q[0] >= neckEnd - 1e-9 && q[0] <= neckRow + 1e-9);
         expect(between.length).toBeGreaterThan(0);
-        for (const q of between) expect(Math.abs(q[1] - centre[1]), `${radius} ${opening}`).toBeLessThan(0.2 + 1e-9);
+        for (const q of between) expect(Math.abs(q[1] - centre[1]), label).toBeLessThan(0.2 + 1e-9);
         const inNeck = m.path.filter((q) => q[0] >= neckEnd - 1e-9 && q[0] < ends[0].p[0]);
-        for (const q of inNeck) expect(Math.abs(q[1] - centre[1]), `${radius} ${opening}`).toBeLessThan(0.5);
-        expect(m.path.filter((q) => Math.abs(q[1] - centre[1]) < 1e-6 && q[0] <= neckEnd + 0.5).length).toBeGreaterThanOrEqual(2);
+        for (const q of inNeck) expect(Math.abs(q[1] - centre[1]), label).toBeLessThan(0.5);
         for (const q of selfCrossings(m.path)) expect(Math.abs(q[1] - centre[1])).toBeLessThan(0.5);
-        for (const q of [m.path[0], m.path.at(-1)]) expect(Math.abs(q[1] - centre[1])).toBeCloseTo(KEYHOLE_SPREAD, 9);
+        // The element's core, zone and run-off stop there too: the core at the neck's end, the zone and
+        // the run-off (cut on the side of the way in) its clearance further out, no more.
+        expect(t.core[0] * t.unit, label).toBeCloseTo(neckEnd, 9);
+        expect((t.core[0] - t.zone[0]) * t.unit, label).toBeCloseTo(ZONE_PAD, 9);
+        expect(Math.min(...t.runOffPoly.map((q) => q[0])), label).toBeGreaterThanOrEqual(t.zone[0] - 1e-9);
+        // The run-in and run-out are the zone's own clearance, straight on along the centre line.
+        expect(m.path[0]).toEqual(m.path.at(-1));
+        expect(m.path[0][1]).toBe(centre[1]);
         expect(t.entryDir).toEqual([1, 0]);
         expect(t.exitDir).toEqual([-1, 0]);
       }
@@ -352,7 +375,8 @@ describe('ring measures on the plan', () => {
     return buildSetupSheet(course).cards.find((c) => c.type === type).measures;
   };
   test('each ring gets one radius line to the ring, labelled with its radius; a keyhole neck its width', () => {
-    const base = { width: 40, length: 40, elements: 2, difficulty: 'medium', bike: 'sport', shape: 'open', train: false };
+    // Three elements: a keyhole goes between two others.
+    const base = { width: 40, length: 40, elements: 3, difficulty: 'medium', bike: 'sport', shape: 'open', train: false };
     for (const [type, radii] of [['circle', 1], ['snail', 3], ['keyhole', 1]]) {
       const ms = measured({ ...base, types: [type, 'gate'] }, type);
       const rs = ms.filter((m) => m.kind === 'radius');

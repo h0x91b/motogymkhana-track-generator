@@ -297,8 +297,6 @@ const SNAIL_CORE = 4; // snail: the central S spans this many metres
 const ZIGZAG_SEGMENTS = 3;
 const BOX_EIGHT_MARGIN = 1; // licence-test eight: rectangle this far outside the loops
 const KEYHOLE_CLEAR = 1.2; // keyhole: the loop inside runs this far inside the ring
-export const KEYHOLE_SPREAD = 1.4; // keyhole: past the neck the passes part to this far either side of the axis
-const KEYHOLE_TURN = 2; // keyhole: radius of the turns that part them
 const KEYHOLE_GAP_MARGIN = 2.5; // double keyhole: the gap between the necks is at least ring radius + opening less this
 const KEYHOLE_CONES = 12;
 const KEYHOLE_OPENING_MARGIN = 1; // keyhole: the opening is at most the ring radius less this
@@ -972,26 +970,22 @@ const TYPES = {
  * the opening; in front of the opening a neck of KEYHOLE_NECK_CONES low cones
  * on each side, in line with the ring's end cones, outwards along −a.
  *
- * The line comes up the middle of the neck straight, then turns left on the
- * loop's own radius until it meets the loop (KEYHOLE_CLEAR inside the ring) and
- * goes clockwise round the centre cone, then back the mirror image: out of the
+ * The line comes up the middle of the neck straight from its outer end, then
+ * turns left on the loop's own radius until it meets the loop and goes
+ * clockwise round the centre cone, then back the mirror image: out of the
  * loop, a turn the other way and straight down the middle of the neck. Both
  * passes ride the neck on its centre line; the turn starts where the two
- * circles touch, √3 loop radii short of the centre, a little before the mouth.
- * Past the neck, when `parted`, they part to KEYHOLE_SPREAD either side.
+ * circles touch, √3 loop radii short of the centre. Nothing hangs past the
+ * neck: the element starts and ends at its outer end, on the centre line, and
+ * the connectors take the line from there. The loop runs KEYHOLE_CLEAR inside
+ * the ring, or a little further in when that would start the turn past the
+ * neck's end (a big ring with a short neck).
  *
- * `path` runs from the start of the way in (heading +a) to the end of the way
- * out (heading −a).
+ * `path` runs from the outer end of the neck (heading +a) round the loop and
+ * back to it (heading −a); `rho` is the loop's radius.
  */
-function keyholeShape(radius, opening, unit, parted = true) {
+function keyholeShape(radius, opening, unit) {
   const k = [radius, 0];
-  const rho = radius - KEYHOLE_CLEAR / unit;
-  // The turn in leaves the centre line at `bend`, its circle touching the
-  // loop's: a sixth of a turn left, then the loop carries on to the right.
-  const bend = radius - Math.sqrt(3) * rho;
-  const gamma = PI / 3;
-  // In and half round, to the far side of the loop; the way back is its mirror image.
-  const way = [...arcPoints([bend, rho], rho, -PI / 2, gamma, ARC), ...arcPoints(k, rho, PI / 2 + gamma, -(PI / 2 + gamma), ARC)];
   const half = opening / 2;
   const gap = Math.atan2(half, Math.sqrt(radius * radius - half * half));
   const ring = conesAt(arcSpots(k, radius, PI + gap, 2 * PI - 2 * gap, KEYHOLE_CONES - 1), 'low');
@@ -1000,21 +994,20 @@ function keyholeShape(radius, opening, unit, parted = true) {
   for (const c of [ring[0], ring[ring.length - 1]]) {
     for (let i = 1; i <= KEYHOLE_NECK_CONES; i++) neck.push({ a: c.a - i * step, b: c.b, height: 'low' });
   }
-  // Straight up the middle from the neck's end, or from the turn if that starts further out.
-  const out = Math.min(bend, ...neck.map((c) => c.a));
-  if (out < bend) way.unshift([out, 0]);
-  // Past the neck the two passes part: an S of two KEYHOLE_TURN arcs from the
-  // centre line out to KEYHOLE_SPREAD either side, so the connectors into and
-  // out of the keyhole are not one on top of the other.
-  if (parted) {
-    const spread = KEYHOLE_SPREAD / unit;
-    const r = KEYHOLE_TURN / unit;
-    const length = 2 * r * Math.sin(Math.acos(1 - spread / (2 * r)));
-    way.unshift(...sBend(out - length, -spread, length, 0).slice(0, -1));
-  }
+  const end = Math.min(...neck.map((c) => c.a));
+  const rho = Math.min(radius - KEYHOLE_CLEAR / unit, (radius - end) / Math.sqrt(3));
+  // The turn in leaves the centre line at `bend`, its circle touching the
+  // loop's: a sixth of a turn left, then the loop carries on to the right.
+  const bend = radius - Math.sqrt(3) * rho;
+  const gamma = PI / 3;
+  // In and half round, to the far side of the loop; the way back is its mirror image.
+  const way = [...arcPoints([bend, rho], rho, -PI / 2, gamma, ARC), ...arcPoints(k, rho, PI / 2 + gamma, -(PI / 2 + gamma), ARC)];
+  // Straight up the middle from the neck's end to the turn.
+  if (end < bend - 1e-9) way.unshift([end, 0]);
   const back = way.slice(0, -1).reverse().map(([a, b]) => [a, -b]);
   return {
     centre: k,
+    rho,
     ring,
     neck,
     path: [...way, ...back],
@@ -1035,8 +1028,8 @@ function keyholeShape(radius, opening, unit, parted = true) {
  * loops' radius: nothing in the element is tighter than the loops.
  */
 function doubleKeyhole({ radius, opening, gap }, unit) {
-  const k = keyholeShape(radius, opening, unit, false);
-  const rho = radius - KEYHOLE_CLEAR / unit;
+  const k = keyholeShape(radius, opening, unit);
+  const { rho } = k;
   // A's frame turned a quarter left, A's centre at the origin: +a of the keyhole
   // (into the ring) is +b here, and its neck's end cones are gap / 2 above the
   // middle of the gap at b = −centre.
@@ -1048,12 +1041,11 @@ function doubleKeyhole({ radius, opening, gap }, unit) {
   const lowB = lowA.map(toB);
   const inA = k.path.map(toA);
   const inB = inA.map(toB);
-  // The turns end and start level with the necks' end cones, or where the
-  // keyhole's own line begins if that is further out: up and down a neck the
-  // line is straight.
+  // The turns end and start level with the necks' end cones, where the
+  // keyhole's own line begins: up and down a neck the line is straight.
   const ea = inA[0][0];
   const xa = inB.at(-1)[0];
-  const eb = Math.min(-centre + gap / 2, inA[0][1]);
+  const eb = inA[0][1];
   const path = chain(
     ...arcPoints([ea - rho, eb], rho, -PI / 2, PI / 2, ARC),
     ...inA,

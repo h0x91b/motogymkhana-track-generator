@@ -444,12 +444,20 @@ describe('editing a layout', () => {
   });
 
   test('a new element goes where it is free: on a roomy site every type lands without a problem', () => {
+    // A keyhole is left by its own neck, so it goes between two others (last, its way out meets the finish line): a gate after it, off to the side.
+    const slalom = single('straight-slalom');
+    const gate = { type: 'gate', sizes: { width: 2 }, axis: 2, mirrored: false, x: 80, y: 70 };
     for (const type of ELEMENT_TYPES) {
-      const layout = insertElement(single('straight-slalom'), 1, type);
+      const layout = type === 'keyhole' ? insertElement({ ...slalom, elements: [...slalom.elements, gate] }, 1, type) : insertElement(slalom, 1, type);
       const { course, problems } = routeLayout(layout);
-      expect(course.elements.map((e) => e.type)).toEqual(['straight-slalom', type]);
+      expect(course.elements.map((e) => e.type)).toEqual(type === 'keyhole' ? ['straight-slalom', type, 'gate'] : ['straight-slalom', type]);
       expect(problems.map((p) => p.text), type).toEqual([]);
     }
+  });
+
+  test('a keyhole last: its way out runs back over the way in, through the finish line', () => {
+    const { problems } = routeLayout(insertElement(single('straight-slalom'), 1, 'keyhole'));
+    expect(problems.map((p) => p.text)).toEqual([expect.stringContaining('через зону финиша')]);
   });
 
   test('a new element can go first or between two others, and a full course takes no more', () => {
