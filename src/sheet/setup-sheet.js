@@ -178,7 +178,7 @@ function describe(element, cones, diagonal, turn, shift, dims) {
     case 'pivot-turn':
       return [
         `Вращение ${p.angle}° ${CLOCK[turn]} вокруг конуса`,
-        'Конус красный с жёлтой полосой: полный оборот вокруг него',
+        p.angle > 180 ? 'Конус красный с жёлтой полосой: полный оборот вокруг него' : `Конус ${colour(first)}: ${p.angle === 90 ? 'четверть оборота' : 'полоборота'} вокруг него`,
         `Свободный радиус: ${metres(p.radius)}`,
       ];
     case 'pass-left':

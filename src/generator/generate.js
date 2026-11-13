@@ -484,12 +484,15 @@ export function placeTemplate(tpl, axis, ax, ay) {
   const entry = toM(...tpl.path[0]);
   const exit = toM(...tpl.path[tpl.path.length - 1]);
   const path = tpl.path.map(([a, b]) => toM(a, b));
+  // Cone centres in metres, and the circle round the first that keeps other cones out (a pivot turn's free radius).
+  const spots = tpl.cones.map((c) => toM(c.a, c.b));
+  const keepOut = tpl.keepOut ? { c: spots[0], r: tpl.keepOut } : null;
   // The run-in from the entry and the run-out to the exit are ridden like a
   // connector: they belong to the route, not to the footprint.
   const end = (points) => ({ points, bounds: pointsBounds(points) });
   const ends = [end(path.slice(0, 2)), end(path.slice(-2))];
   return {
-    tpl, axis, ax, ay, zone, footprint, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path,
+    tpl, axis, ax, ay, zone, footprint, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path, spots, keepOut,
     center: zone.c,
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
@@ -699,10 +702,21 @@ export function uTurnCones(arcs, clearance = U_TURN_CONE_CLEARANCE) {
     const hx = Math.round(2 * t.center[0]);
     const hy = Math.round(2 * t.center[1]);
     const center = [hx / 2, hy / 2];
-    cones.push({ hx, hy, side: t.left ? 'left' : 'right', center, footprint: shapeOf([part([center], Math.max(clearance, MIN_PAD))]) });
+    cones.push({ hx, hy, side: t.left ? 'left' : 'right', center, spots: [center], footprint: shapeOf([part([center], Math.max(clearance, MIN_PAD))]) });
   }
   return cones;
 }
+
+/** Cone centres, in metres, of an element, a start or finish line or a U-turn cone. */
+const coneSpots = (z) => z.spots ?? z.cones ?? [];
+const coneIn = (k, z) => Boolean(k) && coneSpots(z).some(([x, y]) => Math.hypot(x - k.c[0], y - k.c[1]) < k.r - EPS);
+
+/**
+ * Does a cone of one stand inside the other's keep-out circle — a pivot
+ * turn's free radius (ADR 0025)? Only cones are kept out: lines, connectors
+ * and footprints may cross the circle.
+ */
+export const coneInKeepOut = (a, b) => coneIn(a.keepOut, b) || coneIn(b.keepOut, a);
 
 /**
  * U-turn cones stand on the site, with their keep-out clear of every zone
@@ -713,7 +727,7 @@ export function conesClear(cones, inner, zones, paths) {
   for (const cone of cones) {
     if (!onAsphalt(inner, cone.center) || !areaClear(inner, cone.footprint)) return false;
     for (const z of zones) {
-      if (shapesOverlap(cone.footprint, z.footprint)) return false;
+      if (shapesOverlap(cone.footprint, z.footprint) || coneIn(z.keepOut, cone)) return false;
       // A U-turn cone is placed: it stays out of every run-off zone too.
       if (z.runOff && shapesOverlap(cone.footprint, z.runOff)) return false;
     }
@@ -789,7 +803,7 @@ export function pathClear(points, bounds, zones) {
  */
 export function zoneClear(candidate, zones, paths) {
   for (const z of zones) {
-    if (shapesOverlap(candidate.footprint, z.footprint)) return false;
+    if (shapesOverlap(candidate.footprint, z.footprint) || coneInKeepOut(candidate, z)) return false;
     if (z.runOff && shapesOverlap(candidate.footprint, z.runOff)) return false;
     if (candidate.runOff && shapesOverlap(candidate.runOff, z.footprint)) return false;
     if (candidate.ends && candidate.ends.some((e) => polylineHitsShape(e.points, e.bounds, z.footprint, EPS))) return false;
