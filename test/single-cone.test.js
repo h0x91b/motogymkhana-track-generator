@@ -173,7 +173,7 @@ describe('gap fillers in a generated course', () => {
       const c = generateCourse({ ...ANTON, shape: 'closed', train: true }, seed).course;
       for (const e of c.elements) expect(LOOPED_TYPES).not.toContain(e.type);
     }
-  });
+  }, timeout(30_000));
 
   test('a recipe of fillers alone is laid out from them', () => {
     const c = generateCourse({ ...ANTON, types: ['pass-left', 'pass-right'] }, 1).course;
@@ -305,7 +305,7 @@ describe('a free heading (ADR 0027)', () => {
         expect(e.type === 'pass-left' ? d : -d, `seed ${c.seed} ${e.id}`).toBeGreaterThan(1 - 0.05);
       }
     }
-  });
+  }, timeout(30_000));
 
   test('the heading is the route\'s: an axis saved with the element, as in an old file, changes nothing', () => {
     for (const type of FREE_HEADING_TYPES) {

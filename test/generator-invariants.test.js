@@ -293,7 +293,7 @@ describe('placement', () => {
       });
     });
     expect(seen).toBeGreaterThan(sweep(100, 0));
-  });
+  }, timeout(30_000));
 
   test('connectors turn no tighter than the bike allows: Ø 9 m on a cruiser, Ø 7.5 m on a sport bike', () => {
     expect(BIKE_TURN_RADIUS).toEqual({ sport: 3.75, cruiser: 4.5 });

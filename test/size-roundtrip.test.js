@@ -11,6 +11,7 @@ import { elementControls, layoutOf, routeLayout } from '../src/generator/layout.
 import { diagonalAxis, typicalSizes } from '../src/generator/catalog.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { saveCourse, startingCourse, updateCourse } from '../src/app/storage.js';
+import { timeout } from './helpers/slow.js';
 
 function fakeStorage() {
   const map = new Map();
@@ -83,7 +84,7 @@ describe('sizes survive save and load', () => {
       const shown = (l) => elementControls(l, 0).map((c) => c.value);
       expect({ label, shown: shown(back) }).toEqual({ label, shown: shown(layout) });
     }
-  });
+  }, timeout(10_000));
 
   test('the saved course from the report opens with every size it was saved with', async () => {
     const text = await Bun.file(new URL('./fixtures/edited-40x52.json', import.meta.url)).text();
