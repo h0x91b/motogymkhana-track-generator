@@ -4,7 +4,7 @@
 // generator/layout.js; nothing here knows how a course is routed.
 
 import {
-  addBlocked, axisDegrees, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
+  addBlocked, applyRecipe, axisDegrees, canonicalJSON, blockedMarginOf, BLOCKED_MAX, BLOCKED_NAMES, ELEMENT_TYPES, ELEMENTS_MAX, elementControls, elementSafety, insertElement, layoutOf, LOOPED_TYPES, mirrorElement, moveBlocked, moveElement, problemsWord,
   removeBlocked, removeElement, replaceElement, resetTerminal, resizeBlocked, resizeBlockedSide, resizeElement, rotateElement, routeLayout, safetyValues, setBlockedMargin, setElementSafety, setElementSize, shiftElement,
   freeHeading, insertWaypoint, SINGLE_CONE_TYPES, WAYPOINT, terminalPose, terminalsOf, turnElementTo, turnStep, TYPE_NAMES,
 } from '../generator/index.js';
@@ -71,10 +71,12 @@ function marginSteps(m) {
   return { less: at > 0 ? values[at - 1] : null, more: at >= 0 && at < values.length - 1 ? values[at + 1] : null };
 }
 
-const elementsOf = (layout) => JSON.stringify([layout.elements, layout.recipe.blocked, layout.start, layout.finish]);
+/** The recipe and seed of a layout: the form changes them on an edited course (`applyRecipe`), the blocked areas «Правка» too. */
+const recipeOf = (layout) => canonicalJSON({ recipe: layout.recipe, seed: layout.seed });
+const elementsOf = (layout) => JSON.stringify([layout.elements, recipeOf(layout), layout.start, layout.finish]);
 const unpivoted = (t) => (t ? (({ pivot, ...rest }) => rest)(t) : null);
-/** The elements and the start and finish without the pivots turning leaves behind, and the blocked areas: two layouts with the same ones give the same course. */
-const courseOf = (layout) => JSON.stringify([layout.elements.map(unpivoted), layout.recipe.blocked, unpivoted(layout.start), unpivoted(layout.finish)]);
+/** The elements and the start and finish without the pivots turning leaves behind, and the recipe: two layouts with the same ones give the same course. */
+const courseOf = (layout) => JSON.stringify([layout.elements.map(unpivoted), recipeOf(layout), unpivoted(layout.start), unpivoted(layout.finish)]);
 
 /** Is `i` the start or the finish rather than an element's index? */
 const isTerm = (i) => i === 'start' || i === 'finish';
@@ -158,8 +160,9 @@ export function createEditor(host) {
   }
 
   function show(dragging = false) {
+    // The form first: the summary the course is shown with reads it.
+    if (!dragging) host.recipe(layout);
     host.show(routed.course, routed.problems, { dragging });
-    if (!dragging) host.blocked(layout.recipe);
   }
 
   /** Makes `next` the layout, with the old one to undo back to. */
@@ -891,6 +894,16 @@ export function createEditor(host) {
       }
       render();
       return routed;
+    },
+
+    /**
+     * The recipe form changed under an edited course: the layout takes the new
+     * recipe and seed with its elements where they are (`applyRecipe`), as one
+     * step «Правка» can undo. False when nothing changes.
+     */
+    adapt(recipe, seed) {
+      if (!layout || drag) return false;
+      return commit(applyRecipe(layout, recipe, seed), target(), 'Рецепт применён к трассе с правками.', block);
     },
 
     enter(id = null) {

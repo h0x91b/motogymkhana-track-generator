@@ -160,7 +160,11 @@
         <p class="err" id="err-safety" data-for="safety"></p>
       </details>
       <div class="sheet-foot">
-        <button type="button" id="close-form" class="primary wide">Готово</button>
+        <p class="form-status" id="regen-note"></p>
+        <div class="foot-row">
+          <button type="button" id="regenerate" hidden title="Новая трасса по рецепту; правленую вернёт «↶»">Сгенерировать заново</button>
+          <button type="button" id="close-form" class="primary">Готово</button>
+        </div>
       </div>
     </form>
   </section>
