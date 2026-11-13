@@ -12,7 +12,7 @@ import { createEditor } from './editor.js';
 import { createGenerator } from './generator-client.js';
 import {
   COURSE_NAME_MAX, createAutosave, defaultCourseName, deleteCourse, duplicateCourse, findCourse, forgetLegacy, listCourses, loadRideSpeed, loadZones, renameCourse,
-  saveCourse, saveCurrentId, saveRideSpeed, saveZones, startingCourse, updateCourse,
+  sameDoc, saveCourse, saveCurrentId, saveRideSpeed, saveZones, startingCourse, updateCourse,
 } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1690,8 +1690,9 @@ const formOf = (recipe, seed) => ({ ...DEFAULT_FORM, ...recipe, seed: String(see
 /**
  * Puts a course on screen in place of the one shown, which is saved first:
  * its recipe and seed in the form, its elements on top of the course they give.
- * `from` is 'saved' (switched to, `id` its entry), 'boot' (the one open last
- * time), 'new', or 'file'/'paste' — those two become new saved courses.
+ * `from` is 'saved' (switched to, `id` its entry), 'synced' (saved by another
+ * tab), 'boot' (the one open last time), 'new', or 'file'/'paste' — those two
+ * become new saved courses.
  */
 function openCourse(read, name, from = 'file', id = null) {
   autosave.flush();
@@ -1715,9 +1716,30 @@ function openCourse(read, name, from = 'file', id = null) {
   else onFormChange(true);
 }
 
+/**
+ * Another tab saved the course on screen: this one shows that version, so two
+ * tabs never hold two courses under one entry and an autosave here never
+ * quietly undoes what was done there. A change made here and not written yet
+ * goes over theirs instead, and that tab takes it the same way.
+ */
+function syncFromOtherTab() {
+  if (!state.currentId || !editor.layout || state.opening || state.requestId !== state.shownId) return;
+  const entry = findCourse(state.currentId);
+  if (!entry || sameDoc(entry.doc, courseDocument(editor.layout, { edited: editor.edited }))) return;
+  if (autosave.pending) {
+    toast('Эту трассу изменили и в другой вкладке: сохраняется версия из этой', 6000);
+    return;
+  }
+  const read = readCourseFile(courseFileText(entry.doc));
+  if (!read.ok) return;
+  state.editWanted = editor.active;
+  openCourse(read, entry.name, 'synced', entry.id);
+}
+
 /** What the toast says once an opened course is on screen. */
 function openedText(opening, { unbuilt }) {
   let text = opening.from === 'saved' ? `Открыта трасса «${opening.name}»`
+    : opening.from === 'synced' ? 'Трассу изменили в другой вкладке: показана её последняя версия'
     : opening.from === 'new' ? 'Новая трасса: тот же рецепт, новый seed. Прежняя осталась в «Моих трассах»'
       : opening.from === 'paste' ? 'Трасса из буфера обмена открыта и сохранена в «Мои трассы»'
         : `Файл «${opening.name}» открыт и сохранён в «Мои трассы»`;
@@ -1987,6 +2009,7 @@ function start() {
   const read = entry ? readCourseFile(courseFileText(entry.doc)) : null;
   if (read?.ok) {
     state.currentId = entry.id;
+    saveCurrentId(entry.id); // this tab's from now on, whatever another tab opens
     state.adopt = read.layout;
     state.opening = { name: entry.name, from: 'boot', edited: read.edited, layout: read.layout };
     writeForm(formOf(read.recipe, read.seed));
@@ -2098,9 +2121,10 @@ function start() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') autosave.flush();
   });
-  // Another tab of the app changed the list.
+  // Another tab of the app changed the list, perhaps the course on screen.
   addEventListener('storage', (e) => {
     if (e.key && !e.key.startsWith('motogymkhana-constructor:courses')) return;
+    syncFromOtherTab();
     renderCourseButton();
     renderCourses();
   });

@@ -32,6 +32,7 @@ function fakeStorage({ quota = false } = {}) {
 const recipe = { width: 40, length: 60, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'return' };
 const generated = generateCourse(recipe, 7);
 const doc = courseDocument(layoutOf(generated.course), { build: 'test', edited: true });
+const otherSeed = courseDocument(layoutOf(generateCourse(recipe, 8).course), { build: 'test' });
 
 describe('saved courses', () => {
   test('save, list newest first, rename, delete', () => {
@@ -106,9 +107,22 @@ describe('saved courses', () => {
     expect(auto.name).toBe('40×60 м · средняя · seed 7 · 13.11.2026');
     expect(auto.auto).toBe(true);
   });
-});
 
-const otherSeed = courseDocument(layoutOf(generateCourse(recipe, 8).course), { build: 'test' });
+  test('two courses of one recipe, seed and day never share a default name', () => {
+    const store = fakeStorage();
+    const day = Date.UTC(2026, 10, 13, 12);
+    const name = '40×60 м · средняя · seed 7 · 13.11.2026';
+    const a = saveCourse('', doc, { store, now: day }).entry;
+    const b = saveCourse('', doc, { store, now: day + 1 }).entry;
+    const c = saveCourse('', doc, { store, now: day + 2 }).entry;
+    expect([a.name, b.name, c.name]).toEqual([name, `${name} · 2`, `${name} · 3`]);
+    // Autosave keeps each its own name; one that moves to another seed frees it for the next.
+    updateCourse(b.id, { ...doc, elements: doc.elements.slice(1) }, { store, now: day + 3 });
+    expect(listCourses(store).find((e) => e.id === b.id).name).toBe(`${name} · 2`);
+    updateCourse(a.id, otherSeed, { store, now: day + 4 });
+    expect(saveCourse('', doc, { store, now: day + 5 }).entry.name).toBe(name);
+  });
+});
 
 describe('the course on screen', () => {
   test('autosave updates its entry; an unchanged course is not written and keeps its place', () => {
@@ -233,6 +247,22 @@ describe('which course opens', () => {
     expect(startingCourse(store)).toMatchObject({ kind: 'course', entry: { id: b.id } });
     saveCurrentId(null, store);
     expect(loadCurrentId(store)).toBeNull();
+  });
+
+  test('each tab reloads into its own course; a new tab opens the one opened last in any tab', () => {
+    const store = fakeStorage();
+    const [tabA, tabB, fresh] = [fakeStorage(), fakeStorage(), fakeStorage()];
+    const a = saveCourse('a', doc, { store, now: 1 }).entry;
+    const b = saveCourse('b', otherSeed, { store, now: 2 }).entry;
+    saveCurrentId(a.id, store, tabA);
+    saveCurrentId(b.id, store, tabB);
+    expect(startingCourse(store, tabA).entry.id).toBe(a.id);
+    expect(startingCourse(store, tabB).entry.id).toBe(b.id);
+    expect(startingCourse(store, fresh).entry.id).toBe(b.id);
+    expect(loadCurrentId(store, tabA)).toBe(a.id);
+    // The tab's own course deleted in another tab: the one opened last.
+    deleteCourse(a.id, store);
+    expect(startingCourse(store, tabA).entry.id).toBe(b.id);
   });
 
   test('migration: an older build\'s last form and edits come back, and their keys go once saved', () => {

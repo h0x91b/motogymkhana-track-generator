@@ -1,0 +1,164 @@
+{
+  "format": "motogymkhana-course",
+  "version": 1,
+  "build": "5ed40e9 · 13.11.2026",
+  "edited": true,
+  "recipe": {
+    "width": 40,
+    "length": 52,
+    "elements": 8,
+    "types": [
+      "straight-slalom",
+      "offset-slalom",
+      "gate",
+      "u-turn",
+      "pivot-turn",
+      "figure-eight",
+      "box",
+      "circle",
+      "fast-circle",
+      "gate-turn",
+      "tunnel",
+      "corridor-slalom",
+      "box-eight",
+      "keyhole",
+      "crescent",
+      "pass-left",
+      "pass-right",
+      "small-turn"
+    ],
+    "difficulty": "easy",
+    "bike": "cruiser",
+    "shape": "return",
+    "train": false,
+    "sizes": {},
+    "safety": {
+      "runOff": 0.5,
+      "pad": 0.25
+    },
+    "blocked": [
+      {
+        "kind": "obstacle",
+        "x": 0,
+        "y": 6,
+        "w": 10,
+        "h": 5
+      },
+      {
+        "kind": "obstacle",
+        "x": 1,
+        "y": 40,
+        "w": 9,
+        "h": 11
+      }
+    ]
+  },
+  "seed": 3379498746,
+  "elements": [
+    {
+      "type": "box-eight",
+      "sizes": {
+        "distance": 7,
+        "gate": 3.5,
+        "width": 9
+      },
+      "axis": 0,
+      "mirrored": true,
+      "x": 17,
+      "y": 27
+    },
+    {
+      "type": "keyhole",
+      "sizes": {
+        "radius": 4,
+        "opening": 3
+      },
+      "axis": 2,
+      "mirrored": false,
+      "x": 17,
+      "y": 43
+    },
+    {
+      "type": "pivot-turn",
+      "sizes": {
+        "angle": 360,
+        "radius": 5
+      },
+      "axis": 0,
+      "mirrored": false,
+      "x": 25,
+      "y": 40,
+      "safety": {
+        "runOff": 0.5,
+        "pad": 0.25
+      }
+    },
+    {
+      "type": "keyhole",
+      "sizes": {
+        "radius": 4,
+        "opening": 3
+      },
+      "axis": 2,
+      "mirrored": false,
+      "x": 36,
+      "y": 43
+    },
+    {
+      "type": "lane-change",
+      "sizes": {
+        "width": 2.5,
+        "shift": 2.5
+      },
+      "axis": 6,
+      "mirrored": false,
+      "x": 35,
+      "y": 31
+    },
+    {
+      "type": "crescent",
+      "sizes": {
+        "radius": 6,
+        "flick": 3.5
+      },
+      "axis": 6,
+      "mirrored": true,
+      "x": 35,
+      "y": 15
+    },
+    {
+      "type": "small-turn",
+      "sizes": {
+        "radius": 5.5
+      },
+      "axis": 7,
+      "mirrored": false,
+      "x": 7,
+      "y": 20
+    },
+    {
+      "type": "pass-right",
+      "sizes": {},
+      "axis": 7,
+      "mirrored": false,
+      "x": 33,
+      "y": 5
+    },
+    {
+      "type": "straight-slalom",
+      "sizes": {
+        "count": 5,
+        "step": 4
+      },
+      "axis": 4,
+      "mirrored": true,
+      "x": 28,
+      "y": 3
+    }
+  ],
+  "start": {
+    "x": 4,
+    "y": 1,
+    "axis": 0
+  }
+}
