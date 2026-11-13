@@ -11,7 +11,8 @@ import { renderSheetImages } from '../render/sheet-image.js';
 import { createEditor } from './editor.js';
 import { createGenerator } from './generator-client.js';
 import {
-  COURSE_NAME_MAX, deleteCourse, listCourses, loadEdit, loadForm, loadRideSpeed, loadZones, renameCourse, saveCourse, saveEdit, saveForm, saveRideSpeed, saveZones,
+  COURSE_NAME_MAX, createAutosave, defaultCourseName, deleteCourse, duplicateCourse, findCourse, forgetLegacy, listCourses, loadRideSpeed, loadZones, renameCourse,
+  saveCourse, saveCurrentId, saveRideSpeed, saveZones, startingCourse, updateCourse,
 } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
@@ -67,8 +68,11 @@ const state = {
   shownId: 0,
   image: null, // { id, files } — the setup-sheet frames, prepared ahead of a share tap
   // What «↶» brings back, newest last: seeds «Новый seed» replaced, and edited
-  // courses a new one replaced, as { layout, form }.
+  // courses a new one replaced, as { layout, form }. Only within one saved course.
   seedHistory: [],
+  currentId: null, // the saved course on screen («Мои трассы»); null until it is first saved
+  pendingName: '', // the name it gets then; empty is the name of its recipe and seed
+  saveError: null, // why the course on screen is not being saved, or null
 };
 
 const SEED_HISTORY = 30;
@@ -328,7 +332,6 @@ function adoptBlocked(recipe) {
   if (same) return;
   writeBlocked(recipe.blocked.map((b) => ({ kind: b.kind, x: String(b.x), y: String(b.y), w: String(b.w), h: String(b.h), ...(b.margin === undefined ? {} : { margin: String(b.margin) }) })));
   state.form = readForm();
-  saveForm({ ...state.form, knownTypes: ELEMENT_TYPES });
   showErrors(validate(state.form).errors);
   state.courseKey = canonicalJSON({ recipe, seed: state.course.seed });
   state.courseForm = { ...state.form };
@@ -414,7 +417,6 @@ function onFormChange(immediate = false) {
   const run = () => {
     const raw = readForm();
     state.form = raw;
-    saveForm({ ...raw, knownTypes: ELEMENT_TYPES });
     const v = validate(raw);
     showErrors(v.errors);
     if (!v.ok) {
@@ -478,14 +480,16 @@ const generator = createGenerator(({ id, result: generated }) => {
   state.adopt = null;
   // Same recipe and seed is the same course: keep the view, selection and setup step.
   if (same && !state.stale && (!adopt || adopt === editor.layout) && !(opening && editor.edited)) {
-    if (opening) toast(openedText(opening, { unbuilt, replaced: false }), 6000);
+    if (opening && opening.from !== 'boot') toast(openedText(opening, { unbuilt }), 6000);
+    renderCourseButton();
     renderSummary();
     if (wanted) enterSetup();
     if (editWanted) enterEdit();
     return;
   }
-  // An edited course gives way to the new one; «↶» brings it back.
-  const replaced = !same && !!state.course && editor.edited;
+  // An edited course gives way to the new one; «↶» brings it back. A course
+  // opened instead of it is not replaced: it stays saved in «Мои трассы».
+  const replaced = !same && !!state.course && editor.edited && !opening;
   if (replaced) {
     state.seedHistory.push({ layout: editor.layout, form: state.courseForm });
     if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
@@ -501,7 +505,6 @@ const generator = createGenerator(({ id, result: generated }) => {
   setProblems(unbuilt ? unbuiltProblems : shown.problems);
   state.sheet = buildSetupSheet(shown.course);
   state.courseRev++;
-  saveEdit(editor.edited ? editor.layout : null);
   state.stale = false;
   state.selected = null;
   state.image = null;
@@ -510,12 +513,14 @@ const generator = createGenerator(({ id, result: generated }) => {
   // The count stays in the summary; the hint only needs to be seen once.
   hideBanner();
   // Not over the open form: the form says it in its own status line.
-  if (opening) toast(openedText(opening, { unbuilt, replaced }), 9000);
+  if (opening && opening.from !== 'boot') toast(openedText(opening, { unbuilt }), 9000);
+  else if (opening && unbuilt) toast(openedText({ ...opening, from: 'saved' }, { unbuilt }), 9000);
   else if (replaced) toast('Трасса с правками заменена новой. «↶» вернёт её', 6000);
   else if (!editor.edited && course.placed < course.requested && $('form-sheet').hidden) toast(shortfallText(course), 6000);
   renderSummary();
   invalidate();
   prepareImageSoon();
+  autosave.schedule();
   if (wanted) enterSetup();
   if (editWanted) enterEdit();
 });
@@ -613,7 +618,6 @@ function blockedSummary(f) {
 }
 
 function renderSummary() {
-  if (state.course && editor.layout) $('saved-name').placeholder = defaultCourseName(editor.layout);
   const f = state.form;
   const c = state.course;
   const short = c && !state.stale && c.placed < c.requested;
@@ -1050,7 +1054,7 @@ const editor = createEditor({
     state.image = null;
     invalidate();
     if (dragging) return;
-    saveEdit(edited ? editor.layout : null);
+    autosave.schedule();
     renderSummary();
   },
   /** An element picked in the panel that is off the screen (zoomed in elsewhere) is panned into view; the zoom stays. */
@@ -1214,12 +1218,6 @@ function renderRideButton() {
 
 // ---------------------------------------------------------------- course file
 
-function fileStatus(text, kind = '') {
-  const p = $('file-status');
-  p.textContent = text;
-  p.className = `form-status ${kind}`;
-}
-
 /** The shown course as a course file and as its cone list; null, with the reason shown, when there is none to save. */
 function courseFiles() {
   if (!state.course || !editor.layout) {
@@ -1282,17 +1280,17 @@ async function onFilePicked() {
   input.value = '';
   if (!file) return;
   const read = await readCourseUpload(file);
-  if (!read.ok) fileStatus(read.error, 'error');
+  if (!read.ok) fileError(read.error);
   else openCourse(read, file.name);
 }
 
-/** A file error where it is seen: in the form when it is open, otherwise in a toast. */
+/** A file error where it is seen: in «Мои трассы» when they are open, otherwise in a toast. */
 function fileError(text) {
-  if (formOpen) fileStatus(text, 'error');
+  if (coursesOpen()) fileStatus(text, 'error');
   else toast(text, 5000);
 }
 
-// A .json dropped anywhere on the page opens like «Открыть .json» (touch devices keep the picker).
+// A .json dropped anywhere on the page opens like «Открыть файл…» (touch devices keep the picker).
 let dragDepth = 0;
 const dragsFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
 
@@ -1340,160 +1338,370 @@ function setupDrop() {
 }
 
 // ---------------------------------------------------------------- my courses
+// The course on screen is always a saved course: it is written under its entry
+// a moment after every change (ADR 0026). The top bar names it and opens «Мои
+// трассы», where the others are switched to, and new ones started or opened.
 
-/** The name a saved course gets when none is typed: lot size · difficulty · seed · date. */
-function defaultCourseName(layout, date = new Date()) {
-  const { recipe, seed } = layout;
-  const day = date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  return `${recipe.width}×${recipe.length} м · ${DIFFICULTY_NAMES[recipe.difficulty] ?? recipe.difficulty} · seed ${seed} · ${day}`;
+const buildId = () => $('version').textContent.trim();
+
+/** Writes the course on screen under its entry, or as a new entry the first time. */
+function persistCurrent() {
+  // Nothing settled to save: no course, a form error, or another course on its way.
+  if (!state.course || state.stale || !editor.layout || state.opening || state.requestId !== state.shownId) return;
+  const doc = courseDocument(editor.layout, { build: buildId(), edited: editor.edited });
+  let saved = state.currentId ? updateCourse(state.currentId, doc) : { ok: false, missing: true };
+  // Never saved yet, or deleted in another tab: it becomes a course of its own.
+  if (!saved.ok && saved.missing) {
+    saved = saveCourse(state.pendingName, doc);
+    if (saved.ok) {
+      state.currentId = saved.entry.id;
+      state.pendingName = '';
+      saveCurrentId(saved.entry.id);
+      forgetLegacy();
+    }
+  }
+  const error = saved.ok ? null : saved.error;
+  // Said once in a toast; the top bar keeps saying it until a save goes through.
+  if (error && error !== state.saveError) {
+    if (coursesOpen()) fileStatus(error, 'error');
+    else toast(error, 8000);
+  }
+  state.saveError = error;
+  renderCourseButton();
+  if (coursesOpen()) renderCourses();
 }
 
-function savedStatus(text, kind = '') {
-  const p = $('saved-status');
+const autosave = createAutosave(persistCurrent);
+
+/** The name in the top bar: the saved one, or the one the course will be saved under. */
+function currentName() {
+  const entry = state.currentId ? findCourse(state.currentId) : null;
+  if (entry) return entry.name;
+  if (state.pendingName) return state.pendingName;
+  return editor.layout ? defaultCourseName(editor.layout.recipe, editor.layout.seed) : 'Новая трасса';
+}
+
+function renderCourseButton() {
+  const name = currentName();
+  $('course-name').textContent = name;
+  const saved = $('course-saved');
+  saved.textContent = state.saveError ? 'Не сохраняется' : state.currentId ? 'Сохранено' : '';
+  saved.classList.toggle('error', !!state.saveError);
+  $('course-button').title = name;
+  document.title = `${name} — конструктор трасс мотоджимханы`;
+}
+
+const coursesOpen = () => !$('courses-sheet').hidden;
+
+/** «сегодня, 14:32», «вчера, 09:05» or «12.11.2026, 18:40». */
+function editedWhen(t, now = new Date()) {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86_400_000);
+  if (days === 0) return `сегодня, ${time}`;
+  if (days === 1) return `вчера, ${time}`;
+  return `${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}, ${time}`;
+}
+
+/** What a course is, briefly: «40×60 м · сложная · 8 эл. · с правками». */
+function courseFacts(doc) {
+  const r = doc.recipe ?? {};
+  return [
+    `${r.width}×${r.length} м`,
+    DIFFICULTY_NAMES[r.difficulty] ?? '',
+    Array.isArray(doc.elements) ? `${doc.elements.length} эл.` : '',
+    doc.edited ? 'с правками' : '',
+  ].filter(Boolean).join(' · ');
+}
+
+function fileStatus(text, kind = '') {
+  const p = $('file-status');
   p.textContent = text;
   p.className = `form-status ${kind}`;
 }
 
-/** The row being renamed or asked to confirm its deletion: {id, mode: 'rename'|'delete'} or null. */
-let savedRow = null;
-
-function saveToMyCourses() {
-  if (!state.course || !editor.layout) return savedStatus('Сначала нужна трасса', 'error');
-  if (state.stale) return savedStatus('Исправьте ошибки в форме: сохраняется трасса этого рецепта', 'error');
-  const doc = courseDocument(editor.layout, { build: $('version').textContent.trim(), edited: editor.edited });
-  const input = $('saved-name');
-  const saved = saveCourse(input.value || defaultCourseName(editor.layout), doc);
-  if (!saved.ok) return savedStatus(saved.error, 'error');
-  input.value = '';
-  savedRow = null;
-  savedStatus(`Сохранено: «${saved.entry.name}»`);
-  renderSavedCourses();
-}
-
-function openSaved(entry) {
-  const read = readCourseFile(courseFileText(entry.doc));
-  if (!read.ok) return savedStatus(read.error, 'error');
-  savedStatus('');
-  openCourse(read, entry.name, 'saved');
-}
-
-const savedWhen = (t) => new Date(t).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-function button(text, onClick, cls = '') {
+function button(text, onClick, cls = '', key = '') {
   const b = document.createElement('button');
   b.type = 'button';
   b.textContent = text;
   if (cls) b.className = cls;
+  if (key) b.dataset.key = key;
   b.addEventListener('click', onClick);
   return b;
 }
 
-function renderSavedCourses() {
-  const list = $('saved-list');
+const PENCIL = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z M13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+/** A name as shown: «· 13.11.2026» never starts a line on its own. */
+const shownName = (name) => name.replaceAll(' · ', '\u00a0· ').replace(/seed (\d)/g, 'seed\u00a0$1');
+const span = (cls, text) => Object.assign(document.createElement('span'), { className: cls, textContent: text });
+
+/** The row being acted on: {id, mode: 'actions'|'rename'|'delete'} or null. */
+let courseRow = null;
+function setRow(row, focusKey = null) {
+  courseRow = row;
+  renderCourses(focusKey);
+}
+
+/** Where focus goes back to once a rename ends: the button that started it. */
+const renameKey = (entry) => (entry.id === state.currentId ? 'rename:current' : `more:${entry.id}`);
+
+/** The inline rename field of a course, with «Готово» and «Отмена». */
+function renameRow(entry) {
+  const wrap = document.createElement('div');
+  wrap.className = 'course-rename';
+  const input = document.createElement('input');
+  input.value = entry.name;
+  input.maxLength = COURSE_NAME_MAX;
+  input.enterKeyHint = 'done';
+  input.autocomplete = 'off';
+  input.setAttribute('aria-label', 'Название трассы');
+  input.dataset.key = `name:${entry.id}`;
+  const done = () => {
+    const r = renameCourse(entry.id, input.value);
+    if (!r.ok) return fileStatus(r.error, 'error');
+    fileStatus('');
+    renderCourseButton();
+    setRow(null, renameKey(entry));
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); done(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setRow(null, renameKey(entry)); }
+  });
+  const actions = document.createElement('div');
+  actions.className = 'course-actions two';
+  actions.append(button('Сохранить', done, 'primary'), button('Отмена', () => setRow(null, renameKey(entry))));
+  wrap.append(input, actions);
+  queueMicrotask(() => { input.focus(); input.select(); });
+  return wrap;
+}
+
+/** «Удалить «…»?» with the consequence on the button. */
+function deleteAsk(entry) {
+  const wrap = document.createElement('div');
+  wrap.className = 'course-ask';
+  const p = document.createElement('p');
+  p.textContent = entry.id === state.currentId
+    ? 'Удалить эту трассу? Её не вернуть, откроется последняя изменённая.'
+    : 'Удалить эту трассу? Её не вернуть.';
+  const actions = document.createElement('div');
+  actions.className = 'course-actions two';
+  actions.append(
+    button('Удалить трассу', () => removeCourse(entry), 'danger', `confirm:${entry.id}`),
+    button('Отмена', () => (entry.id === state.currentId ? setRow(null, 'delete:current') : setRow({ id: entry.id, mode: 'actions' }, `delete:${entry.id}`))),
+  );
+  wrap.append(p, actions);
+  queueMicrotask(() => wrap.querySelector('.danger').focus());
+  return wrap;
+}
+
+function renderCourses(focusKey = null) {
+  if (!coursesOpen()) return;
+  const restore = focusKey ?? document.activeElement?.dataset?.key ?? null;
   const courses = listCourses();
-  if (savedRow && !courses.some((e) => e.id === savedRow.id)) savedRow = null;
-  list.replaceChildren(...courses.map((entry) => {
-    const li = document.createElement('li');
-    li.className = 'saved-row';
-    const mode = savedRow?.id === entry.id ? savedRow.mode : null;
-    if (mode === 'rename') {
-      const input = document.createElement('input');
-      input.value = entry.name;
-      input.maxLength = COURSE_NAME_MAX;
-      input.setAttribute('aria-label', 'Новое название');
-      const done = () => {
-        const r = renameCourse(entry.id, input.value);
-        if (!r.ok) return savedStatus(r.error, 'error');
-        savedRow = null;
-        savedStatus('');
-        renderSavedCourses();
-      };
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); done(); }
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); savedRow = null; renderSavedCourses(); }
-      });
-      const actions = document.createElement('div');
-      actions.className = 'saved-actions';
-      actions.append(button('Готово', done, 'primary'), button('Отмена', () => { savedRow = null; renderSavedCourses(); }));
-      li.append(input, actions);
-      queueMicrotask(() => input.focus());
-      return li;
-    }
-    const open = button('', () => openSaved(entry), 'saved-open');
-    const name = document.createElement('span');
-    name.className = 'saved-name';
-    name.textContent = entry.name;
-    const when = document.createElement('span');
-    when.className = 'muted saved-when';
-    when.textContent = `${savedWhen(entry.savedAt)}${entry.doc.edited ? ' · с правками' : ''}`;
-    open.append(name, when);
-    open.setAttribute('aria-label', `Открыть «${entry.name}»`);
-    const actions = document.createElement('div');
-    actions.className = 'saved-actions';
-    if (mode === 'delete') {
-      const ask = document.createElement('p');
-      ask.className = 'saved-ask';
-      ask.textContent = 'Удалить эту трассу из «Моих трасс»?';
-      actions.append(
-        button('Удалить', () => {
-          const r = deleteCourse(entry.id);
-          if (!r.ok) return savedStatus(r.error, 'error');
-          savedRow = null;
-          savedStatus(`Удалено: «${entry.name}»`);
-          renderSavedCourses();
-        }, 'danger'),
-        button('Отмена', () => { savedRow = null; renderSavedCourses(); }),
-      );
-      li.append(open, ask, actions);
-      return li;
-    }
-    actions.append(
-      button('Переименовать', () => { savedRow = { id: entry.id, mode: 'rename' }; renderSavedCourses(); }),
-      button('Скачать .json', () => {
-        downloadNow(new File([courseFileText(entry.doc)], courseFileName(entry.doc.recipe, entry.doc.seed, 'json'), { type: 'application/json' }));
-      }),
-      button('Удалить', () => { savedRow = { id: entry.id, mode: 'delete' }; renderSavedCourses(); }),
+  if (courseRow && !courses.some((e) => e.id === courseRow.id)) courseRow = null;
+  const current = courses.find((e) => e.id === state.currentId) ?? null;
+
+  // The course on screen: its name, what it is, and what can be done to it.
+  const box = $('current-course');
+  const mode = current && courseRow?.id === current.id ? courseRow.mode : null;
+  const head = document.createElement('div');
+  head.className = 'course-head';
+  if (mode === 'rename') head.append(renameRow(current));
+  else {
+    const text = document.createElement('div');
+    text.className = 'course-title';
+    text.append(span('course-title-name', shownName(currentName())));
+    if (current) text.append(span('course-meta', courseFacts(current.doc)), span('course-meta', `Изменена ${editedWhen(current.savedAt)}`));
+    else text.append(span('course-meta', state.saveError ?? 'Сохранится, как только будет трасса'));
+    const rename = button('', () => setRow({ id: current.id, mode: 'rename' }), 'course-rename-button', 'rename:current');
+    rename.innerHTML = PENCIL;
+    rename.setAttribute('aria-label', 'Переименовать');
+    rename.title = 'Переименовать';
+    rename.disabled = !current;
+    head.append(text, rename);
+  }
+  const tools = document.createElement('div');
+  tools.className = 'course-actions two';
+  if (mode === 'delete') tools.append(deleteAsk(current));
+  else if (mode !== 'rename') {
+    const disabled = !current;
+    const tool = (label, fn, key, cls = '') => Object.assign(button(label, fn, cls, key), { disabled });
+    tools.append(
+      tool('Дублировать', () => duplicate(current), 'dup:current'),
+      tool('Удалить', () => setRow({ id: current.id, mode: 'delete' }), 'delete:current', 'danger'),
     );
-    li.append(open, actions);
+  }
+  box.replaceChildren(head);
+  $('current-tools').replaceChildren(tools);
+
+  // The others, the last edited first: a tap opens one, «⋯» shows what else.
+  const others = courses.filter((e) => e !== current);
+  $('course-list').replaceChildren(...others.map((entry) => {
+    const li = document.createElement('li');
+    li.className = 'course-row';
+    const rowMode = courseRow?.id === entry.id ? courseRow.mode : null;
+    if (rowMode === 'rename') {
+      li.append(renameRow(entry));
+      return li;
+    }
+    const line = document.createElement('div');
+    line.className = 'course-line';
+    const open = button('', () => switchTo(entry), 'course-open', `open:${entry.id}`);
+    open.append(span('course-row-name', shownName(entry.name)), span('course-meta', `${courseFacts(entry.doc)} · ${editedWhen(entry.savedAt)}`));
+    const more = button('', () => setRow(rowMode ? null : { id: entry.id, mode: 'actions' }, `more:${entry.id}`), 'course-more', `more:${entry.id}`);
+    more.innerHTML = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+    more.setAttribute('aria-label', `Ещё: «${entry.name}»`);
+    more.setAttribute('aria-expanded', String(!!rowMode));
+    line.append(open, more);
+    li.append(line);
+    if (rowMode === 'delete') li.append(deleteAsk(entry));
+    else if (rowMode === 'actions') {
+      const actions = document.createElement('div');
+      actions.className = 'course-actions';
+      actions.append(
+        button('Переименовать', () => setRow({ id: entry.id, mode: 'rename' }), '', `rename:${entry.id}`),
+        button('Дублировать', () => duplicate(entry), '', `dup:${entry.id}`),
+        button('Скачать .json', () => downloadNow(new File([courseFileText(entry.doc)], courseFileName(entry.doc.recipe, entry.doc.seed, 'json'), { type: 'application/json' })), '', `json:${entry.id}`),
+        button('Удалить', () => setRow({ id: entry.id, mode: 'delete' }), '', `delete:${entry.id}`),
+      );
+      li.append(actions);
+    }
     return li;
   }));
-  $('saved-empty').hidden = courses.length > 0;
+  $('courses-empty').hidden = others.length > 0;
+  if (restore) document.querySelector(`#courses-sheet [data-key="${CSS.escape(restore)}"]`)?.focus({ preventScroll: false });
+}
+
+let coursesOpener = null;
+function openCourses() {
+  if (coursesOpen()) return closeCourses();
+  autosave.flush(); // the list shows the course on screen as it is now
+  pauseRide();
+  $('toast').hidden = true; // it would sit on the sheet; what it says is in the list too
+  coursesOpener = document.activeElement;
+  courseRow = null;
+  fileStatus('');
+  for (const id of BEHIND_COURSES) $(id).inert = true;
+  $('backdrop').hidden = false;
+  $('courses-sheet').hidden = false;
+  $('course-button').setAttribute('aria-expanded', 'true');
+  renderCourses();
+  $('courses-sheet').scrollTop = 0;
+  $('new-course').focus({ preventScroll: true });
+}
+
+function closeCourses() {
+  if (!coursesOpen()) return;
+  courseRow = null;
+  for (const id of BEHIND_COURSES) $(id).inert = false;
+  $('backdrop').hidden = true;
+  $('courses-sheet').hidden = true;
+  $('course-button').setAttribute('aria-expanded', 'false');
+  // Back to whatever opened it, or to the top bar when that is gone.
+  const back = coursesOpener?.isConnected && !coursesOpener.closest('[hidden], [inert]') ? coursesOpener : $('course-button');
+  back.focus({ preventScroll: true });
+  coursesOpener = null;
+}
+
+/** Arrows step through the controls of the list, Esc backs out of a row first, then closes. */
+function onCoursesKey(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (courseRow) setRow(null, courseRow.id !== state.currentId ? `more:${courseRow.id}` : courseRow.mode === 'delete' ? 'delete:current' : 'rename:current');
+    else closeCourses();
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) || e.target.matches('input')) return;
+  const items = [...$('courses-sheet').querySelectorAll('button:not(:disabled), input')].filter((b) => !b.closest('[hidden]'));
+  const i = items.indexOf(document.activeElement);
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1
+    : e.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+  e.preventDefault();
+  items[next]?.focus();
+}
+
+/** Opens a saved course; the one on screen is already saved. */
+function switchTo(entry) {
+  const read = readCourseFile(courseFileText(entry.doc));
+  if (!read.ok) return fileStatus(read.error, 'error');
+  openCourse(read, entry.name, 'saved', entry.id);
+}
+
+/** «Новая трасса»: the lot and recipe of this one with a new seed, no edits, saved as a course of its own. */
+function newCourse() {
+  const recipe = editor.layout?.recipe ?? validate(state.form).recipe ?? parseRecipe(DEFAULT_FORM).recipe;
+  openCourse({ ok: true, recipe, seed: randomSeed(), layout: null, edited: false }, 'Новая трасса', 'new');
+}
+
+function duplicate(entry) {
+  autosave.flush();
+  const copy = duplicateCourse(entry.id);
+  if (!copy.ok) return fileStatus(copy.error, 'error');
+  switchTo(copy.entry);
+  toast(`Открыта копия: «${copy.entry.name}»`, 5000);
+}
+
+function removeCourse(entry) {
+  const onScreen = entry.id === state.currentId;
+  if (onScreen) autosave.cancel(); // its pending write would bring it back
+  const r = deleteCourse(entry.id);
+  if (!r.ok) return fileStatus(r.error, 'error');
+  courseRow = null;
+  if (!onScreen) {
+    fileStatus(`Удалена трасса «${entry.name}»`);
+    return renderCourses(`new`);
+  }
+  state.currentId = null;
+  saveCurrentId(null);
+  closeCourses();
+  if (r.next) switchTo(r.next);
+  else newCourse();
+  toast(`Удалена трасса «${entry.name}»`, 5000);
 }
 
 /** The form a recipe and seed are shown in: the recipe's own fields, so a field added to it travels too. */
 const formOf = (recipe, seed) => ({ ...DEFAULT_FORM, ...recipe, seed: String(seed), sizes: recipe.sizes ?? {} });
 
-/** Puts an opened course file on screen: its recipe and seed in the form, its elements on top of the course they give. */
-function openCourse(read, name, from = 'file') {
+/**
+ * Puts a course on screen in place of the one shown, which is saved first:
+ * its recipe and seed in the form, its elements on top of the course they give.
+ * `from` is 'saved' (switched to, `id` its entry), 'boot' (the one open last
+ * time), 'new', or 'file'/'paste' — those two become new saved courses.
+ */
+function openCourse(read, name, from = 'file', id = null) {
+  autosave.flush();
   stopRide();
   if (state.setupStep !== null) exitSetup();
   if (editor.active) exitEdit();
-  // Edits to this very recipe and seed would be lost without a trace: «↶» keeps them.
-  const key = canonicalJSON({ recipe: read.recipe, seed: read.seed });
-  const kept = editor.edited && key === state.courseKey && JSON.stringify(read.layout?.elements) !== JSON.stringify(editor.layout.elements);
-  if (kept) {
-    state.seedHistory.push({ layout: editor.layout, form: state.courseForm });
-    if (state.seedHistory.length > SEED_HISTORY) state.seedHistory.shift();
-    renderSeedBack();
-  }
+  if (coursesOpen()) closeCourses();
+  // «↶» goes back within one course; the one before it stays in «Мои трассы».
+  state.seedHistory = [];
+  renderSeedBack();
+  state.currentId = id;
+  // A file of this app is named after its recipe and seed: the course is too, until renamed.
+  state.pendingName = from === 'file' && !/^motogymkhana-/.test(name) ? name.replace(/\.json$/i, '') : '';
+  if (id) saveCurrentId(id);
   writeForm(formOf(read.recipe, read.seed));
   state.adopt = read.layout;
-  state.opening = { name, from, edited: read.edited, layout: read.layout, kept };
+  state.opening = { name, from, edited: read.edited, layout: read.layout };
   fileStatus('');
+  renderCourseButton();
   if (formOpen) closeForm();
   else onFormChange(true);
 }
 
-/** What the toast says once an opened file is on screen. */
-function openedText(opening, { unbuilt, replaced }) {
+/** What the toast says once an opened course is on screen. */
+function openedText(opening, { unbuilt }) {
   let text = opening.from === 'saved' ? `Открыта трасса «${opening.name}»`
-    : opening.from === 'paste' ? 'Открыта трасса из буфера обмена' : `Открыт файл «${opening.name}»`;
-  if (unbuilt) text += '. По его рецепту и seed эта сборка трассу не строит — показана трасса из файла';
+    : opening.from === 'new' ? 'Новая трасса: тот же рецепт, новый seed. Прежняя осталась в «Моих трассах»'
+      : opening.from === 'paste' ? 'Трасса из буфера обмена открыта и сохранена в «Мои трассы»'
+        : `Файл «${opening.name}» открыт и сохранён в «Мои трассы»`;
+  if (unbuilt) text += '. По её рецепту и seed эта сборка трассу не строит — показана сохранённая';
   // Saved unedited, but this build generates another course for the seed (ADR 0009).
   else if (opening.layout && !opening.edited && editor.edited) {
-    text += '. Эта сборка по тому же seed строит другую трассу — показана трасса из файла, как трасса с правками';
+    text += '. Эта сборка по тому же seed строит другую трассу — показана сохранённая, как трасса с правками';
   }
-  if (replaced || opening.kept) text += '. Прежнюю трассу с правками вернёт «↶»';
   return text;
 }
 
@@ -1661,11 +1869,12 @@ function closePicture() {
 // returns to whatever opened it.
 // On a wide screen the form is not modal: it is docked beside the stage and
 // always open, so «Рецепт» only moves focus into it.
-const BEHIND_FORM = ['stage', 'dock', 'setup-panel', 'edit-panel'];
+const BEHIND_FORM = ['topbar', 'stage', 'dock', 'setup-panel', 'edit-panel'];
 const BEHIND_PICTURE = [...BEHIND_FORM, 'form-sheet'];
 const BEHIND_PICKER = BEHIND_PICTURE;
+const BEHIND_COURSES = BEHIND_PICTURE;
 /** A modal sheet is open: the keys of the plan and of the modes behind it are off. */
-const modalOpen = () => formOpen || !$('picture-sheet').hidden || editor.pickerOpen;
+const modalOpen = () => formOpen || !$('picture-sheet').hidden || editor.pickerOpen || coursesOpen();
 let formOpener = null;
 let formOpen = false; // open as a modal sheet
 function openForm() {
@@ -1748,12 +1957,23 @@ form.addEventListener('focusin', (e) => {
 function start() {
   buildTypeChecks();
   buildSafety();
-  state.adopt = parseLayout(loadEdit());
-  const saved = loadForm();
-  const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
-  delete initial.knownTypes;
-  delete initial.closed;
-  writeForm(initial);
+  // The course open last time; or what an older build kept, saved as a course once shown (ADR 0026).
+  const starting = startingCourse();
+  const entry = starting.kind === 'course' ? starting.entry : null;
+  const read = entry ? readCourseFile(courseFileText(entry.doc)) : null;
+  if (read?.ok) {
+    state.currentId = entry.id;
+    state.adopt = read.layout;
+    state.opening = { name: entry.name, from: 'boot', edited: read.edited, layout: read.layout };
+    writeForm(formOf(read.recipe, read.seed));
+  } else {
+    const saved = starting.kind === 'legacy' ? starting.form : null;
+    state.adopt = starting.kind === 'legacy' ? parseLayout(starting.edit) : null;
+    const initial = { ...DEFAULT_FORM, ...(saved ?? {}), shape: savedShape(saved), types: savedTypes(saved) };
+    delete initial.knownTypes;
+    delete initial.closed;
+    writeForm(initial);
+  }
   state.form = readForm();
 
   form.addEventListener('input', () => onFormChange());
@@ -1803,6 +2023,7 @@ function start() {
   $('close-form').addEventListener('click', submitForm);
   $('backdrop').addEventListener('click', () => {
     if (editor.pickerOpen) editor.closePicker();
+    else if (coursesOpen()) closeCourses();
     else if ($('picture-sheet').hidden) closeForm();
     else closePicture();
   });
@@ -1844,6 +2065,21 @@ function start() {
     }
   });
   $('share').addEventListener('click', openPicture);
+  $('course-button').addEventListener('click', openCourses);
+  $('close-courses').addEventListener('click', closeCourses);
+  $('courses-sheet').addEventListener('keydown', onCoursesKey);
+  $('new-course').addEventListener('click', newCourse);
+  // Saved the moment the page goes away, not half a second later.
+  addEventListener('pagehide', () => autosave.flush());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') autosave.flush();
+  });
+  // Another tab of the app changed the list.
+  addEventListener('storage', (e) => {
+    if (e.key && !e.key.startsWith('motogymkhana-constructor:courses')) return;
+    renderCourseButton();
+    renderCourses();
+  });
   $('save-json').addEventListener('click', () => saveFile('json'));
   $('save-csv').addEventListener('click', () => saveFile('csv'));
   $('share-json').addEventListener('click', () => shareFile('json'));
@@ -1851,14 +2087,7 @@ function start() {
   $('open-json').addEventListener('click', () => $('open-file').click());
   $('open-file').addEventListener('change', onFilePicked);
   renderFileButtons();
-  $('save-mine').addEventListener('click', saveToMyCourses);
-  $('saved-name').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      saveToMyCourses();
-    }
-  });
-  renderSavedCourses();
+  renderCourseButton();
   setupDrop();
   $('close-picture').addEventListener('click', closePicture);
   $('picture-sheet').addEventListener('keydown', (e) => {

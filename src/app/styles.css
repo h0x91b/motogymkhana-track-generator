@@ -66,6 +66,38 @@ button.primary { background: var(--accent); color: var(--accent-ink); border-col
 button.link { border: 0; background: none; color: var(--muted); text-decoration: underline; }
 button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 
+/* The top bar: which course is on screen, and the way to the others. */
+.topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 8px) 6px calc(env(safe-area-inset-left) + 8px);
+  background: var(--panel);
+  border-bottom: 1px solid var(--edge);
+}
+.course-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 4px 8px 4px 12px;
+  border-color: transparent;
+  background: none;
+  text-align: start;
+}
+.course-text { display: grid; min-width: 0; line-height: 1.25; }
+.course-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.course-saved { font-size: 12px; color: var(--muted); }
+.course-saved:empty { display: none; }
+.course-saved.error { color: var(--danger); font-weight: 600; }
+.chevron { flex: 0 0 auto; width: 20px; height: 20px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .chevron { transition: rotate 150ms ease-out; }
+}
+.course-button[aria-expanded="true"] .chevron { rotate: 180deg; }
+
 .stage {
   position: relative;
   flex: 1 1 auto;
@@ -75,7 +107,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 #scene { display: block; width: 100%; height: 100%; touch-action: none; }
 .banner {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 8px);
+  top: 8px;
   left: calc(env(safe-area-inset-left) + 88px);
   right: calc(env(safe-area-inset-right) + 8px);
   padding: 10px 12px;
@@ -88,7 +120,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--panel); borde
 .banner.error { background: var(--err-bg); color: var(--danger); }
 .view-toggle {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 8px);
+  top: 8px;
   left: calc(env(safe-area-inset-left) + 8px);
   display: flex;
   flex-direction: column;
@@ -337,9 +369,11 @@ button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--dan
 .type-grid button[aria-current="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 .type-grid button.suggested { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
-.backdrop { position: fixed; inset: 0; background: #0006; }
+/* Over the docked recipe, whose sticky head is a layer of its own; the toast stays on top. */
+.backdrop { position: fixed; inset: 0; z-index: 10; background: #0006; }
 .sheet {
   position: fixed;
+  z-index: 11;
   left: 0;
   right: 0;
   bottom: var(--kb);
@@ -387,37 +421,41 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .bike-hint { margin: 6px 0 0; }
 .check:has(input:disabled) { color: var(--muted); }
 .wide { width: 100%; margin-top: 16px; }
-/* «Файл трассы»: save and open the course, export the cones. */
-.file-box { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 10px; }
-.file-box h3 { margin: 0; font-size: 15px; }
-.file-box > p { margin: 4px 0 8px; font-size: 13px; text-wrap: pretty; }
-.file-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.file-actions > * { padding-inline: 6px; }
-.file-actions .span2 { grid-column: 1 / -1; }
-#file-status, #saved-status { margin-top: 6px; }
-.drop-hint { display: none; }
-@media (hover: hover) and (pointer: fine) { .file-box > .drop-hint { display: block; margin: 6px 0 0; } }
-.saved-box .saved-label { margin: 6px 0 0; font-size: 13px; }
-.saved-new { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: end; }
-.sheet .saved-new input, .sheet .saved-row input { margin-top: 0; }
-.saved-empty { font-size: 13px; margin: 8px 0 0; }
-.saved-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
-.saved-row { border: 1px solid var(--edge); border-radius: 10px; padding: 6px; display: grid; gap: 6px; min-width: 0; }
-.saved-open {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
-  width: 100%;
-  text-align: start;
-  border: 0;
-  padding: 6px 8px;
-  background: none;
-}
-.saved-name { font-weight: 600; overflow-wrap: anywhere; }
-.saved-when { font-size: 12px; font-variant-numeric: tabular-nums; }
-.saved-ask { margin: 0 8px; font-size: 13px; font-weight: 600; }
-.saved-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
-.saved-actions > * { padding-inline: 6px; font-size: 14px; }
+/* «Мои трассы»: the course on screen with its files, then the others. */
+.courses-top { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.courses-caption { margin: 20px 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* Concentric with the buttons inside it: 10 px radius + 12 px padding. */
+.course-current { padding: 12px; border-radius: 22px; background: var(--bg); margin-top: 16px; }
+.course-current .courses-caption { margin-top: 0; }
+.course-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.course-head:has(.course-rename) { grid-template-columns: minmax(0, 1fr); }
+.course-title { display: grid; gap: 2px; min-width: 0; }
+.course-rename-button { display: inline-grid; place-items: center; width: 44px; padding: 0; margin: -6px -6px 0 0; border-color: transparent; background: none; color: var(--muted); }
+.course-title-name { font-size: 16px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
+.course-meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.course-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.course-actions.two { grid-template-columns: 1fr 1fr; }
+.course-actions > button { padding-inline: 6px; font-size: 14px; }
+.course-row .course-actions { grid-template-columns: 1fr 1fr; margin: 0 6px 6px; }
+.file-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+.file-actions > * { padding-inline: 6px; font-size: 14px; }
+.course-current .form-status { margin-top: 8px; }
+.course-rename { display: grid; gap: 0; }
+.sheet .course-rename input { margin-top: 0; font-size: 16px; }
+.course-ask { grid-column: 1 / -1; }
+.course-ask p { margin: 0; font-size: 14px; font-weight: 600; text-wrap: pretty; }
+.course-row .course-ask { padding: 0 8px 8px; }
+.course-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.course-row { border: 1px solid var(--edge); border-radius: 12px; min-width: 0; }
+.course-row:has(.course-more[aria-expanded="true"]) { border-color: var(--ink); }
+.course-line { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: stretch; gap: 2px; padding: 2px; }
+.course-open { display: grid; justify-items: start; gap: 2px; min-width: 0; padding: 8px 10px; border: 0; background: none; text-align: start; border-radius: 10px; }
+.course-row-name { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+.course-more { display: inline-grid; place-items: center; padding: 0; border: 0; background: none; border-radius: 10px; color: var(--muted); }
+.course-more .icon { fill: currentColor; }
+.course-more[aria-expanded="true"] { background: var(--ink); color: var(--panel); }
+.courses-empty { margin: 0; font-size: 13px; text-wrap: pretty; }
+.courses-hint { margin: 20px 0 0; font-size: 13px; text-wrap: pretty; }
 .drop-overlay {
   position: fixed;
   inset: 0;
@@ -474,8 +512,9 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .toast {
   position: fixed;
   /* Over the top of the plan, clear of the view toggle, the zoom and «Проезд». */
-  top: calc(env(safe-area-inset-top) + 8px);
+  top: calc(env(safe-area-inset-top) + 68px);
   inset-inline: calc(env(safe-area-inset-left) + 88px) calc(env(safe-area-inset-right) + 8px);
+  z-index: 12;
   cursor: pointer;
   padding: 10px 14px;
   border-radius: 10px;
@@ -531,6 +570,7 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   .view-toggle button:hover:not([aria-pressed="true"]), .zoom button:hover, .ride:hover:not([aria-pressed="true"]), .speed:hover { background: var(--panel); border-color: var(--muted); }
   button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--ink)); }
   button[aria-pressed="true"]:hover { background: var(--ink); }
+  .course-more[aria-expanded="true"]:hover { background: var(--ink); }
   button.link:hover, .summary:hover { background: none; color: var(--ink); }
   .segmented label:hover input:not(:checked) + span { border-color: var(--muted); }
   #scene { cursor: grab; }
@@ -543,23 +583,24 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   #app {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 380px;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
-  .stage { grid-column: 1; grid-row: 1 / -1; }
+  .topbar { grid-column: 1 / -1; grid-row: 1; }
+  .stage { grid-column: 1; grid-row: 2 / -1; }
   .dock, .setup-panel, .edit-panel, #form-sheet {
     grid-column: 2;
     border-top: 0;
     border-left: 1px solid var(--edge);
     background: var(--panel);
   }
-  .dock { grid-row: 1; padding: 14px calc(env(safe-area-inset-right) + 16px) 4px 16px; }
+  .dock { grid-row: 2; padding: 14px calc(env(safe-area-inset-right) + 16px) 4px 16px; }
   .dock .actions { grid-template-columns: 1fr 1fr; }
   .dock .actions:first-of-type { grid-template-columns: 1fr; }
   #open-form { display: none; }
   .dock .credits { margin-bottom: 6px; }
   .summary { padding-bottom: 10px; }
   .setup-panel, .edit-panel {
-    grid-row: 1 / -1;
+    grid-row: 2 / -1;
     height: auto;
     max-height: none;
     padding: 16px calc(env(safe-area-inset-right) + 16px) 12px 16px;
@@ -579,7 +620,7 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   }
   #form-sheet {
     position: static;
-    grid-row: 2;
+    grid-row: 3;
     max-height: none;
     min-height: 0;
     padding: 4px calc(env(safe-area-inset-right) + 16px) 16px 16px;
@@ -605,6 +646,18 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
     box-shadow: 0 12px 40px #0006;
   }
   .toast { inset-inline-end: calc(380px + 8px); }
+  /* A drop-down under the top bar, not a sheet from the bottom. */
+  .courses-sheet {
+    top: calc(env(safe-area-inset-top) + 64px);
+    bottom: auto;
+    left: calc(env(safe-area-inset-left) + 8px);
+    right: auto;
+    width: min(440px, calc(100vw - 16px));
+    max-height: calc(100dvh - 80px);
+    padding: 16px;
+    border-radius: 16px;
+    box-shadow: 0 1px 2px #0002, 0 12px 40px #0004;
+  }
 }
 /* Size options: a «Размер» button at the end of a type row, chips folded under it. */
 .type-row { display: flex; align-items: center; gap: 8px; }

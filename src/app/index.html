@@ -10,6 +10,15 @@
 </head>
 <body>
 <main id="app">
+  <header class="topbar" id="topbar">
+    <button type="button" id="course-button" class="course-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="courses-sheet">
+      <span class="course-text">
+        <span class="course-name" id="course-name">Трасса</span>
+        <span class="course-saved" id="course-saved"></span>
+      </span>
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </header>
   <section class="stage" id="stage">
     <canvas id="scene" role="img" aria-label="План трассы"></canvas>
     <div class="banner" id="banner" role="status" hidden></div>
@@ -150,35 +159,38 @@
         <div id="safety" role="group" aria-label="Безопасность" aria-describedby="err-safety"></div>
         <p class="err" id="err-safety" data-for="safety"></p>
       </details>
-      <section class="file-box" aria-labelledby="file-title" aria-describedby="file-hint">
-        <h3 id="file-title">Файл трассы</h3>
-        <p class="muted" id="file-hint">В .json — площадка, рецепт, seed и правки: открыв файл, получите ту же трассу. В .csv — каждый конус с X и Y от угла A.</p>
-        <div class="file-actions">
-          <button type="button" id="save-json">Сохранить .json</button>
-          <button type="button" id="share-json" hidden>Отправить .json</button>
-          <button type="button" id="save-csv">Конусы .csv</button>
-          <button type="button" id="share-csv" hidden>Отправить .csv</button>
-          <button type="button" id="open-json" class="span2">Открыть .json</button>
-        </div>
-        <p class="form-status" id="file-status" role="status"></p>
-        <p class="muted drop-hint">Файл .json можно и просто перетащить на страницу.</p>
-      </section>
-      <section class="file-box saved-box" aria-labelledby="saved-title">
-        <h3 id="saved-title">Мои трассы</h3>
-        <p class="muted">Хранятся в этом браузере на этом устройстве.</p>
-        <label for="saved-name" class="saved-label">Название</label>
-        <div class="saved-new">
-          <input id="saved-name" maxlength="80" autocomplete="off" enterkeyhint="done">
-          <button type="button" id="save-mine" class="primary">Сохранить</button>
-        </div>
-        <p class="form-status" id="saved-status" role="status"></p>
-        <p class="muted saved-empty" id="saved-empty">Пока пусто: сохранённые трассы появятся здесь, новые сверху.</p>
-        <ul class="saved-list" id="saved-list" aria-label="Сохранённые трассы"></ul>
-      </section>
       <div class="sheet-foot">
         <button type="button" id="close-form" class="primary wide">Готово</button>
       </div>
     </form>
+  </section>
+  <section class="sheet courses-sheet" id="courses-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="courses-title" tabindex="-1">
+    <div class="sheet-head">
+      <h2 id="courses-title">Мои трассы</h2>
+      <button type="button" id="close-courses" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="courses-top">
+      <button type="button" id="new-course" class="primary" data-key="new">Новая трасса</button>
+      <button type="button" id="open-json">Открыть файл…</button>
+    </div>
+    <section class="course-current" aria-labelledby="current-title">
+      <h3 id="current-title" class="courses-caption">Открыта сейчас</h3>
+      <div id="current-course"></div>
+      <div class="file-actions" role="group" aria-label="Файлы этой трассы">
+        <button type="button" id="save-json">Скачать .json</button>
+        <button type="button" id="share-json" hidden>Отправить .json</button>
+        <button type="button" id="save-csv">Конусы .csv</button>
+        <button type="button" id="share-csv" hidden>Отправить .csv</button>
+      </div>
+      <div id="current-tools"></div>
+      <p class="form-status" id="file-status" role="status"></p>
+    </section>
+    <section class="course-others" aria-labelledby="others-title">
+      <h3 id="others-title" class="courses-caption">Другие трассы</h3>
+      <ul class="course-list" id="course-list"></ul>
+      <p class="muted courses-empty" id="courses-empty">Других пока нет. «Новая трасса» начнёт ещё одну, а эта останется здесь.</p>
+    </section>
+    <p class="muted courses-hint">Трассы сохраняются сами, в этом браузере на этом устройстве. В .json — площадка, рецепт, seed и правки: открыв файл, получите ту же трассу; его можно и перетащить на страницу. В .csv — каждый конус с X и Y от угла A.</p>
   </section>
   <section class="sheet picture-sheet" id="picture-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="picture-title" tabindex="-1">
     <div class="sheet-head">

@@ -1,5 +1,5 @@
-// The course file and the cone list: what «Сохранить .json» writes, what
-// «Открыть .json» reads back, and what «Конусы .csv» exports (ADR 0013).
+// The course file and the cone list: what «Скачать .json» writes, what
+// «Открыть файл…» reads back, and what «Конусы .csv» exports (ADR 0013).
 //
 // A course file is the course's layout (ADR 0012) — recipe, seed and the
 // elements in route order — under a header that names the format and its
@@ -104,7 +104,7 @@ export function readCourseText(text) {
 }
 
 /**
- * A picked or dropped file read as a course file: what «Открыть .json» and a
+ * A picked or dropped file read as a course file: what «Открыть файл…» and a
  * drop on the page share. `file` is a File or Blob (anything with size and text()).
  */
 export async function readCourseUpload(file) {
