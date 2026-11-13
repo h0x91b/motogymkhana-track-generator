@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { keepsFixedSize, KEYHOLE_NECK, KEYHOLE_NECK_CONES, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
+import { keepsFixedSize, KEYHOLE_NECK, KEYHOLE_NECK_CONES, passColor, SIZE_OPTIONS, sizeMinimum, SMALL_TURN_RADIUS_MIN, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
 import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
@@ -20,6 +20,8 @@ export const dist = (v) => {
   return (Object.is(r, -0) ? 0 : r).toFixed(1).replace('.', ',').replace('-', '−');
 };
 export const metres = (v) => `${dist(v)} м`;
+/** A turn round a cone the route chose (ADR 0031), to the nearest 5°: it is ridden by eye. */
+const about = (deg) => Math.round(deg / 5) * 5;
 
 /**
  * True length of a diagonal run that goes `v` metres along X and as many along
@@ -256,11 +258,25 @@ function describe(element, cones, diagonal, turn, shift, dims, measures) {
       ];
     case 'pass-left':
     case 'pass-right':
+      if (p.turn) {
+        return [
+          `Один высокий конус, ${colour(first)}: объезд с разворотом ~${about(p.turn)}° ${TURN[element.type === 'pass-left' ? 'left' : 'right']}, конус ${element.type === 'pass-left' ? 'слева' : 'справа'}`,
+          `Радиус разворота не меньше ${metres(SMALL_TURN_RADIUS_MIN)}; стенок нет, шире — можно`,
+          'Заход и выход — как требуют соседние элементы: угол разворота выбирает маршрут',
+        ];
+      }
       return [
         `Один высокий конус, ${colour(first)}: объехать, оставив его ${element.type === 'pass-left' ? 'слева' : 'справа'}`,
         'Проезд с любой стороны подхода: линию и повороты до и после выбирает маршрут, не конус',
       ];
     case 'small-turn':
+      if (p.turn) {
+        return [
+          `Разворот вокруг ${colourOf(first)} высокого конуса на ~${about(p.turn)}° (конус ${turn === 'left' ? 'слева' : 'справа'})`,
+          `Радиус не меньше ${metres(p.radius)}; стенок нет, шире — можно`,
+          'Заход и выход — как требуют соседние элементы: угол разворота выбирает маршрут',
+        ];
+      }
       return [
         `Разворот ${TURN[turn]} на 180° вокруг ${colourOf(first)} высокого конуса`,
         `Радиус не меньше ${metres(p.radius)}; стенок нет, шире — можно`,
