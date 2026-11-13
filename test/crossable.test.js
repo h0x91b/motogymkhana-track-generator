@@ -72,7 +72,7 @@ describe('connector check', () => {
 describe('a routed layout', () => {
   // The field tester's case: a keyhole, then a 360° pivot turn the connector into it crosses.
   const KEYHOLE_THEN_PIVOT = [
-    { type: 'keyhole', sizes: {}, axis: 4, mirrored: false, x: 11, y: 20 },
+    { type: 'keyhole', sizes: {}, axis: 4, mirrored: false, x: 11, y: 22 },
     { type: 'pivot-turn', sizes: { angle: 360, radius: 4 }, axis: 2, mirrored: false, x: 18, y: 10 },
   ];
 

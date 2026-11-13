@@ -83,7 +83,8 @@ describe('the generated course keeps the values set', () => {
   test('zone padding: the zone is the cones and line grown by exactly the value set', () => {
     for (const pad of [0, 0.5, 1.5]) {
       const c = course({ ...recipe, safety: { pad } }, 2);
-      for (const e of c.elements.filter((el) => el.axis % 2 === 0)) {
+      // An open single cone's line is only its two ends on the zone edge: nothing inside to grow.
+      for (const e of c.elements.filter((el) => el.axis % 2 === 0 && el.path.length > 2)) {
         const byId = conesById(c);
         // The path's ends lie on the zone edge; its inside is the line ridden.
         const pts = [...e.cones.map((id) => coneXY(byId.get(id))), ...e.path.slice(1, -1)];
