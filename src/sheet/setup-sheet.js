@@ -2,7 +2,7 @@
 // derived from the course; nothing here is needed to draw the course itself.
 // Contract: cone positions can be rebuilt from this data alone.
 
-import { keepsFixedSize, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
+import { keepsFixedSize, KEYHOLE_NECK, KEYHOLE_NECK_CONES, passColor, SIZE_OPTIONS, sizeMinimum, TYPE_NAMES, WAYPOINT } from '../generator/catalog.js';
 import { AXIS_STEPS, axisVector } from '../generator/geometry.js';
 import { SAFETY_OPTIONS, safetyOf } from '../generator/recipe.js';
 
@@ -104,6 +104,7 @@ const DIMENSIONS = {
   'corridor-slalom': [['along', 0, 1], ['across', 1, 2], ['along', 0, 4], ['across', 4, 5]],
   'box-eight': [['along', 0, 1], ['across', 2, 3], ['along', 4, 5], ['across', 5, 6]],
   keyhole: [],
+  'double-keyhole': [],
   crescent: [],
   swerve: [['across', 0, 1], ['along', 0, 4], ['along', 4, 6]],
   'pass-left': [],
@@ -139,6 +140,76 @@ function dimension(points, axis, diagonal, offLattice, [kind, i, j]) {
 }
 
 const CLOCK = { left: 'против часовой стрелки', right: 'по часовой стрелке' };
+
+/**
+ * The way round a loop whose direction the rider must keep, by the side the
+ * centre cone is passed on: on the right is clockwise. Short words and the
+ * symbol, for the cards, «Расстановка», «Правка» and the plan.
+ */
+export const LOOP_WAY = {
+  right: { words: 'по часовой', symbol: '↻', clockwise: true },
+  left: { words: 'против часовой', symbol: '↺', clockwise: false },
+};
+
+// Elements with a loop round a tall centre cone ridden one way only: the way round is spelt out.
+const LOOP_TYPES = new Set(['keyhole', 'double-keyhole']);
+
+/**
+ * What a ring is laid out with, drawn on the plan: a radius line from the
+ * centre of each arc to the ring, «R 4,5 м», towards its lowest cone on the
+ * plan (below the centre the way-round arrow leaves its gap); and across each
+ * keyhole neck, between its two end cones, the neck's width. Site metres.
+ */
+function measuresOf(e, arcs, points) {
+  const out = [];
+  const seen = new Set();
+  for (const arc of arcs) {
+    // One line per ring; the snail's spiral repeats each radius on its two centres, so once per radius.
+    const key = e.type === 'snail' ? arc.radius : `${arc.center.x},${arc.center.y},${arc.radius}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [x, y] = arc.cones.map((n) => points[n - 1]).reduce((a, b) => (b[1] < a[1] - 1e-9 || (Math.abs(b[1] - a[1]) < 1e-9 && b[0] < a[0]) ? b : a));
+    const d = Math.hypot(x - arc.center.x, y - arc.center.y);
+    out.push({
+      kind: 'radius',
+      from: { ...arc.center },
+      to: { x: arc.center.x + ((x - arc.center.x) / d) * arc.radius, y: arc.center.y + ((y - arc.center.y) / d) * arc.radius },
+      label: `R ${metres(arc.radius)}`,
+    });
+  }
+  if (LOOP_TYPES.has(e.type)) {
+    // Each neck's end cones: of the low cones nearer a centre cone than any other, the two farthest from it.
+    const talls = points.filter((_, i) => e.coneHeights[i] === 'tall');
+    const lows = points.filter((_, i) => e.coneHeights[i] === 'low');
+    for (const t of talls) {
+      const far = (p) => Math.hypot(p[0] - t[0], p[1] - t[1]);
+      const own = lows.filter((p) => talls.every((u) => far(p) <= Math.hypot(p[0] - u[0], p[1] - u[1]) + 1e-9));
+      const [a, b] = own.sort((p, q) => far(q) - far(p));
+      out.push({ kind: 'width', from: { x: a[0], y: a[1] }, to: { x: b[0], y: b[1] }, label: metres(Math.round(Math.hypot(a[0] - b[0], a[1] - b[1]) * 2) / 2) });
+    }
+  }
+  return out;
+}
+
+/**
+ * The loops of an element round its centre cones, in the element's cone order:
+ * the cone (id and card number), where it stands, the loop's radius (how far
+ * the line passes it), the side and the way round. Empty for other types.
+ */
+export function loopsOf(e, course, byId = new Map(course.cones.map((c) => [c.id, c]))) {
+  if (!LOOP_TYPES.has(e.type)) return [];
+  return course.passes
+    .filter((p) => p.kind === 'cone' && p.element === e.id)
+    .map((p) => {
+      const c = byId.get(p.cone);
+      const x = c.hx / 2;
+      const y = c.hy / 2;
+      const radius = Math.min(...e.path.map(([px, py]) => Math.hypot(px - x, py - y)));
+      return { cone: p.cone, n: e.cones.indexOf(p.cone) + 1, x, y, radius, side: p.side, color: passColor(p), ...LOOP_WAY[p.side] };
+    })
+    .sort((a, b) => a.n - b.n);
+}
+const NECK = `Горловина перед проёмом: по ${KEYHOLE_NECK_CONES} низких конуса с каждой стороны, через ${metres(KEYHOLE_NECK)} наружу, на одной линии с крайними конусами кольца`;
 const TURN = { left: 'налево', right: 'направо' };
 
 /** Diameter in metres of the round loops of a figure eight `distance` lattice steps across (D = 2√2 r). */
@@ -147,7 +218,9 @@ const TURN = { left: 'налево', right: 'направо' };
  * a length of k lattice steps is k × 0.5 m along X and along Y and is stated
  * as its true slant length (`slant`); the cone table keeps the X/Y offsets.
  */
-function describe(element, cones, diagonal, turn, shift, dims) {
+function describe(element, cones, diagonal, turn, shift, dims, measures) {
+  // A keyhole's opening as laid: between its neck's end cones, on the lattice.
+  const opening = () => measures.find((m) => m.kind === 'width').label;
   const p = element.params;
   const size = (m) => metres(diagonal ? slant(m) : m);
   const len = (steps) => size(steps * 0.5);
@@ -258,10 +331,23 @@ function describe(element, cones, diagonal, turn, shift, dims) {
       ];
     case 'keyhole':
       return [
-        `Кольцо из ${cones.filter((c) => c.height === 'low').length} низких конусов радиусом ${len(p.radius)}, проём ${len(p.opening)} направлен к подъезду`,
+        `Кольцо из ${cones.filter((c) => c.height === 'low').length - 2 * KEYHOLE_NECK_CONES} низких конусов радиусом ${len(p.radius)}, проём ${opening()} между центрами крайних конусов, направлен к подъезду`,
+        NECK,
         `В центре ${colour(last)} высокий конус — якорь, от него рулеткой выставляется кольцо`,
-        `Въезд в проём наискосок, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд через тот же проём`,
+        `Въезд прямо по середине горловины, в проёме поворот в кольцо, круг ${CLOCK[turn]} внутри вокруг центрального конуса, выезд обратно по середине горловины, по прямой`,
       ];
+    case 'double-keyhole': {
+      // The first cone is ring A's centre, the anchor; ring B's centre follows A's ring and neck.
+      const second = cones.find((c, i) => i > 0 && c.height === 'tall');
+      const side = (c) => (c.color === 'blue' ? 'left' : 'right');
+      const ring = cones.filter((c) => c.height === 'low').length / 2 - 2 * KEYHOLE_NECK_CONES;
+      return [
+        `Две замочные скважины горловинами друг к другу: кольца по ${ring} низких конусов радиусом ${len(p.radius)}, проёмы по ${opening()} между центрами крайних конусов, между концами горловин ${len(p.gap)}`,
+        `${NECK} — у каждого кольца`,
+        `В центрах высокие конусы: ${colour(first)} — якорь, ${colour(second)} — центр второго кольца; от них рулеткой выставляются кольца`,
+        `Въезд сбоку в просвет между горловинами, поворот в горловину кольца с ${first.color === 'blue' ? 'синим' : 'красным'} конусом, круг ${CLOCK[side(first)]}, по горловине обратно и прямо через просвет в другую, круг ${CLOCK[side(second)]}, из горловины поворот дальше в ту же сторону; по горловинам и через просвет — по прямой, по линии центров`,
+      ];
+    }
     case 'crescent':
       return [
         `Полукруг радиусом ${len(p.radius)} снаружи пяти ${colours(first)} конусов`,
@@ -313,7 +399,7 @@ function fixedSizes({ type, params }, diagonal, recipe) {
   if (!chosen) return [];
   return SIZE_OPTIONS[type].filter((o) => chosen[o.key] !== undefined && keepsFixedSize(type, o.key, params, diagonal, recipe)).map((o) => {
     const value = chosen[o.key];
-    const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike);
+    const min = sizeMinimum(type, o.key, recipe.difficulty, recipe.bike, recipe.sizes);
     const raised = min !== null && value < min ? min : null;
     return {
       key: o.key,
@@ -321,7 +407,7 @@ function fixedSizes({ type, params }, diagonal, recipe) {
       value,
       ...(raised !== null ? { raisedTo: raised } : {}),
       label: `Задано в рецепте: ${o.name.toLowerCase()} ${metres(value)}`
-        + (raised !== null ? ` — мало для мотоцикла «${BIKE_NAMES[recipe.bike]}», взято не меньше ${metres(raised)}` : ''),
+        + (raised !== null ? ` — мало ${type === 'double-keyhole' ? 'для таких колец' : `для мотоцикла «${BIKE_NAMES[recipe.bike]}»`}, взято не меньше ${metres(raised)}` : ''),
     };
   });
 }
@@ -537,6 +623,13 @@ export function buildSetupSheet(course) {
     const fixed = fixedSizes(e, diagonal, course.recipe);
     const arcs = arcsOf(e, byId, anchor, cones);
     const loose = arcs.length ? looseCones(e, byId, anchor, cones) : [];
+    const measures = measuresOf({ type: e.type, coneHeights: e.cones.map((id) => byId.get(id).height) }, arcs, points);
+    const loops = loopsOf(e, course, byId).map((l, k, all) => ({
+      ...l,
+      label: all.length > 1
+        ? `Кольцо ${k + 1} (${l.color === 'blue' ? 'синий' : 'красный'} конус): ${l.words} ${l.symbol}`
+        : `Объезд центрального конуса: ${l.words} ${l.symbol}`,
+    }));
     return {
       number: e.order,
       element: e.id,
@@ -550,8 +643,11 @@ export function buildSetupSheet(course) {
       turn,
       fixed,
       ...(e.safety ? { safety: e.safety } : {}),
+      // The way round each loop first: getting it wrong is riding another element.
+      loops,
       notes: [
-        ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims),
+        ...loops.map((l) => l.label),
+        ...fixed.map((f) => f.label), ...ownSafety(e), ...describe(e, cones, diagonal, turn, shift, dims, measures),
         ...arcs.flatMap((a) => a.lines), ...sharedNote(arcs),
         // A cone standing on the anchor (the keyhole's centre) needs no line of its own.
         ...loose.filter((l) => l.dx || l.dy).map((l) => l.label),
@@ -562,6 +658,7 @@ export function buildSetupSheet(course) {
       table: !arcs.length,
       dims,
       arcs,
+      measures,
       loose,
     };
   });

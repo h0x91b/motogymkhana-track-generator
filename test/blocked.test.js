@@ -8,7 +8,7 @@ import {
   addBlocked, blockedMarginOf, canonicalJSON, generateCourse, layoutOf, moveBlocked, parseLayout, parseRecipe, removeBlocked, resizeBlocked, routeLayout, setBlockedMargin,
 } from '../src/generator/index.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
-import { freeRects, blockedAreas } from '../src/generator/generate.js';
+import { freeRects, blockedAreas, innerRect, quadOnAsphalt } from '../src/generator/generate.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { coneXY, densify, insidePolygon } from './helpers/course-geometry.js';
 import { slowTest, sweep } from './helpers/slow.js';
@@ -109,6 +109,17 @@ describe('free asphalt', () => {
     expect(rects).toContainEqual([26, 0, 40, 38]);
     expect(rects).toContainEqual([0, 22, 40, 38]);
     expect(rects).toHaveLength(3);
+  });
+});
+
+describe('a core flat along one side', () => {
+  // A single cone passed straight: its cone and its line in one row, a quad of no width.
+  const inner = innerRect({ width: 40, length: 60, blocked: [{ kind: 'obstacle', x: 17, y: 27, w: 6, h: 6, margin: 3 }] });
+  test('is off the asphalt inside a blocked area\'s margin, on it outside', () => {
+    expect(quadOnAsphalt(inner, [[25, 35], [25, 35], [25, 36], [25, 36]])).toBe(false);
+    expect(quadOnAsphalt(inner, [[25, 35], [25, 36], [25, 36], [25, 35]])).toBe(false);
+    expect(quadOnAsphalt(inner, [[25, 35], [25, 35], [25, 35], [25, 35]])).toBe(false);
+    expect(quadOnAsphalt(inner, [[25, 37], [25, 37], [25, 38], [25, 38]])).toBe(true);
   });
 });
 
@@ -233,6 +244,8 @@ describe('«Правка»', () => {
   });
 
   test('an element within an obstacle\'s own margin is a problem that names the obstacle and its margin', () => {
+    // Elements without a run-off, so the margin round the element's own core is what meets the obstacle.
+    const layout = layoutOf(generateCourse({ ...plain, types: ['straight-slalom', 'gate', 'tunnel'] }, 5).course);
     const el = layout.elements[0];
     const placed = routeLayout(layout).course.elements[0];
     const xs = placed.path.map((p) => p[0]);

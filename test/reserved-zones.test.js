@@ -55,8 +55,11 @@ describe('reservedZones', () => {
   });
 
   test('every connector U-turn cone has its round keep-out, in the cone colour', () => {
-    const c = course(base, 2);
-    const ids = c.route.legs.flatMap((l) => l.cones ?? []);
+    // The first course with a U-turn on a connector, so a new type in the catalog does not move it off.
+    const turnCones = (k) => k.route.legs.flatMap((l) => l.cones ?? []);
+    let c;
+    for (let seed = 1; seed <= 30 && !(c && turnCones(c).length); seed++) c = course(base, seed);
+    const ids = turnCones(c);
     expect(ids.length).toBeGreaterThan(0);
     const squares = reservedZones(c).filter((z) => z.kind === 'turnCone');
     expect(squares.map((z) => z.cone)).toEqual(ids);

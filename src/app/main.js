@@ -189,12 +189,14 @@ function syncSizes() {
   for (const note of form.querySelectorAll('.size-note')) {
     const { type, key } = note.dataset;
     const chosen = sizeChoice(type, key);
-    const min = sizeMinimum(type, key, difficulty, bike);
-    const auto = sizeDefault(type, key, difficulty, bike);
+    // The other sizes chosen for the type: one may set this one's minimum (a double keyhole's rings its gap).
+    const own = Object.fromEntries(SIZE_OPTIONS[type].map((o) => [o.key, sizeChoice(type, o.key)]).filter(([, v]) => v !== '').map(([k, v]) => [k, Number(v)]));
+    const min = sizeMinimum(type, key, difficulty, bike, { [type]: own });
+    const auto = sizeDefault(type, key, difficulty, bike, { [type]: own });
     note.closest('.size-option').querySelector('.auto').textContent = `авто ${range(auto)}`;
     const raised = chosen !== '' && min !== null && Number(chosen) < min;
     note.textContent = raised
-      ? `Для мотоцикла «${BIKE_NAMES[bike]}» мало: будет не меньше ${fmt(min)} м`
+      ? `${type === 'double-keyhole' ? 'Для таких колец' : `Для мотоцикла «${BIKE_NAMES[bike]}»`} мало: будет не меньше ${fmt(min)} м`
       : chosen === '' ? `По сложности: ${range(auto)}` : '';
     note.classList.toggle('warn', raised);
     // Values the class raises stay choosable, but look it.
@@ -942,7 +944,10 @@ function elementFacts(id) {
   const head = diag ? '<th>№</th><th>конус</th><th>ΔX</th><th>ΔY</th>' : '<th>№</th><th>конус</th><th>вдоль</th><th>поперёк</th>';
   const rows = card.cones.map((c) => `<tr><td>${c.n}</td><td>${coneDot(c)}</td><td>${dist(diag ? c.dx : c.along)} м</td><td>${dist(diag ? c.dy : c.across)} м</td></tr>`).join('');
   const note = diag ? '' : '<p class="muted">поперёк: «+» — влево от направления оси</p>';
+  // The way round each loop, beside the mirror that flips it.
+  const ways = card.loops.map((l) => `<span class="loop-way ${l.color}">${l.symbol} ${l.words}</span>`).join('');
   return {
+    loops: ways && `<span class="loop-ways" aria-label="Объезд центрального конуса">${ways}</span>`,
     head: `<p class="anchor">Якорь: X ${dist(card.anchor.x)} м · Y ${dist(card.anchor.y)} м</p>
       ${card.fromPrevious ? `<p class="from-previous">${esc(card.fromPrevious.label)}</p>` : ''}
       <p class="muted">Ось: ${esc(card.axis.label)} · проезд ${esc(card.travel)}</p>`,
