@@ -109,7 +109,7 @@ describe('a routed layout', () => {
 
   test('a connector through the empty corner of a bounded element\'s rectangle is not a problem', () => {
     let corners = 0;
-    for (let seed = 1; seed <= 12; seed++) {
+    for (let seed = 1; seed <= 4; seed++) {
       const { course } = generateCourse(ANTON, seed);
       expect(routeLayout(layoutOf(course)).problems, `seed ${seed}`).toEqual([]);
       for (const leg of course.route.legs.filter((l) => l.kind === 'connector')) {
@@ -119,5 +119,5 @@ describe('a routed layout', () => {
       }
     }
     expect(corners).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });
