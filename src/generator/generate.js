@@ -7,7 +7,7 @@
 // bounded by a count of evaluated placements, never by time, so a slow phone
 // and a fast laptop always reach the same course.
 
-import { BIKE_TURN_RADIUS, chooseParams, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
+import { BIKE_TURN_RADIUS, chooseParams, crossable, diagonalAxis, FILLER_TYPES, freeHeading, instantiate, isBig, minimalParams, runOffFor, SINGLE_CONE_TYPES, ZONE_PAD } from './catalog.js';
 import { dubinsLength, dubinsPaths } from './dubins.js';
 import {
   AXIS_STEPS, axisVector, boundsOverlap, dirAngle, obbBounds, obbCorners, obbOverlap, obbShape, part,
@@ -435,7 +435,9 @@ const SHAPES = new WeakMap();
  * round every cone, a band as wide round every wall and chalk line and round
  * the line ridden inside the element (without the run-in and run-out). And the
  * run-off polygon, if the type has one. A pad of 0 still keeps MIN_PAD, so the
- * cones and lines of two elements never touch or cross.
+ * cones and lines of two elements never touch or cross. And the `barrier` the
+ * route keeps out of: the footprint, or the cone discs alone of an open
+ * (`crossable`) element, whose line a connector may cross (ADR 0028).
  */
 function originShapes(tpl, axis) {
   let byAxis = SHAPES.get(tpl);
@@ -452,9 +454,13 @@ function originShapes(tpl, axis) {
     for (const l of tpl.lines) {
       for (let i = 1; i < l.cones.length; i++) parts.push(part([cones[l.cones[i - 1]], cones[l.cones[i]]], pad));
     }
-    for (const c of cones) parts.push(part([c], pad));
+    const discs = cones.map((c) => part([c], pad));
+    parts.push(...discs);
     const runOffPoly = tpl.runOffPoly && tpl.runOffPoly.map(([a, b]) => toM(a, b));
-    byAxis[axis] = { footprint: shapeOf(parts), runOffPoly, runOff: runOffPoly && shapeOf([part(runOffPoly)]) };
+    const footprint = shapeOf(parts);
+    // What the route keeps out of: the footprint, or only the cones of an open element (ADR 0028).
+    const barrier = crossable(tpl.type) ? shapeOf(discs) : footprint;
+    byAxis[axis] = { footprint, barrier, runOffPoly, runOff: runOffPoly && shapeOf([part(runOffPoly)]) };
   }
   return byAxis[axis];
 }
@@ -475,6 +481,7 @@ export function placeTemplate(tpl, axis, ax, ay) {
   const zone = obb(tpl.zone);
   const shapes = originShapes(tpl, axis);
   const footprint = shiftShape(shapes.footprint, ax, ay);
+  const barrier = shapes.barrier === shapes.footprint ? footprint : shiftShape(shapes.barrier, ax, ay);
   const runOffPoly = shapes.runOffPoly && shapes.runOffPoly.map(([x, y]) => [x + ax, y + ay]);
   const runOff = shapes.runOff && shiftShape(shapes.runOff, ax, ay);
   const k = tpl.core;
@@ -493,7 +500,7 @@ export function placeTemplate(tpl, axis, ax, ay) {
   // A point waypoint has none: the route arrives at its point and leaves it.
   const ends = tpl.point ? [] : [end(path.slice(0, 2)), end(path.slice(-2))];
   return {
-    tpl, axis, ax, ay, zone, footprint, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path, spots, keepOut,
+    tpl, axis, ax, ay, zone, footprint, barrier, runOff, runOffPoly, runOffBounds: runOff && runOff.bounds, ends, core, entry, exit, entryDir, exitDir, path, spots, keepOut,
     center: zone.c,
     world: () => ({
       cones: tpl.cones.map((c) => ({ hx: 2 * ax + c.a * dx + c.b * px, hy: 2 * ay + c.a * dy + c.b * py, height: c.height })),
@@ -889,17 +896,20 @@ export function boxEntries(box) {
 /** The finish of a `return` course: its start line again, crossed in direction `dir`, stopping at `stop` in the box. */
 export const boxFinish = (start, dir, stop) => ({ ...start, center: stop, dir, shared: true });
 
+/** What the route keeps out of: an element's `barrier` (ADR 0028), else the whole footprint (terminals, U-turn cones). */
+export const barrierOf = (z) => z.barrier ?? z.footprint;
+
 export function pathClear(points, bounds, zones) {
   for (const z of zones) {
-    if (polylineHitsShape(points, bounds, z.footprint, EPS)) return false;
+    if (polylineHitsShape(points, bounds, barrierOf(z), EPS)) return false;
   }
   return true;
 }
 
 /**
  * Footprints disjoint, the route (connectors, run-ins and run-outs) out of the
- * candidate's footprint and the candidate's own run-in and run-out out of every
- * other footprint, and nothing placed in a run-off zone: no other element's
+ * candidate's barrier and the candidate's own run-in and run-out out of every
+ * other barrier (the footprint, or the cones of an open element, ADR 0028), and nothing placed in a run-off zone: no other element's
  * footprint or terminal in the candidate's, the candidate's footprint in no
  * other's. Run-off zones may overlap each other and the route may cross them:
  * they are only free asphalt.
@@ -909,10 +919,10 @@ export function zoneClear(candidate, zones, paths) {
     if (shapesOverlap(candidate.footprint, z.footprint) || coneInKeepOut(candidate, z)) return false;
     if (z.runOff && shapesOverlap(candidate.footprint, z.runOff)) return false;
     if (candidate.runOff && shapesOverlap(candidate.runOff, z.footprint)) return false;
-    if (candidate.ends && candidate.ends.some((e) => polylineHitsShape(e.points, e.bounds, z.footprint, EPS))) return false;
+    if (candidate.ends && candidate.ends.some((e) => polylineHitsShape(e.points, e.bounds, barrierOf(z), EPS))) return false;
   }
   for (const p of paths) {
-    if (polylineHitsShape(p.points, p.bounds, candidate.footprint, EPS)) return false;
+    if (polylineHitsShape(p.points, p.bounds, barrierOf(candidate), EPS)) return false;
   }
   return true;
 }

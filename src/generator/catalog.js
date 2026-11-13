@@ -494,6 +494,8 @@ const TYPES = {
   },
 
   'pivot-turn': {
+    // Open, round one cone: a connector may cross its line (`crossable`, ADR 0028).
+    crossable: true,
     options: (t) => ({ angle: t.pivotAngles }),
     // The free radius round the cone (`pivotRadius`, by default the U-turn radius
     // and 0.5 m slack); the line is ridden 0.5 m inside it. Only cones are kept
@@ -901,6 +903,7 @@ const TYPES = {
   'pass-left': {
     fixedSide: true,
     freeHeading: true,
+    crossable: true,
     point: true,
     mirrorType: 'pass-right',
     options: () => ({}),
@@ -909,6 +912,7 @@ const TYPES = {
   'pass-right': {
     fixedSide: true,
     freeHeading: true,
+    crossable: true,
     point: true,
     mirrorType: 'pass-left',
     options: () => ({}),
@@ -920,6 +924,7 @@ const TYPES = {
     // radius; no walls, so a wider line is fine. Entered on whatever heading
     // the route needs (`freeHeading`, ADR 0027), the cone on the inside.
     freeHeading: true,
+    crossable: true,
     options: () => ({}),
     extra: (t) => ({ radius: t.turn }),
     build({ radius }, unit) {
@@ -942,6 +947,7 @@ const TYPES = {
  */
 const WAYPOINT_TYPE = {
   freeHeading: true,
+  crossable: true,
   point: true,
   fixedSide: true,
   options: () => ({}),
@@ -972,6 +978,15 @@ TYPES[WAYPOINT] = WAYPOINT_TYPE;
 /** Types whose heading the route chooses, not the layout (ADR 0027): the element turns to whichever of sixteen joins its connectors best. */
 export const FREE_HEADING_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].freeHeading && t !== WAYPOINT);
 export const freeHeading = (type) => Boolean(TYPES[type].freeHeading);
+
+/**
+ * Open elements round one cone, no walls (ADR 0028): a connector, a run-in or
+ * a run-out may cross the line ridden inside one — only its cones block, and a
+ * pivot turn's free circle keeps out cones. Every other type is bounded: its
+ * line is part of what the route keeps out of.
+ */
+export const CROSSABLE_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].crossable && t !== WAYPOINT);
+export const crossable = (type) => Boolean(TYPES[type].crossable);
 
 /** The type an element becomes when mirrored, for a type whose side is the type itself; else the type. */
 export const mirrorType = (type) => TYPES[type].mirrorType ?? type;

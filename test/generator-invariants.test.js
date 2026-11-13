@@ -11,7 +11,7 @@ import {
 // Types whose U-turns are sized by the bike class (the rest keep difficulty sizes).
 const CLASS_SIZED_TYPES = ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'figure-eight'];
 import {
-  coneXY, conesById, densify, distanceToFootprint, distanceToPath, distanceToPolygon, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
+  barrierOf, coneXY, conesById, densify, distanceToFootprint, distanceToPath, distanceToPolygon, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
   turns,
 } from './helpers/course-geometry.js';
 import { SLOW, slowTest, sweep } from './helpers/slow.js';
@@ -55,7 +55,8 @@ const RECIPES = [
       width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed',
       types: ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'lane-change'],
     },
-    seeds: sweep(30, 4),
+    // Fast: seeds that between them deal every type of the recipe.
+    seeds: sweep(30, [2, 5, 12, 13]),
   },
   {
     name: 'only big types',
@@ -71,7 +72,7 @@ const RECIPES = [
 
 const generated = RECIPES.map(({ name, recipe, seeds }) => {
   const courses = [];
-  for (let seed = 0; seed < seeds; seed++) {
+  for (const seed of Array.isArray(seeds) ? seeds : Array.from({ length: seeds }, (_, k) => k)) {
     const result = generateCourse(recipe, seed);
     if (!result.ok) throw new Error(`${name} seed ${seed}: ${JSON.stringify(result.error)}`);
     courses.push(result.course);
@@ -203,9 +204,9 @@ describe('placement', () => {
     if (SLOW) expect(near).toBeGreaterThan(50);
   });
 
-  test('the route keeps the clearance from every element: connectors, run-ins and run-outs never cut into a footprint', () => {
+  test('the route keeps the clearance from every element: connectors, run-ins and run-outs never cut into a footprint, or into the cones of an open element', () => {
     each((c) => {
-      const fps = new Map(c.elements.map((e) => [e.id, footprintOf(c, e)]));
+      const fps = new Map(c.elements.map((e) => [e.id, barrierOf(c, e)]));
       const pieces = [
         ...c.route.legs.filter((l) => l.kind === 'connector').map((l) => ({ name: `connector ${l.from}→${l.to}`, path: l.path })),
         ...c.elements.flatMap((e) => [

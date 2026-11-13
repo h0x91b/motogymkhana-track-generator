@@ -1,7 +1,9 @@
 // Test-side geometry, deliberately independent of the generator's own helpers:
 // everything here is computed from the published course data only, with
 // brute-force methods (dense sampling, nearest points), not the generator's
-// clipping and SAT routines.
+// clipping and SAT routines. Only the type classification comes from the catalog.
+
+import { crossable } from '../../src/generator/index.js';
 
 export const coneXY = (cone) => [cone.hx / 2, cone.hy / 2];
 
@@ -139,6 +141,15 @@ export function footprintOf(course, e) {
   const all = [...cones, ...segments.flat()];
   const bounds = [Math.min(...all.map((p) => p[0])), Math.min(...all.map((p) => p[1])), Math.max(...all.map((p) => p[0])), Math.max(...all.map((p) => p[1]))];
   return { cones, segments, bounds };
+}
+
+/** What the route keeps out of (ADR 0028): the footprint, or only the cones of an open (`crossable`) element. */
+export function barrierOf(course, e) {
+  const fp = footprintOf(course, e);
+  if (!crossable(e.type)) return fp;
+  const { cones } = fp;
+  const bounds = cones.length ? [Math.min(...cones.map((p) => p[0])), Math.min(...cones.map((p) => p[1])), Math.max(...cones.map((p) => p[0])), Math.max(...cones.map((p) => p[1]))] : [Infinity, Infinity, -Infinity, -Infinity];
+  return { cones, segments: [], bounds };
 }
 
 function pointToSegment(p, a, b) {

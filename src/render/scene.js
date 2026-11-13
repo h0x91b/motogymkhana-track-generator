@@ -308,15 +308,37 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
     path(z.poly.map(([x, y]) => [x, y, 0.003]), stroke, s.width, s.fill ?? null, true, s.dash);
   }
 
+  // An element with a problem: its footprint in red, the asphalt it really takes
+  // (ADR 0028), holes and all; the rectangle for one without (a waypoint).
+  const footprints = new Map();
+  for (const z of reservedZones(course)) if (z.kind === 'zone') footprints.set(z.element, [...(footprints.get(z.element) ?? []), z.poly]);
+  const markWrong = (e) => {
+    const loops = footprints.get(e.id) ?? [e.zone];
+    ctx.beginPath();
+    for (const loop of loops) {
+      loop.forEach(([x, y], i) => {
+        const q = project(x, y, 0.005);
+        if (i) ctx.lineTo(q.x, q.y);
+        else ctx.moveTo(q.x, q.y);
+      });
+      ctx.closePath();
+    }
+    ctx.fillStyle = `${PALETTE.problem}2e`;
+    ctx.fill('evenodd');
+    ctx.strokeStyle = PALETTE.problem;
+    ctx.lineWidth = Math.max(0.8, 0.1 * scale);
+    ctx.stroke();
+  };
+
   // Selected element, or the one being ridden: soft fill of its zone.
   for (const e of course.elements) {
     const poly = e.zone.map(([x, y]) => project(x, y, 0.005));
     hits.push({ kind: 'zone', element: e.id, poly });
     const wrong = problems?.elements.has(e.id);
-    if (wrong) path(e.zone.map(([x, y]) => [x, y, 0.005]), PALETTE.problem, 0.1, `${PALETTE.problem}2e`, true);
+    if (wrong) markWrong(e);
     if (e.id === selected || riders.some((r) => r.element === e.id)) path(e.zone.map(([x, y]) => [x, y, 0.006]), wrong ? null : '#d8f7ee99', 0.06, '#8bd5bd26', true);
-    // The element being edited: a firm outline, so it reads as the thing a finger moves.
-    if (editing && e.id === selected) path(e.zone.map(([x, y]) => [x, y, 0.007]), wrong ? PALETTE.problem : PALETTE.select, 0.12, null, true);
+    // The element being edited: a firm outline, so it reads as the thing a finger moves (its footprint is red if it has a problem).
+    if (editing && e.id === selected) path(e.zone.map(([x, y]) => [x, y, 0.007]), PALETTE.select, 0.12, null, true);
   }
 
   // The start and an open course's finish in «Правка»: their zones are tap and drag targets after the elements', and the one being edited is outlined.
