@@ -11,7 +11,7 @@ import { coneTurns, freeHeadings, placeTemplate, pose } from '../src/generator/g
 import { layoutOf, routeLayout } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, timeout } from './helpers/slow.js';
 
 const FIXTURE = readFileSync(new URL('./fixtures/edited-40x52.json', import.meta.url), 'utf8');
 const userLayout = () => readCourseFile(FIXTURE).layout;
@@ -124,7 +124,8 @@ describe('generated courses', () => {
   test('keep the preferred turn: straight past a passed cone, 180° centred round a small U-turn\'s', () => {
     const recipe = { width: 40, length: 38, elements: 7, difficulty: 'medium', bike: 'sport', types: ['straight-slalom', 'gate', 'u-turn', 'box', 'pass-left', 'pass-right', 'small-turn'] };
     let fillers = 0;
-    for (let seed = 1; seed <= sweep(40, 4); seed++) {
+    // Fast: a seed with cones passed on both sides and a small U-turn.
+    for (const seed of seeds(40, [9])) {
       const { course } = generateCourse(recipe, seed);
       for (const e of course.elements) {
         if (!CONE_TURNS[e.type]) continue;

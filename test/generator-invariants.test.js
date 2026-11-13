@@ -1,6 +1,7 @@
 // Hard rules of a course, checked through generateCourse on a few seeds per
 // recipe by default and on hundreds with SLOW=1 (helpers/slow.js). A recipe with
-// no fast seeds is covered by another recipe in the default run.
+// no fast seeds is covered by another recipe in the default run. The fast seeds
+// are ones that lay out at once: another seed of a recipe can take ten times as long.
 
 import { describe, expect, test } from 'bun:test';
 import {
@@ -17,23 +18,24 @@ import {
 import { SLOW, slowTest, sweep, timeout } from './helpers/slow.js';
 
 const RECIPES = [
-  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, 1) },
-  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: sweep(80, 1) },
-  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: sweep(80, 1) },
-  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: sweep(60, 1) },
+  { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, [9]) },
+  { name: '40×60 easy open', recipe: { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, seeds: sweep(80, [2]) },
+  // No fast seed: none lays out in under a fifth of a second; the hard sport and small easy closed recipes cover it.
+  { name: '30×45 hard closed', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, seeds: sweep(80, 0) },
+  { name: '40×60 hard closed sport', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, seeds: sweep(60, [6]) },
   { name: '60×80 hard open', recipe: { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, seeds: sweep(80, 1) },
   {
     name: 'eights and slaloms only',
     recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['figure-eight', 'straight-slalom'] },
     seeds: sweep(60, 2),
   },
-  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, seeds: sweep(60, 1) },
-  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, seeds: sweep(80, 1) },
+  { name: '25×30 easy closed (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, seeds: sweep(60, [10]) },
+  { name: '40×60 medium closed train', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, seeds: sweep(80, [14]) },
   { name: '40×60 medium return', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, seeds: sweep(100, 1) },
   { name: '30×45 hard return', recipe: { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'return' }, seeds: sweep(60, 0) },
-  { name: '25×30 easy return (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'return' }, seeds: sweep(40, 1) },
-  { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: sweep(60, 1) },
-  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: sweep(50, 1) },
+  { name: '25×30 easy return (small)', recipe: { width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'return' }, seeds: sweep(40, [1]) },
+  { name: '40×60 hard return train (form default)', recipe: { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, seeds: sweep(60, [2]) },
+  { name: '60×80 hard open train', recipe: { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, seeds: sweep(50, [3]) },
   {
     name: '50×70 medium closed, fixed sizes',
     recipe: {
@@ -44,7 +46,7 @@ const RECIPES = [
         zigzag: { step: 2.5 }, 'corridor-slalom': { width: 3, step: 5 }, keyhole: { radius: 4.5 }, crescent: { radius: 8 },
       },
     },
-    seeds: sweep(60, 1),
+    seeds: sweep(60, [5]),
   },
   {
     // Few seeds of the mixed recipes miss some types: this one puts every
@@ -55,8 +57,8 @@ const RECIPES = [
       width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed',
       types: ['u-turn', 'box', 'pivot-turn', 'mirror', 'gate-turn', 'lane-change'],
     },
-    // Fast: seeds that between them deal every type of the recipe.
-    seeds: sweep(30, [2, 5, 12, 13]),
+    // Fast: three cheap seeds that between them deal every type of the recipe.
+    seeds: sweep(30, [113, 156, 223]),
   },
   {
     name: 'only big types',

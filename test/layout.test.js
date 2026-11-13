@@ -15,33 +15,29 @@ import {
   nearestAxis, rotateElement, routeLayout, setElementSize, shiftElement, turnElementTo, turnStep,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, timeout } from './helpers/slow.js';
 import { coneXY, conesById, distanceToPath, insidePolygon } from './helpers/course-geometry.js';
 
+// Each recipe with the seeds the default run takes: two of the first (tests edit
+// generated[1]) and one of each other, one that lays out at once.
 const RECIPES = [
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
-  { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' },
-  { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' },
-  { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' },
-  { width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' },
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true },
-  { width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true },
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' },
-  { width: 40, length: 60, elements: 6, difficulty: 'hard', shape: 'return', train: true },
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, [0, 9]],
+  [{ width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, [0]],
+  // No seed in the default run: none lays out in under a fifth of a second.
+  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, []],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'sport', shape: 'closed' }, [6]],
+  [{ width: 60, length: 80, elements: 15, difficulty: 'hard', shape: 'open' }, [0]],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', train: true }, [14]],
+  [{ width: 60, length: 80, elements: 12, difficulty: 'hard', shape: 'open', train: true }, [3]],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, [0]],
+  [{ width: 40, length: 60, elements: 6, difficulty: 'hard', shape: 'return', train: true }, [2]],
 ];
-const SEEDS = sweep(8, 2);
 
-const generated = RECIPES.flatMap((recipe) => {
-  const out = [];
-  // The default run takes two seeds of the first recipe (tests edit generated[1]) and one of each other.
-  const n = recipe === RECIPES[0] ? SEEDS : sweep(SEEDS, 1);
-  for (let seed = 0; seed < n; seed++) {
-    const result = generateCourse(recipe, seed);
-    if (!result.ok) throw new Error(`${JSON.stringify(recipe)} seed ${seed}: ${JSON.stringify(result.error)}`);
-    out.push(result.course);
-  }
-  return out;
-});
+const generated = RECIPES.flatMap(([recipe, fast]) => seeds(8, fast, 0).map((seed) => {
+  const result = generateCourse(recipe, seed);
+  if (!result.ok) throw new Error(`${JSON.stringify(recipe)} seed ${seed}: ${JSON.stringify(result.error)}`);
+  return result.course;
+}));
 
 /** A course without the bookkeeping that differs between a generated and an edited one. */
 const bare = ({ requested, placed, edited, limitedBy, ...course }) => course;
@@ -466,8 +462,8 @@ describe('editing a layout', () => {
     expect(first.elements.length).toBe(base.elements.length + 1);
     const between = routed(insertElement(base, 3, 'gate'));
     expect(between.elements[3].type).toBe('gate');
-    let full = single('gate');
-    while (full.elements.length < ELEMENTS_MAX) full = insertElement(full, full.elements.length, 'gate');
+    const one = single('gate');
+    const full = { ...one, elements: Array.from({ length: ELEMENTS_MAX }, () => one.elements[0]) };
     expect(insertElement(full, 0, 'gate')).toBe(full);
   });
 

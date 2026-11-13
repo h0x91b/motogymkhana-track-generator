@@ -13,13 +13,19 @@ import { chainLeg, CHAIN_ANGLE, CHAIN_REACH, elementMargins, fillerLimit, innerR
 import { elementControls, elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, setElementSize, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { conesCsv, courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, timeout } from './helpers/slow.js';
 import { distanceToPath, fullRoute, turns } from './helpers/course-geometry.js';
 
 const tpl = (type, sizes, { diagonal = false, mirrored = false, bike = 'sport', margins } = {}) => instantiate(type, elementParams(type, sizes, diagonal, bike), diagonal, mirrored, margins);
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport' };
 const OWN = (c) => c.elements.filter((e) => !FILLER_TYPES.includes(e.type)).length;
 const FILLED = (c) => c.elements.filter((e) => FILLER_TYPES.includes(e.type)).length;
+const antonCourses = new Map();
+/** The tester's course of a seed, generated once for the whole file. */
+const antonCourse = (seed) => {
+  if (!antonCourses.has(seed)) antonCourses.set(seed, generateCourse(ANTON, seed).course);
+  return antonCourses.get(seed);
+};
 
 describe('catalog', () => {
   test('a passed cone and the small U-turn take their heading from the route; the pivot turn does not', () => {
@@ -103,7 +109,7 @@ describe('catalog', () => {
     expect(low.ok).toBe(false);
     expect(low.errors.sizes).toContain('от 3 до 8 м');
     let seen = 0;
-    for (const seed of [1, 2, 3, 4, 5, 6]) {
+    for (const seed of seeds(6, [2])) {
       for (const e of generateCourse({ ...recipe, sizes: { 'small-turn': { radius: 3 } } }, seed).course.elements.filter((x) => x.type === 'small-turn')) {
         expect(e.params.radius).toBe(3);
         seen++;
@@ -145,15 +151,14 @@ describe('catalog', () => {
 });
 
 describe('gap fillers in a generated course', () => {
-  const seeds = sweep(40, 4);
-  const filled = [];
-  for (let seed = 1; seed <= seeds; seed++) filled.push([seed, generateCourse(ANTON, seed).course]);
+  const SEEDS = seeds(40, [2, 4]);
+  const filled = SEEDS.map((seed) => [seed, antonCourse(seed)]);
 
   test('a course gets fillers only where its own elements ran out, and never fewer of its own', () => {
     let used = 0;
     // Without the pivot turn, which is dealt and fills gaps too, the course's own elements are the same types with and without fillers.
     const types = ELEMENT_TYPES.filter((t) => t !== 'pivot-turn');
-    for (let seed = 1; seed <= seeds; seed++) {
+    for (const seed of SEEDS) {
       const c = generateCourse({ ...ANTON, types }, seed).course;
       const plain = generateCourse({ ...ANTON, types: types.filter((t) => !FILLER_TYPES.includes(t)) }, seed).course;
       expect(OWN(c), `seed ${seed}`).toBeGreaterThanOrEqual(plain.placed);
@@ -169,7 +174,7 @@ describe('gap fillers in a generated course', () => {
     for (const [, c] of filled) c.elements.forEach((e, i) => i && expect(e.type).not.toBe(c.elements[i - 1].type));
     expect(LOOPED_TYPES).toContain('small-turn');
     expect(LOOPED_TYPES).not.toContain('pass-left');
-    for (let seed = 1; seed <= sweep(10, 3); seed++) {
+    for (const seed of seeds(10, [7])) {
       const c = generateCourse({ ...ANTON, shape: 'closed', train: true }, seed).course;
       for (const e of c.elements) expect(LOOPED_TYPES).not.toContain(e.type);
     }
@@ -208,7 +213,7 @@ describe('gap fillers in a generated course', () => {
 });
 
 describe('«Правка»', () => {
-  const base = layoutOf(generateCourse(ANTON, 1).course);
+  const base = layoutOf(antonCourse(2));
 
   test('each can be inserted, and routes', () => {
     for (const type of SINGLE_CONE_TYPES) {
@@ -229,7 +234,7 @@ describe('«Правка»', () => {
   });
 
   test('the small U-turn\'s radius steps down to 3 m on a cruiser, not below', () => {
-    const cruiser = layoutOf(generateCourse({ ...ANTON, bike: 'cruiser' }, 1).course);
+    const cruiser = layoutOf(generateCourse({ ...ANTON, bike: 'cruiser' }, 2).course);
     let layout = insertElement(cruiser, 1, 'small-turn');
     expect(layout.elements[1].sizes.radius).toBe(uTurnRadius('medium', 'cruiser'));
     layout = setElementSize(layout, 1, 'radius', 3);
@@ -400,8 +405,8 @@ describe('«Опорная точка»', () => {
 /** Generated courses of the tester's recipe that have fillers. */
 function filledCourses() {
   const out = [];
-  for (let seed = 1; seed <= sweep(20, 6); seed++) {
-    const c = generateCourse(ANTON, seed).course;
+  for (const seed of seeds(20, [2, 4])) {
+    const c = antonCourse(seed);
     if (FILLED(c)) out.push([seed, c]);
   }
   return out;

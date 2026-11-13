@@ -18,15 +18,22 @@ const inside = (poly, [x, y]) => {
 };
 
 const base = { width: '30', length: '45', elements: '8', difficulty: 'hard', bike: 'cruiser', closed: true, train: false };
+const made = new Map();
+/** A generated course, made once for the whole file. */
 const course = (recipe, seed) => {
-  const r = generateCourse(recipe, seed);
-  expect(r.ok).toBe(true);
-  return r.course;
+  const key = `${JSON.stringify(recipe)} ${seed}`;
+  if (!made.has(key)) {
+    const r = generateCourse(recipe, seed);
+    expect(r.ok).toBe(true);
+    made.set(key, r.course);
+  }
+  return made.get(key);
 };
 
 describe('reservedZones', () => {
   test('the outline of every element footprint, run-off zones of turning elements, one terminal on a closed course', () => {
-    const c = course(base, 1);
+    // Seed 14 has a turning element, so a run-off zone to draw, and U-turns on connectors (the test below).
+    const c = course(base, 14);
     const zones = reservedZones(c);
     const of = (kind) => zones.filter((z) => z.kind === kind);
     const byId = new Map(c.cones.map((k) => [k.id, k]));
@@ -51,15 +58,16 @@ describe('reservedZones', () => {
   }, timeout(10_000));
 
   test('an open course has a start and a finish zone', () => {
-    const c = course({ ...base, closed: false }, 1);
+    const c = course({ ...base, closed: false }, 2);
     expect(reservedZones(c).filter((z) => z.kind === 'terminal').map((z) => z.poly)).toEqual([c.route.start.zone, c.route.finish.zone]);
   }, timeout(10_000));
 
   test('every connector U-turn cone has its round keep-out, in the cone colour', () => {
-    // The first course with a U-turn on a connector, so a new type in the catalog does not move it off.
+    // The first course with a U-turn on a connector, so a new type in the catalog does not move it off;
+    // from seed 14, which has three and lays out faster than the seeds before it.
     const turnCones = (k) => k.route.legs.flatMap((l) => l.cones ?? []);
     let c;
-    for (let seed = 1; seed <= 30 && !(c && turnCones(c).length); seed++) c = course(base, seed);
+    for (let seed = 14; seed <= 44 && !(c && turnCones(c).length); seed++) c = course(base, seed);
     const ids = turnCones(c);
     expect(ids.length).toBeGreaterThan(0);
     const squares = reservedZones(c).filter((z) => z.kind === 'turnCone');

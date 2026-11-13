@@ -19,3 +19,10 @@ export const sweep = (full, fast) => (SLOW ? full : fast);
 
 /** A test that only runs in the slow suite: a statistic over many seeds. */
 export const slowTest = test.skipIf(!SLOW);
+
+/**
+ * Seeds `from` to `from + n - 1` in the slow run, the `fast` list in the default
+ * one. Generation time varies tenfold between seeds of one recipe, so the fast
+ * list names cheap seeds that still show what the test checks.
+ */
+export const seeds = (n, fast, from = 1) => (SLOW ? Array.from({ length: n }, (_, k) => k + from) : fast);

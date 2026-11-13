@@ -10,6 +10,7 @@ import { elementControls, routeLayout, setElementSize } from '../src/generator/l
 import { pointsBounds } from '../src/generator/geometry.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
+import { seeds, timeout } from './helpers/slow.js';
 
 const tpl = (sizes, { diagonal = false, mirrored = false, bike = 'cruiser' } = {}) => instantiate('pivot-turn', elementParams('pivot-turn', sizes, diagonal, bike), diagonal, mirrored);
 const recipeOf = (bike = 'cruiser', shape = 'closed') => parseRecipe({ width: 100, length: 100, elements: 1, difficulty: 'medium', bike, shape }).recipe;
@@ -158,8 +159,9 @@ describe('free radius', () => {
 
   test('a generated course keeps every cone of other elements out of each pivot\'s circle', () => {
     let seen = 0;
-    for (const difficulty of ['easy', 'hard']) {
-      for (let seed = 1; seed <= 8; seed++) {
+    // Fast: a seed of each that puts a pivot turn on the course at once.
+    for (const [difficulty, fast] of [['easy', [6]], ['hard', [3]]]) {
+      for (const seed of seeds(8, fast)) {
         const { course } = generateCourse({ width: 40, length: 38, elements: 6, difficulty, bike: 'sport', types: ['pivot-turn', 'gate', 'straight-slalom', 'u-turn', 'offset-slalom'], sizes: { 'pivot-turn': { radius: 8 } } }, seed);
         const at = new Map(course.cones.map((c) => [c.id, c]));
         for (const e of course.elements.filter((x) => x.type === 'pivot-turn')) {
@@ -174,7 +176,7 @@ describe('free radius', () => {
       }
     }
     expect(seen).toBeGreaterThan(0);
-  }, 30_000);
+  }, timeout(30_000));
 });
 
 describe('course file', () => {

@@ -8,21 +8,22 @@ import { ELEMENT_TYPES } from '../src/generator/recipe.js';
 import { conesCsv } from '../src/file/course-file.js';
 import { layoutOf, replaceElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet, dist, lineCrossing } from '../src/sheet/setup-sheet.js';
-import { sweep } from './helpers/slow.js';
+import { seeds, sweep } from './helpers/slow.js';
 
+// Each recipe with the seeds the default run takes: ones that lay out at once.
 const RECIPES = [
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' },
-  { width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' },
-  { width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' },
-  { width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true },
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, [0, 9]],
+  [{ width: 40, length: 60, elements: 6, difficulty: 'easy', shape: 'open' }, [0, 1, 2]],
+  // No seed in the default run: none lays out in under a fifth of a second.
+  [{ width: 30, length: 45, elements: 10, difficulty: 'hard', shape: 'closed' }, []],
+  [{ width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'return', train: true }, [2, 4]],
   // Puts on the course the types whose cards have their own checks, which a few
   // seeds of the mixed recipes can miss.
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['gate', 'figure-eight', 'box', 'lane-change', 'offset-slalom'] },
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', types: ['gate', 'figure-eight', 'box', 'lane-change', 'offset-slalom'] }, [0, 9, 11]],
   // Figure eights alone with small types: the recipe above rarely fits one beside its box.
-  { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'open', types: ['figure-eight', 'gate', 'straight-slalom'] },
+  [{ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'open', types: ['figure-eight', 'gate', 'straight-slalom'] }, [0, 5, 9]],
 ];
-const SEEDS = sweep(40, 3);
-const courses = RECIPES.flatMap((r) => Array.from({ length: SEEDS }, (_, seed) => generateCourse(r, seed).course));
+const courses = RECIPES.flatMap(([r, fast]) => seeds(40, fast, 0).map((seed) => generateCourse(r, seed).course));
 
 const key = ([x, y]) => `${x},${y}`;
 // Types laid out with a tape from a centre (or round one cone) rather than by dimension lines.
@@ -290,11 +291,12 @@ describe('setup sheet', () => {
       expect(sheet.finish.crossing).toBe(lineCrossing(sheet.start.dir, sheet.finish.dir));
       expect(['square', 'angled']).toContain(sheet.finish.crossing);
     }
-    expect(n).toBe(SEEDS);
+    expect(n).toBe(courses.filter((c) => c.recipe.shape === 'return').length);
+    expect(n).toBeGreaterThan(0);
   });
 
   test('the sheet carries the site size and the simplification counts', () => {
-    const course = generateCourse({ width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, 42).course;
+    const course = generateCourse({ width: 25, length: 30, elements: 5, difficulty: 'easy', shape: 'closed' }, 10).course;
     const sheet = buildSetupSheet(course);
     expect(sheet.site).toEqual({ width: 25, length: 30, blocked: [] });
     expect(sheet.requested).toBe(5);

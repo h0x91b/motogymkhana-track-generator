@@ -12,15 +12,17 @@ import {
 } from '../src/file/course-file.js';
 import { sweep, timeout } from './helpers/slow.js';
 
+// Each recipe with the seed the default run takes, one that lays out at once;
+// the largest seed is one of them. The slow run takes all of SEEDS.
 const RECIPES = [
-  { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true },
-  { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'open' },
-  { width: 40, length: 60, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'return', sizes: { 'straight-slalom': { step: 4 } } },
-  { width: 28, length: 30, elements: 5, difficulty: 'easy', bike: 'sport', shape: 'closed', train: true },
+  [{ width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true }, 17],
+  [{ width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'open' }, 2],
+  [{ width: 40, length: 60, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'return', sizes: { 'straight-slalom': { step: 4 } } }, 4294967295],
+  [{ width: 28, length: 30, elements: 5, difficulty: 'easy', bike: 'sport', shape: 'closed', train: true }, 9],
 ];
-const SEEDS = sweep([0, 1, 7, 4294967295], [4294967295]);
+const SEEDS = [0, 1, 7, 4294967295];
 
-const courses = RECIPES.flatMap((recipe) => SEEDS.map((seed) => generateCourse(recipe, seed)).filter((r) => r.ok).map((r) => r.course));
+const courses = RECIPES.flatMap(([recipe, fast]) => sweep(SEEDS, [fast]).map((seed) => generateCourse(recipe, seed)).filter((r) => r.ok).map((r) => r.course));
 
 /** A course without the bookkeeping that differs between a generated and a routed one. */
 const bare = ({ requested, placed, edited, limitedBy, ...course }) => course;

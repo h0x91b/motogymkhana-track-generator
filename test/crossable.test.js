@@ -10,6 +10,7 @@ import { pathClear, placeTemplate } from '../src/generator/generate.js';
 import { layoutOf, routeLayout } from '../src/generator/layout.js';
 import { pointsBounds } from '../src/generator/geometry.js';
 import { densify, distanceToPath, polylineEnters } from './helpers/course-geometry.js';
+import { seeds, timeout } from './helpers/slow.js';
 
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed' };
 const recipe = parseRecipe(ANTON).recipe;
@@ -111,7 +112,8 @@ describe('a routed layout', () => {
 
   test('a connector through the empty corner of a bounded element\'s rectangle is not a problem', () => {
     let corners = 0;
-    for (let seed = 1; seed <= 4; seed++) {
+    // Fast: the seed whose connectors cut such a corner.
+    for (const seed of seeds(4, [2])) {
       const { course } = generateCourse(ANTON, seed);
       expect(routeLayout(layoutOf(course)).problems, `seed ${seed}`).toEqual([]);
       for (const leg of course.route.legs.filter((l) => l.kind === 'connector')) {
@@ -121,5 +123,5 @@ describe('a routed layout', () => {
       }
     }
     expect(corners).toBeGreaterThan(0);
-  }, 30_000);
+  }, timeout(30_000));
 });

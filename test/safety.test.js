@@ -10,7 +10,7 @@ import { elementSafety, layoutOf, moveElement, parseLayout, routeLayout, setElem
 import { reservedZones } from '../src/render/reserved.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { coneXY, conesById, insidePolygon } from './helpers/course-geometry.js';
-import { slowTest, sweep, timeout } from './helpers/slow.js';
+import { seeds, slowTest, timeout } from './helpers/slow.js';
 
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: true };
 const course = (recipe, seed) => {
@@ -47,7 +47,7 @@ describe('the recipe', () => {
   });
 
   test('a course at defaults is the same as one with every default spelled out', () => {
-    for (let seed = 1; seed <= sweep(3, 1); seed++) {
+    for (const seed of seeds(3, [19])) {
       expect(canonicalJSON(course({ ...ANTON, safety: { ...SAFETY_DEFAULTS } }, seed))).toBe(canonicalJSON(course(ANTON, seed)));
     }
   }, timeout(30_000));
@@ -57,7 +57,7 @@ describe('the generated course keeps the values set', () => {
   const recipe = { width: 40, length: 50, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: false };
 
   test('run-off 2 m: every run-off side but a turnaround\'s entry lies 2 m out from the cones', () => {
-    for (let seed = 1; seed <= sweep(6, 2); seed++) {
+    for (const seed of seeds(6, [2])) {
       const c = course({ ...recipe, safety: { runOff: 2 } }, seed);
       const byId = conesById(c);
       for (const e of c.elements.filter((el) => el.runOff)) {
@@ -72,7 +72,7 @@ describe('the generated course keeps the values set', () => {
   }, timeout(30_000));
 
   test('run-off 0: no element has a run-off zone, and nothing is drawn for one', () => {
-    for (let seed = 1; seed <= sweep(6, 2); seed++) {
+    for (const seed of seeds(6, [2])) {
       const c = course({ ...recipe, safety: { runOff: 0 } }, seed);
       expect(c.elements.some((e) => e.runOff)).toBe(false);
       expect(reservedZones(c).some((z) => z.kind === 'runOff')).toBe(false);
@@ -81,7 +81,7 @@ describe('the generated course keeps the values set', () => {
 
   test('zone padding: the zone is the cones and line grown by exactly the value set', () => {
     for (const pad of [0, 0.5, 1.5]) {
-      const c = course({ ...recipe, safety: { pad } }, 2);
+      const c = course({ ...recipe, safety: { pad } }, 12);
       // An open single cone's line is only its two ends on the zone edge: nothing inside to grow.
       for (const e of c.elements.filter((el) => el.axis % 2 === 0 && el.path.length > 2)) {
         const byId = conesById(c);
@@ -94,7 +94,7 @@ describe('the generated course keeps the values set', () => {
 
   test('lot edge: every cone keeps the margin set, and the course says which', () => {
     for (const edge of [0, 3]) {
-      for (let seed = 1; seed <= sweep(4, 2); seed++) {
+      for (const seed of seeds(4, [2])) {
         const c = course({ ...recipe, safety: { edge } }, seed);
         expect(c.site.margin).toBe(edge);
         for (const cone of c.cones) {
@@ -107,7 +107,7 @@ describe('the generated course keeps the values set', () => {
 
   test('U-turn cone keep-out: the square drawn is the one kept, and none at 0', () => {
     let seen = 0;
-    for (let seed = 1; seed <= sweep(8, 4); seed++) {
+    for (const seed of seeds(8, [2])) {
       for (const coneGap of [0, 2.5]) {
         const c = course({ ...recipe, safety: { coneGap } }, seed);
         const squares = reservedZones(c).filter((z) => z.kind === 'turnCone');
@@ -145,7 +145,8 @@ describe('in «Правка»', () => {
 
   /** A course of the recipe with a turning element in it, and that element's index. */
   const withTurn = (r) => {
-    for (let seed = 1; ; seed++) {
+    // From seed 6: it lays out at once with a turning element; the seeds before it take longer or have none.
+    for (let seed = 6; ; seed++) {
       const c = course(r, seed);
       const i = c.elements.findIndex((e) => RUN_OFF_TYPES[e.type]);
       if (i >= 0) return { c, i };
@@ -153,7 +154,7 @@ describe('in «Правка»', () => {
   };
 
   test('a layout taken from a course with safety set routes back to the same course', () => {
-    for (let seed = 1; seed <= 4; seed++) {
+    for (const seed of seeds(4, [4])) {
       const c = course(recipe, seed);
       const { course: again, problems } = routeLayout(layoutOf(c));
       expect(problems).toEqual([]);
@@ -196,14 +197,14 @@ describe('in «Правка»', () => {
   }, timeout(30_000));
 
   test('a type without a turn has no run-off to set', () => {
-    const c = course(recipe, 1);
+    const c = course(recipe, 4);
     const i = c.elements.findIndex((e) => !RUN_OFF_TYPES[e.type]);
     if (i < 0) return;
     expect(elementSafety(layoutOf(c), i).map((s) => s.key)).toEqual(['pad']);
   });
 
   test('a broken own margin in storage is refused', () => {
-    const layout = layoutOf(course(recipe, 1));
+    const layout = layoutOf(course(recipe, 4));
     const broken = (safety) => parseLayout({ ...layout, elements: layout.elements.map((e, k) => (k === 0 ? { ...e, safety } : e)) });
     expect(broken({ runOff: 7 })).toBeNull();
     expect(broken({ pad: '1' })).toBeNull();

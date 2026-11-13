@@ -6,10 +6,11 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
   generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, uTurnRadius,
 } from '../src/generator/index.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, sweep, timeout } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
-const SEEDS = [1, 2];
+// The slow run lays out each size on two seeds, the default run on one.
+const SEEDS = sweep([1, 2], [1]);
 const unitOf = (e) => (e.axis % 2 === 1 ? 0.5 * Math.SQRT2 : 0.5);
 
 /** The size an option gave this element, in metres along its axis. */
@@ -64,7 +65,8 @@ describe('size options', () => {
   test('the class radius sizes the loops of a figure eight, not the distance between its cones (ADR 0021)', () => {
     const eight = (difficulty, bike) => {
       const recipe = { ...SITE, elements: 1, difficulty, bike, types: ['figure-eight'] };
-      const e = Array.from({ length: 30 }, (_, seed) => generateCourse(recipe, seed).course.elements[0]).find((x) => x.axis % 2 === 0);
+      let e;
+      for (let seed = 0; seed < 30 && !(e?.axis % 2 === 0); seed++) e = generateCourse(recipe, seed).course.elements[0];
       return { distance: e.params.distance * unitOf(e), radius: e.params.radius };
     };
     for (const bike of ['cruiser', 'sport']) {
@@ -114,8 +116,8 @@ describe('size options', () => {
 
   test('no sizes and empty sizes are the same recipe', () => {
     const base = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' };
-    const a = generateCourse(base, 5).course;
-    const b = generateCourse({ ...base, sizes: {} }, 5).course;
+    const a = generateCourse(base, 9).course;
+    const b = generateCourse({ ...base, sizes: {} }, 9).course;
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect(a.recipe.sizes).toEqual({});
   });
@@ -156,14 +158,15 @@ describe('size options', () => {
       sizes: { 'straight-slalom': { step: 6 }, 'offset-slalom': { step: 7 }, circle: { radius: 5 }, 'corridor-slalom': { width: 6, step: 5 } },
     };
     let simplified = 0;
-    for (let seed = 0; seed < sweep(30, 4); seed++) {
+    // Fast: a seed that simplifies and takes the least time to.
+    for (const seed of seeds(30, [1], 0)) {
       const full = generateCourse(tight, seed).course;
       if (!full || full.placed === tight.elements) continue;
       simplified++;
       const direct = generateCourse({ ...tight, elements: full.placed }, seed).course;
       expect({ ...direct, requested: 0 }).toEqual({ ...full, requested: 0, recipe: { ...full.recipe, elements: full.placed } });
     }
-    expect(simplified).toBeGreaterThan(sweep(3, 1));
+    expect(simplified).toBeGreaterThan(sweep(3, 0));
   }, timeout(30_000));
 
   test('the setup sheet card says which sizes the recipe fixed and what the class raised', () => {
