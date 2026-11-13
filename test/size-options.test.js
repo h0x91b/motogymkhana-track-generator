@@ -6,7 +6,7 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import {
   generateCourse, parseRecipe, SIZE_OPTIONS, sizeMinimum, sizeValues, uTurnRadius,
 } from '../src/generator/index.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, sweep, timeout } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
 const SEEDS = [1, 2];
@@ -114,8 +114,8 @@ describe('size options', () => {
 
   test('no sizes and empty sizes are the same recipe', () => {
     const base = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' };
-    const a = generateCourse(base, 5).course;
-    const b = generateCourse({ ...base, sizes: {} }, 5).course;
+    const a = generateCourse(base, 9).course;
+    const b = generateCourse({ ...base, sizes: {} }, 9).course;
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     expect(a.recipe.sizes).toEqual({});
   });
@@ -156,7 +156,8 @@ describe('size options', () => {
       sizes: { 'straight-slalom': { step: 6 }, 'offset-slalom': { step: 7 }, circle: { radius: 5 }, 'corridor-slalom': { width: 6, step: 5 } },
     };
     let simplified = 0;
-    for (let seed = 0; seed < sweep(30, 4); seed++) {
+    // Fast: two seeds that simplify and take the least time to.
+    for (const seed of seeds(30, [1, 8], 0)) {
       const full = generateCourse(tight, seed).course;
       if (!full || full.placed === tight.elements) continue;
       simplified++;

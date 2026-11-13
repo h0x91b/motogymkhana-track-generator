@@ -26,7 +26,8 @@ const course = (recipe, seed) => {
 
 describe('reservedZones', () => {
   test('the outline of every element footprint, run-off zones of turning elements, one terminal on a closed course', () => {
-    const c = course(base, 1);
+    // Seed 2 has turning elements, so run-off zones to draw.
+    const c = course(base, 2);
     const zones = reservedZones(c);
     const of = (kind) => zones.filter((z) => z.kind === kind);
     const byId = new Map(c.cones.map((k) => [k.id, k]));
@@ -51,7 +52,7 @@ describe('reservedZones', () => {
   }, timeout(10_000));
 
   test('an open course has a start and a finish zone', () => {
-    const c = course({ ...base, closed: false }, 1);
+    const c = course({ ...base, closed: false }, 2);
     expect(reservedZones(c).filter((z) => z.kind === 'terminal').map((z) => z.poly)).toEqual([c.route.start.zone, c.route.finish.zone]);
   }, timeout(10_000));
 

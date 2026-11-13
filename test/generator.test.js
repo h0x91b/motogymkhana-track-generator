@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ELEMENT_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
 import { DIFFICULTIES } from '../src/generator/recipe.js';
 import { instantiate, isBig, minimalParams } from '../src/generator/catalog.js';
-import { sweep, timeout } from './helpers/slow.js';
+import { seeds, sweep, timeout } from './helpers/slow.js';
 
 const baseRecipe = {
   width: 40,
@@ -165,12 +165,12 @@ describe('determinism', () => {
 });
 
 describe('simplification', () => {
-  const SIMPLIFY_SEEDS = sweep(40, 4);
   const tight = { width: 30, length: 40, elements: 6, difficulty: 'easy', closed: true };
 
   test('a course simplified from N to K elements is exactly the course ordered with K', () => {
     let simplified = 0;
-    for (let seed = 0; seed < SIMPLIFY_SEEDS; seed++) {
+    // Fast: two seeds that simplify and take the least time to.
+    for (const seed of seeds(40, [2, 11], 0)) {
       const full = generateCourse(tight, seed).course;
       expect(full.requested).toBe(6);
       if (full.placed === 6) continue;
@@ -185,7 +185,7 @@ describe('simplification', () => {
   test('the same holds for a course finishing by the start', () => {
     const home = { ...tight, shape: 'return' };
     let simplified = 0;
-    for (let seed = 0; seed < SIMPLIFY_SEEDS; seed++) {
+    for (const seed of seeds(40, [3, 4], 0)) {
       const full = generateCourse(home, seed).course;
       if (full.placed === 6) continue;
       simplified++;

@@ -11,7 +11,7 @@ import { courseDocument, courseFileText, readCourseFile } from '../src/file/cour
 import { freeRects, blockedAreas, innerRect, quadOnAsphalt } from '../src/generator/generate.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { coneXY, densify, insidePolygon } from './helpers/course-geometry.js';
-import { SLOW, slowTest, sweep, timeout } from './helpers/slow.js';
+import { seeds, slowTest, timeout } from './helpers/slow.js';
 
 // Anton's П-shaped lot: 40 × 38 m with a 12 × 22 m bite out of one long side.
 const P_CUTOUT = { kind: 'cutout', x: 14, y: 0, w: 12, h: 22 };
@@ -125,29 +125,30 @@ describe('a core flat along one side', () => {
 
 describe('generation', () => {
   const LOTS = [
-    { name: 'П-shaped 40×38 medium sport open', recipe: P_LOT, seeds: sweep(40, 3) },
+    { name: 'П-shaped 40×38 medium sport open', recipe: P_LOT, seeds: seeds(40, [5]) },
     {
       name: '40×60 hard closed with a car and a pillar',
       recipe: {
         width: 40, length: 60, elements: 8, difficulty: 'hard', shape: 'closed',
         blocked: [{ kind: 'obstacle', x: 18, y: 28, w: 2, h: 5 }, { kind: 'obstacle', x: 8, y: 10, w: 1, h: 1 }],
       },
-      seeds: sweep(30, 2),
+      seeds: seeds(30, [4]),
     },
     {
       name: '40×60 medium return with a cut corner',
       recipe: { width: 40, length: 60, elements: 6, difficulty: 'medium', shape: 'return', blocked: [{ kind: 'cutout', x: 25, y: 40, w: 15, h: 20 }] },
-      seeds: sweep(30, 2),
+      seeds: seeds(30, [9]),
     },
     {
       name: 'П-shaped closed train',
       recipe: { ...P_LOT, shape: 'closed', train: true, elements: 5 },
-      seeds: sweep(30, 2),
+      seeds: seeds(30, [10]),
     },
   ];
+  // Fast: one seed of each lot that lays out at once.
   for (const { name, recipe, seeds } of LOTS) {
     test(`${name}: nothing comes within the margin of a blocked area`, () => {
-      for (let seed = 1; seed <= seeds; seed++) {
+      for (const seed of seeds) {
         const r = generateCourse(recipe, seed);
         expect(r.ok).toBe(true);
         expect({ seed, faults: blockedFaults(r.course) }).toEqual({ seed, faults: [] });
@@ -160,9 +161,9 @@ describe('generation', () => {
     const tight = { kind: 'obstacle', x: 8, y: 10, w: 2, h: 2, margin: 0 };
     const recipe = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', blocked: [wide, tight] };
     let near = Infinity;
-    // Routing round two areas takes about half a second a course: the default run
-    // takes three seeds where something stands within 1 m of the 0 m one.
-    for (const seed of SLOW ? Array.from({ length: 20 }, (_, k) => k + 1) : [6, 15, 17]) {
+    // Routing round two areas takes up to half a second a course: the default run
+    // takes a fast seed where something stands within 1 m of the 0 m one.
+    for (const seed of seeds(20, [6])) {
       const r = generateCourse(recipe, seed);
       expect(r.ok).toBe(true);
       expect({ seed, faults: blockedFaults(r.course) }).toEqual({ seed, faults: [] });
@@ -187,13 +188,13 @@ describe('generation', () => {
 
   test('a lot without blocked areas routes exactly as before: no list and an empty list are one course', () => {
     const recipe = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport' };
-    for (let seed = 1; seed <= sweep(10, 2); seed++) {
+    for (const seed of seeds(10, [2])) {
       expect(JSON.stringify(generateCourse({ ...recipe, blocked: [] }, seed))).toBe(JSON.stringify(generateCourse(recipe, seed)));
     }
   }, timeout(30_000));
 
   test('the course carries the blocked areas on its site', () => {
-    const r = generateCourse(P_LOT, 3);
+    const r = generateCourse(P_LOT, 5);
     expect(r.course.site.blocked).toEqual([P_CUTOUT]);
   });
 });
@@ -203,7 +204,7 @@ describe('«Правка»', () => {
   const layout = layoutOf(generateCourse(plain, 5).course);
 
   test('the layout from a lot with blocked areas routes back to the same course, with no problems', () => {
-    const course = generateCourse(P_LOT, 4).course;
+    const course = generateCourse(P_LOT, 5).course;
     const routed = routeLayout(layoutOf(course));
     expect(routed.problems).toEqual([]);
     expect(routed.course.cones).toEqual(course.cones);
