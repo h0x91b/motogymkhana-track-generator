@@ -9,7 +9,8 @@ import {
 import { seeds, sweep, timeout } from './helpers/slow.js';
 
 const SITE = { width: 60, length: 80, shape: 'open' };
-const SEEDS = [1, 2];
+// The slow run lays out each size on two seeds, the default run on one.
+const SEEDS = sweep([1, 2], [1]);
 const unitOf = (e) => (e.axis % 2 === 1 ? 0.5 * Math.SQRT2 : 0.5);
 
 /** The size an option gave this element, in metres along its axis. */

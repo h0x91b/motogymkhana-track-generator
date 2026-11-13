@@ -234,7 +234,7 @@ describe('«Правка»', () => {
   });
 
   test('the small U-turn\'s radius steps down to 3 m on a cruiser, not below', () => {
-    const cruiser = layoutOf(generateCourse({ ...ANTON, bike: 'cruiser' }, 1).course);
+    const cruiser = layoutOf(generateCourse({ ...ANTON, bike: 'cruiser' }, 2).course);
     let layout = insertElement(cruiser, 1, 'small-turn');
     expect(layout.elements[1].sizes.radius).toBe(uTurnRadius('medium', 'cruiser'));
     layout = setElementSize(layout, 1, 'radius', 3);
