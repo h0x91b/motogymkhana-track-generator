@@ -42,8 +42,10 @@ export function saveRideSpeed(speed) {
 
 // Saved courses («Мои трассы», ADR 0026): course-file documents (ADR 0013)
 // under a name, all under one key. The course on screen is always one of them
-// and is saved as it changes; which one is under its own key. The functions
-// take the storage so the tests can hand them a fake; the app passes nothing.
+// and is saved as it changes; which one is under its own key, kept per tab in
+// sessionStorage (each tab reloads into its own course) and in localStorage
+// for a new tab. The functions take the storage so the tests can hand them a
+// fake; the app passes nothing.
 const COURSES_KEY = 'motogymkhana-constructor:courses:v1';
 const CURRENT_KEY = 'motogymkhana-constructor:current:v1';
 // Before named courses: the last form and the last edited layout (ADR 0012).
@@ -56,6 +58,14 @@ export const AUTOSAVE_MS = 500;
 function localStore() {
   try {
     return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function tabStore() {
+  try {
+    return window.sessionStorage;
   } catch {
     return null;
   }
@@ -100,6 +110,18 @@ export function defaultCourseName(recipe, seed, date = new Date()) {
   return `${recipe.width}×${recipe.length} м · ${DIFFICULTY_NAMES[recipe.difficulty] ?? recipe.difficulty} · seed ${seed} · ${day}`;
 }
 
+/**
+ * A default name no other course has: two courses of one recipe, seed and day
+ * would otherwise read the same in «Мои трассы» and in the tab title.
+ */
+function freeName(courses, name, id = null) {
+  const taken = new Set(courses.filter((e) => e.id !== id).map((e) => e.name));
+  if (!taken.has(name)) return name;
+  let n = 2;
+  while (taken.has(`${name} · ${n}`)) n++;
+  return `${name} · ${n}`;
+}
+
 /** The saved courses, the last edited first. */
 export function listCourses(store = localStore()) {
   return readCourses(store).sort((a, b) => b.savedAt - a.savedAt);
@@ -119,7 +141,7 @@ export function saveCourse(name, doc, { store = localStore(), now = Date.now() }
   const given = cleanName(name);
   const entry = {
     id: newId(now, courses.length),
-    name: given || defaultCourseName(doc.recipe, doc.seed, now),
+    name: given || freeName(courses, defaultCourseName(doc.recipe, doc.seed, now)),
     savedAt: now,
     createdAt: now,
     doc,
@@ -130,7 +152,7 @@ export function saveCourse(name, doc, { store = localStore(), now = Date.now() }
 }
 
 /** The document without what does not change the course (which build wrote it). */
-const sameDoc = (a, b) => JSON.stringify({ ...a, build: '' }) === JSON.stringify({ ...b, build: '' });
+export const sameDoc = (a, b) => JSON.stringify({ ...a, build: '' }) === JSON.stringify({ ...b, build: '' });
 
 /**
  * Puts the course's new state under its entry: what autosave does. A course
@@ -141,7 +163,7 @@ export function updateCourse(id, doc, { store = localStore(), now = Date.now() }
   const courses = readCourses(store);
   const entry = courses.find((e) => e.id === id);
   if (!entry) return { ok: false, error: MISSING, missing: true };
-  const name = entry.auto ? defaultCourseName(doc.recipe, doc.seed, entry.createdAt ?? entry.savedAt) : entry.name;
+  const name = entry.auto ? freeName(courses, defaultCourseName(doc.recipe, doc.seed, entry.createdAt ?? entry.savedAt), id) : entry.name;
   if (sameDoc(entry.doc, doc) && name === entry.name) return { ok: true, entry, changed: false };
   Object.assign(entry, { doc, name, savedAt: now });
   const written = writeCourses(store, courses);
@@ -190,8 +212,7 @@ export function deleteCourse(id, store = localStore()) {
   return { ok: true, next: rest.sort((a, b) => b.savedAt - a.savedAt)[0] ?? null };
 }
 
-/** Which saved course is on screen, or null. */
-export function loadCurrentId(store = localStore()) {
+function readCurrent(store) {
   try {
     return store?.getItem(CURRENT_KEY) || null;
   } catch {
@@ -199,12 +220,18 @@ export function loadCurrentId(store = localStore()) {
   }
 }
 
-export function saveCurrentId(id, store = localStore()) {
-  try {
-    if (id) store?.setItem(CURRENT_KEY, id);
-    else store?.removeItem(CURRENT_KEY);
-  } catch {
-    // Storage unavailable: the last edited course opens on the next visit.
+/** Which saved course is on screen: this tab's, else the one opened last in any tab, or null. */
+export const loadCurrentId = (store = localStore(), tab = tabStore()) => readCurrent(tab) ?? readCurrent(store);
+
+/** Another tab opening a course changes what a new tab opens, never what this one reloads into. */
+export function saveCurrentId(id, store = localStore(), tab = tabStore()) {
+  for (const s of [tab, store]) {
+    try {
+      if (id) s?.setItem(CURRENT_KEY, id);
+      else s?.removeItem(CURRENT_KEY);
+    } catch {
+      // Storage unavailable: the last edited course opens on the next visit.
+    }
   }
 }
 
@@ -218,15 +245,15 @@ function readJson(store, key) {
 }
 
 /**
- * What to show on load: the course that was on screen (or, if it is gone, the
- * last edited one); else what an older build left — the last form and edited
+ * What to show on load: the course that was on screen in this tab, or the one
+ * opened last in any tab (or, if both are gone, the last edited one); else what an older build left — the last form and edited
  * layout, to be saved as a course once shown; else nothing.
  * @returns {{kind: 'course', entry: object} | {kind: 'legacy', form: object|null, edit: object|null} | {kind: 'fresh'}}
  */
-export function startingCourse(store = localStore()) {
+export function startingCourse(store = localStore(), tab = tabStore()) {
   const courses = listCourses(store);
-  const current = loadCurrentId(store);
-  const entry = courses.find((e) => e.id === current) ?? null;
+  // This tab's course, or if it is gone, the one opened last in any tab.
+  const entry = [readCurrent(tab), readCurrent(store)].map((id) => courses.find((e) => e.id === id)).find(Boolean) ?? null;
   if (entry) return { kind: 'course', entry };
   const form = readJson(store, LEGACY_FORM_KEY);
   const edit = readJson(store, LEGACY_EDIT_KEY);
