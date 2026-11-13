@@ -149,6 +149,18 @@ function pointToSegment(p, a, b) {
   return Math.hypot(a[0] + dx * t - p[0], a[1] + dy * t - p[1]);
 }
 
+/**
+ * Distance from a point to a convex CCW polygon: 0 inside it. Unlike a negative
+ * `inset` of insidePolygon, which widens every edge to its whole line, it does
+ * not reach past a sharp corner.
+ */
+export function distanceToPolygon(poly, p) {
+  if (insidePolygon(poly, p)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < poly.length; i++) best = Math.min(best, pointToSegment(p, poly[i], poly[(i + 1) % poly.length]));
+  return best;
+}
+
 /** Distance from a point to the nearest cone, line or ridden line of a footprint. */
 export function distanceToFootprint(fp, p) {
   let best = Infinity;

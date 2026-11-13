@@ -225,7 +225,7 @@ describe('setup sheet', () => {
   test('turn direction is given only for elements that really turn one way', () => {
     for (const course of courses.slice(0, 30)) {
       for (const card of buildSetupSheet(course).cards) {
-        if (['u-turn', 'pivot-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole'].includes(card.type)) {
+        if (['u-turn', 'pivot-turn', 'small-turn', 'box', 'circle', 'fast-circle', 'mirror', 'gate-turn', 'keyhole'].includes(card.type)) {
           expect(['left', 'right']).toContain(card.turn);
         }
         else expect(card.turn).toBeNull();
