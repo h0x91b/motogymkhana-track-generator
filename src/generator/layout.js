@@ -15,7 +15,7 @@
 import { BIKE_TURN_RADIUS, diagonalAxis, editAxes, elementParams, elementSizes, freeHeading, instantiate, WAYPOINT, mirrorType, runOffFor, RUN_OFF_TYPES, SIZE_SPECS, sizeControls, TYPE_NAMES, typeAxes, typicalSizes } from './catalog.js';
 import { dubinsPaths } from './dubins.js';
 import {
-  areaClear, assemble, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, closingTarget, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, freeHeadings, homeBox, innerRect, inside,
+  areaClear, assemble, barrierOf, boxEntries, boxFinish, CHAIN_ANGLE, chainLeg, closingLeg, closingTarget, CLOSING_TURN_LIMITS, coneInKeepOut, conesClear, connect, CONNECTOR_RADII, elementMargins, emptyTrack, extendTrack, finishTerminal, freeHeadings, homeBox, innerRect, inside,
   finishAt, isFree, lineOnAsphalt, MAX_CONNECTOR_TURN, onAsphalt, pathClear, placeTemplate, pose, provisional, quadOnAsphalt, ridden, START_LEAD_IN, startAt, startTerminal, straightLeg, terminalInside, trainClear, uTurnCones, zoneClear,
 } from './generate.js';
 import { axisVector, dirAngle, obbOverlap, pointsBounds, polylineHitsShape, polylineLength, segmentDistance2, shapesOverlap, shiftShape, wrapPi } from './geometry.js';
@@ -171,10 +171,10 @@ export function terminalPose(layout, which) {
 
 // ---------------------------------------------------------------- routing
 
-/** Do a and b take the same asphalt: their footprints overlap, or a run-in or run-out of one goes through the other's footprint? */
+/** Do a and b take the same asphalt: their footprints overlap, or a run-in or run-out of one goes through the other's barrier (ADR 0028)? */
 const clash = (a, b) => shapesOverlap(a.footprint, b.footprint)
-  || (a.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, b.footprint))
-  || (b.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, a.footprint));
+  || (a.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, barrierOf(b)))
+  || (b.ends ?? []).some((e) => polylineHitsShape(e.points, e.bounds, barrierOf(a)));
 /** Is b (its footprint) in a's run-off zone? */
 const inRunOff = (a, b) => Boolean(a.runOff) && shapesOverlap(a.runOff, b.footprint);
 
@@ -311,7 +311,9 @@ export function routeLayout(layout) {
       'connector-cone': coneGap > 0 ? `Конусу разворота на связке ${name} не хватает ${fmt(coneGap)} м свободного асфальта — раздвиньте элементы` : `Конус разворота на связке ${name} стоит в зоне — раздвиньте элементы`,
       'connector-train': `Связка ${name} пересекает маршрут: в паровозике мотоциклы встретятся — переставьте элементы`,
     };
-    report(fault.code, texts[fault.code], { elements: ends, connector });
+    // The element a connector goes through is marked too, not only the two it joins.
+    const through = (fault.hit ?? []).map((z) => placed.indexOf(z)).filter((i) => i >= 0).map(id);
+    report(fault.code, texts[fault.code], { elements: [...ends, ...through.filter((e) => !ends.includes(e))], connector });
   };
   const trainOn = recipe.train && trainGap > 0;
   let track = trainOn ? emptyTrack(trainGap) : null;
@@ -942,6 +944,7 @@ export function insertElement(layout, at, type) {
       for (let y = range[1][0]; y <= range[1][1]; y += SPOT_STEP) {
         const at = {
           footprint: shiftShape(origin.footprint, x, y),
+          barrier: shiftShape(origin.barrier, x, y),
           runOff: origin.runOff && shiftShape(origin.runOff, x, y),
           spots: origin.spots.map(([px, py]) => [px + x, py + y]),
           keepOut: origin.keepOut && { c: [origin.keepOut.c[0] + x, origin.keepOut.c[1] + y], r: origin.keepOut.r },

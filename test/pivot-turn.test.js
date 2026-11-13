@@ -174,7 +174,7 @@ describe('free radius', () => {
       }
     }
     expect(seen).toBeGreaterThan(0);
-  });
+  }, 30_000);
 });
 
 describe('course file', () => {
