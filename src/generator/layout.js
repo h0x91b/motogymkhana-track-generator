@@ -71,7 +71,7 @@ export function layoutOf(course) {
       const anchor = e.anchor ? byId.get(e.anchor) : { hx: 2 * e.at.x, hy: 2 * e.at.y };
       return {
         type: e.type, sizes: elementSizes(e.type, e.params, diagonalAxis(e.type, e.axis)),
-        // The route gives a free-heading element its heading (ADR 0026): the layout keeps the 45° step nearest, which any build can read.
+        // The route gives a free-heading element its heading (ADR 0027): the layout keeps the 45° step nearest, which any build can read.
         axis: freeHeading(e.type) ? Math.round(e.axis) % 8 : e.axis,
         mirrored: e.mirrored, x: anchor.hx / 2, y: anchor.hy / 2,
         ...(e.safety ? { safety: { ...e.safety } } : {}),
@@ -261,7 +261,7 @@ export function routeLayout(layout) {
   const id = (i) => `e${i + 1}`;
   // Problems come out in a fixed order — the elements, the start and finish,
   // the route — though the route is laid first: the heading of a free element
-  // (ADR 0026) is chosen with its connectors, and the elements are checked as
+  // (ADR 0027) is chosen with its connectors, and the elements are checked as
   // they then stand.
   const placing = [];
   const lines = [];
@@ -747,7 +747,7 @@ export function rotateElement(layout, i, dir) {
     return turnedTerminal(layout, i, TERMINAL_AXES[(k + dir + TERMINAL_AXES.length) % TERMINAL_AXES.length]);
   }
   const el = layout.elements[i];
-  // The route turns a free-heading element itself (ADR 0026).
+  // The route turns a free-heading element itself (ADR 0027).
   if (freeHeading(el.type)) return layout;
   const axes = editAxes(el.type);
   return turned(layout, i, { axis: axes[(axes.indexOf(el.axis) + dir + axes.length) % axes.length] });

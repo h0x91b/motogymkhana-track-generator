@@ -422,7 +422,7 @@ function planBlock(course, sheet, maxHeight) {
       ctx.strokeStyle = ANCHOR;
       ctx.stroke();
     }
-    // A waypoint (ADR 0026): no cone, a diamond the route goes through.
+    // A waypoint (ADR 0027): no cone, a diamond the route goes through.
     for (const e of course.elements.filter((k) => k.type === 'waypoint')) {
       const [x, y] = [X(e.at.x), Y(e.at.y)];
       ctx.beginPath();

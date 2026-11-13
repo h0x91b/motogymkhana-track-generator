@@ -167,7 +167,7 @@ describe('placement', () => {
   test('element axes and zone sides are multiples of 45°; a free-heading one\'s of 22.5°', () => {
     each((c) => {
       for (const e of c.elements) {
-        // The route turns a free-heading element (ADR 0026) to any of sixteen headings.
+        // The route turns a free-heading element (ADR 0027) to any of sixteen headings.
         const step = FREE_HEADING_TYPES.includes(e.type) ? 22.5 : 45;
         expect(Number.isInteger((e.axis * 45) / step) && e.axis >= 0 && e.axis < 8).toBe(true);
         for (let i = 0; i < 4; i++) {
@@ -579,7 +579,7 @@ describe('U-turn cones on connectors', () => {
 
 /**
  * The line ridden past an element: its own, and for a point waypoint (a passed
- * cone, ADR 0026), which has none, the connectors in and out joined at its point.
+ * cone, ADR 0027), which has none, the connectors in and out joined at its point.
  */
 function riddenPast(c, id) {
   const e = c.elements.find((k) => k.id === id);

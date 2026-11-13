@@ -409,7 +409,7 @@ export function drawScene(ctx, course, cam, W, H, { selected = null, sheet = nul
   for (const e of course.elements) {
     const c = anchorPoint(e, byId);
     if (e.type === 'waypoint') {
-      // A waypoint (ADR 0026): no cone, a small diamond on the line where the route goes through.
+      // A waypoint (ADR 0027): no cone, a small diamond on the line where the route goes through.
       const k = e.id === selected ? 0.55 : 0.4;
       path([[c.x + k, c.y, 0.04], [c.x, c.y + k, 0.04], [c.x - k, c.y, 0.04], [c.x, c.y - k, 0.04]], '#17232a', 0.05, PALETTE.anchor, true);
       continue;

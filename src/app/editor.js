@@ -10,7 +10,7 @@ import {
 } from '../generator/index.js';
 
 const UNDO_MAX = 100;
-/** What the card says instead of an angle for a type whose heading the route chooses (ADR 0026). */
+/** What the card says instead of an angle for a type whose heading the route chooses (ADR 0027). */
 const FREE_NOTES = {
   'pass-left': 'проезд с любой стороны подхода, конус слева',
   'pass-right': 'проезд с любой стороны подхода, конус справа',
@@ -565,7 +565,7 @@ export function createEditor(host) {
         <button type="button" data-act="size" data-arg="${c.key}:more" aria-label="${esc(c.name)}: больше"${c.more ? '' : ' disabled'}>${icon('plus')}</button>
       </div>`).join('');
     // The angle can be typed; whatever is typed lands on the nearest 22.5° step, 45° for a side-only type (ADR 0019).
-    // A free-heading element has none: the route turns it (ADR 0026).
+    // A free-heading element has none: the route turns it (ADR 0027).
     const free = freeHeading(el.type);
     const angle = free ? `<p class="free-note muted">${esc(FREE_NOTES[el.type][0].toUpperCase() + FREE_NOTES[el.type].slice(1))}</p>` : `<div class="size-row angle-row">
         <span class="size-name"><label for="edit-angle">Поворот, °</label><span class="angle-note muted" id="edit-angle-note">${tied(`кратно ${turn}°, 0° — вдоль ширины`)}<span class="sr-only">, против часовой стрелки</span></span></span>

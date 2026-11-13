@@ -509,7 +509,7 @@ export function buildSetupSheet(course) {
   }
   const coneColor = (id) => (byId.get(id).height === 'tall' ? color.get(id) : 'neutral');
 
-  // A waypoint (ADR 0026) is no element to lay out: a note on the route, not a card.
+  // A waypoint (ADR 0027) is no element to lay out: a note on the route, not a card.
   const cards = course.elements.filter((e) => e.type !== WAYPOINT).map((e) => {
     const at = anchorPoint(e, byId);
     // In half-metre steps, like the cones.

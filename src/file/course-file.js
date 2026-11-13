@@ -18,7 +18,7 @@ export const COURSE_FILE_FORMAT = 'motogymkhana-course';
  * The newest version this build reads and writes. Raised on a change an older
  * build cannot read; a reader refuses a newer version instead of half-opening
  * it. A file is written with the oldest version that can read it: 3 for a
- * course with a waypoint (ADR 0026), 2 for one with an element turned off the
+ * course with a waypoint (ADR 0027), 2 for one with an element turned off the
  * 45° lattice (ADR 0019), 1 otherwise.
  */
 export const COURSE_FILE_VERSION = 3;

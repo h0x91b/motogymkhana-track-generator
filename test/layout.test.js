@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import { canonicalJSON, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse } from '../src/generator/index.js';
 
-// Types whose heading the route chooses (ADR 0026): turning them by hand changes nothing.
+// Types whose heading the route chooses (ADR 0027): turning them by hand changes nothing.
 const TURNED_TYPES = ELEMENT_TYPES.filter((t) => !FREE_HEADING_TYPES.includes(t));
 import { editAxes, elementParams, instantiate, SIZE_OPTIONS, SIZE_SPECS, sizeControls, sizeValues, typeAxes, typicalSizes } from '../src/generator/catalog.js';
 import { placeTemplate } from '../src/generator/generate.js';

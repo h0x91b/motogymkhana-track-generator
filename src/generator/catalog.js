@@ -893,7 +893,7 @@ const TYPES = {
   },
 
   // A tall cone passed on the rider's left (blue) or right (red): a point the
-  // route passes, not a figure (ADR 0026). The line goes through a point WEAVE
+  // route passes, not a figure (ADR 0027). The line goes through a point WEAVE
   // beside the cone on the other side, on whatever heading the route needs
   // there (`freeHeading`): no straight, no turn of its own. The side is the
   // type, so neither is mirrored: mirroring one in «Правка» makes it the other
@@ -918,7 +918,7 @@ const TYPES = {
   'small-turn': {
     // «Малый разворот»: back round one tall cone, 180°, on at least the U-turn
     // radius; no walls, so a wider line is fine. Entered on whatever heading
-    // the route needs (`freeHeading`, ADR 0026), the cone on the inside.
+    // the route needs (`freeHeading`, ADR 0027), the cone on the inside.
     freeHeading: true,
     options: () => ({}),
     extra: (t) => ({ radius: t.turn }),
@@ -937,7 +937,7 @@ const TYPES = {
 
 /**
  * «Опорная точка»: a point of the route put by hand in «Правка», no cone and
- * no side (ADR 0026). The route passes through it on whatever heading suits
+ * no side (ADR 0027). The route passes through it on whatever heading suits
  * it, like a passed cone. The generator never places one.
  */
 const WAYPOINT_TYPE = {
@@ -969,7 +969,7 @@ function passCone(side, unit, pad) {
 export const WAYPOINT = 'waypoint';
 TYPES[WAYPOINT] = WAYPOINT_TYPE;
 
-/** Types whose heading the route chooses, not the layout (ADR 0026): the element turns to whichever of sixteen joins its connectors best. */
+/** Types whose heading the route chooses, not the layout (ADR 0027): the element turns to whichever of sixteen joins its connectors best. */
 export const FREE_HEADING_TYPES = Object.keys(TYPES).filter((t) => TYPES[t].freeHeading && t !== WAYPOINT);
 export const freeHeading = (type) => Boolean(TYPES[type].freeHeading);
 

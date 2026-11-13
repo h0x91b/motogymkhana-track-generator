@@ -510,7 +510,7 @@ export function placeTemplate(tpl, axis, ax, ay) {
 
 // ---------------------------------------------------------------- free headings
 
-/** Headings a free-heading element is tried on (ADR 0026): sixteen, 22.5° apart, as «Правка» turns elements. */
+/** Headings a free-heading element is tried on (ADR 0027): sixteen, 22.5° apart, as «Правка» turns elements. */
 export const FREE_AXES = Array.from({ length: 16 }, (_, k) => k / 2);
 
 /** Is the heading of this placed element the route's to choose (`freeHeading`)? */
@@ -1241,7 +1241,7 @@ export function buildCourse(recipe, seed, n, closingTurn = MAX_CONNECTOR_TURN, t
 
   /**
    * The free element before element i, given its heading now that the element
-   * it leads to is known (ADR 0026): the first of `freeHeadings` whose element
+   * it leads to is known (ADR 0027): the first of `freeHeadings` whose element
    * and connector in keep every rule, and whose connector out to `cand` does
    * too when cand's own heading is fixed (a free one is joined when it gets
    * its own). The same choice as `routeLayout`'s; null when none keeps them.

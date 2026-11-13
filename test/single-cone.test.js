@@ -199,7 +199,7 @@ describe('«Правка»', () => {
   });
 });
 
-describe('a free heading (ADR 0026)', () => {
+describe('a free heading (ADR 0027)', () => {
   // The tester's case: a gate, and «Конус слева» about 6 m past it, 1 m to one side.
   const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
   const gate = { type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x: 10, y: 18 };
