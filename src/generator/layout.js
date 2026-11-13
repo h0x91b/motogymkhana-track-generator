@@ -1015,6 +1015,35 @@ export function insertWaypoint(layout, x, y) {
   return withWaypoint(layout, at, x, y);
 }
 
+// ---------------------------------------------------------------- the recipe
+
+/**
+ * The layout under another recipe and seed — the lot, its blocked areas and
+ * margins, the bike class, the shape — with every element, the start and the
+ * finish where they are: whatever no longer fits is `routeLayout`'s to report.
+ * A fixed size the recipe changes for a type is given to that type's elements
+ * (the nearest their lattice allows), as «Правка» would size each by hand; a
+ * fixed size dropped leaves them as they are. An open course's own finish goes
+ * with the shape, as a stored layout of another shape has none.
+ */
+export function applyRecipe(layout, recipe, seed = layout.seed) {
+  const was = layout.recipe;
+  const elements = layout.elements.map((el) => {
+    const fixed = recipe.sizes?.[el.type];
+    if (!fixed || JSON.stringify(fixed) === JSON.stringify(was.sizes?.[el.type])) return el;
+    const before = typicalSizes(el.type, recipe.difficulty, recipe.bike, was.sizes);
+    const after = typicalSizes(el.type, recipe.difficulty, recipe.bike, recipe.sizes);
+    const changed = Object.keys(after).filter((key) => after[key] !== before[key]);
+    if (!changed.length) return el;
+    const diagonal = el.axis % 2 === 1;
+    const asked = { ...el.sizes, ...Object.fromEntries(changed.map((key) => [key, after[key]])) };
+    const sizes = elementSizes(el.type, elementParams(el.type, asked, diagonal, recipe.bike), diagonal);
+    return JSON.stringify(sizes) === JSON.stringify(el.sizes) ? el : { ...unpinned(el), sizes };
+  });
+  const { finish, ...rest } = layout;
+  return { ...rest, ...(finish && recipe.shape === 'open' ? { finish } : {}), recipe, seed, elements };
+}
+
 // ---------------------------------------------------------------- blocked areas
 
 const withBlocked = (layout, blocked) => ({ ...layout, recipe: { ...layout.recipe, blocked } });

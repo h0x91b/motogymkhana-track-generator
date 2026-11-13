@@ -542,11 +542,14 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
 .sticky-head, .sheet-foot { position: sticky; z-index: 1; background: var(--panel); }
 .sticky-head { top: -16px; margin: -16px 0 0; padding: 16px 0 8px; align-items: flex-start; border-bottom: 1px solid var(--edge); }
 .sheet-foot { bottom: calc(-16px - env(safe-area-inset-bottom)); margin-bottom: calc(-16px - env(safe-area-inset-bottom)); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
-.sheet-foot .wide { margin-top: 12px; }
 .form-status { margin: 2px 0 0; font-size: 13px; color: var(--muted); text-wrap: pretty; }
 .form-status:empty { display: none; }
 .form-status.warn { color: var(--warn-ink); background: var(--warn-bg); padding: 4px 8px; border-radius: 6px; font-weight: 600; }
 .form-status.error { color: var(--danger); font-weight: 600; }
+/* «Готово», and beside it «Сгенерировать заново» for an edited course, which a changed recipe no longer replaces. */
+.foot-row { display: flex; gap: 8px; margin-top: 12px; }
+.foot-row button { flex: 1; }
+#regenerate { flex: 1.6; }
 .frames {
   list-style: none;
   display: flex;
@@ -637,7 +640,8 @@ summary { min-height: 44px; display: flex; align-items: center; font-weight: 600
   }
   #form-sheet[hidden] { display: none; }
   /* Docked and always open: nothing to close. */
-  #form-x, #form-sheet .sheet-foot { display: none; }
+  #form-x, #close-form { display: none; }
+  #form-sheet .sheet-foot:has(#regenerate[hidden]) { display: none; }
   #form-sheet .sticky-head { top: -4px; margin: -4px 0 0; padding: 14px 0 8px; }
   .type-sheet { width: min(640px, calc(100vw - 48px)); }
   .picture-sheet { width: min(960px, calc(100vw - 48px)); }

@@ -53,6 +53,8 @@ const state = {
   problems: [], // what an edited course has wrong (generator/layout.js)
   marks: null, // the same, as the sets the renderer marks in red
   adopt: null, // an edited layout to put back once the course it was made from is generated
+  regenerate: false, // the next form change generates a course even over an edited one
+  freshId: 0, // the request that does, so its course replaces the edited one
   opening: null, // { name, edited, layout, kept }: a course file being opened, until its course is generated
   sheet: null,
   stale: false,
@@ -323,19 +325,20 @@ function addBlockedRow(kind) {
 }
 
 /**
- * Blocked areas changed in «Правка»: they describe the lot, so the form takes
- * them over — without generating a new course, which the edits are on top of.
- * The edited course now counts as made from this recipe.
+ * The recipe or seed of the edited course changed — blocked areas moved in
+ * «Правка», an undo past a recipe the form applied: the form takes them over,
+ * without generating a new course, which the edits are on top of. The edited
+ * course now counts as made from this recipe.
  */
-function adoptBlocked(recipe) {
-  const margin = (v) => (v === undefined ? null : Number(String(v).replace(',', '.')));
-  const same = JSON.stringify(readBlocked().map((b) => [b.kind, ...['x', 'y', 'w', 'h'].map((k) => Number(b[k])), margin(b.margin)]))
-    === JSON.stringify(recipe.blocked.map((b) => [b.kind, b.x, b.y, b.w, b.h, margin(b.margin)]));
-  if (same) return;
-  writeBlocked(recipe.blocked.map((b) => ({ kind: b.kind, x: String(b.x), y: String(b.y), w: String(b.w), h: String(b.h), ...(b.margin === undefined ? {} : { margin: String(b.margin) }) })));
-  state.form = readForm();
-  showErrors(validate(state.form).errors);
-  state.courseKey = canonicalJSON({ recipe, seed: state.course.seed });
+function adoptRecipe(layout) {
+  const key = layoutKey(layout);
+  const v = validate(readForm());
+  if (!v.ok || canonicalJSON({ recipe: v.recipe, seed: v.seed }) !== key) {
+    writeForm(formOf(layout.recipe, layout.seed));
+    state.form = readForm();
+    showErrors(validate(state.form).errors);
+  }
+  state.courseKey = key;
   state.courseForm = { ...state.form };
 }
 
@@ -421,6 +424,8 @@ function onFormChange(immediate = false) {
     state.form = raw;
     const v = validate(raw);
     showErrors(v.errors);
+    const fresh = state.regenerate;
+    state.regenerate = false;
     if (!v.ok) {
       state.opening = null;
       state.stale = !!state.course;
@@ -429,7 +434,9 @@ function onFormChange(immediate = false) {
       invalidate();
       return;
     }
-    generate(v.recipe, v.seed);
+    // Edits are kept: the recipe goes onto the edited course, a new one only on request.
+    if (!fresh && editor.edited && state.course && !state.adopt && !state.opening) applyToEdited(v.recipe, v.seed);
+    else generate(v.recipe, v.seed, fresh);
   };
   if (immediate) run();
   else debounce = setTimeout(run, DEBOUNCE_MS);
@@ -437,10 +444,66 @@ function onFormChange(immediate = false) {
 
 // ---------------------------------------------------------------- generation
 
+/**
+ * A change of the form under an edited course: its elements stay where they
+ * are on the new lot, with what no longer fits marked as in «Правка»; what
+ * only steers the generator waits for «Сгенерировать заново» (`regenNote`).
+ */
+function applyToEdited(recipe, seed) {
+  // A course still being generated would replace the edited one.
+  state.requestId++;
+  state.shownId = state.requestId;
+  const before = state.problems.length;
+  state.stale = false;
+  hideBanner();
+  if (!editor.adapt(recipe, seed)) adoptRecipe(editor.layout);
+  // Over the docked form only: the open sheet says it in its status line.
+  if ($('form-sheet').hidden && state.problems.length > before) toast(problemsText(), 6000);
+  renderSummary();
+  invalidate();
+}
+
+const problemsText = () => `На трассе ${problemsWord(state.problems.length)}: они отмечены красным. Исправьте их в «Правке»`;
+
+/** «Сгенерировать заново»: a new course from the form, the edited one to «↶». */
+function regenerate() {
+  if (!validate(readForm()).ok) return submitForm();
+  state.regenerate = true;
+  if (formOpen) closeForm();
+  else onFormChange(true);
+}
+
+/**
+ * What of the form an edited course does not show: the fields that only
+ * steer the generator, changed since its course was generated.
+ */
+function regenNote() {
+  const made = state.generated;
+  const f = validate(state.form);
+  if (!editor.edited || !made || !f.ok) return '';
+  const changed = [
+    f.recipe.elements !== made.recipe.elements && 'число элементов',
+    canonicalJSON(f.recipe.types) !== canonicalJSON(made.recipe.types) && 'типы',
+    f.recipe.difficulty !== made.recipe.difficulty && 'сложность',
+    f.seed !== made.seed && 'seed',
+  ].filter(Boolean);
+  if (!changed.length) return '';
+  const what = changed.length > 1 ? `${changed.slice(0, -1).join(', ')} и ${changed.at(-1)}` : changed[0];
+  return `${capital(what)} ${changed.length > 1 ? 'вступят' : 'вступит'} в силу, когда трасса будет сгенерирована заново, а пока правки сохраняются.`;
+}
+
+/** «Сгенерировать заново» beside «Готово»: only for an edited course, which a form change no longer replaces. */
+function renderRegen() {
+  const edited = editor.edited && !!state.course && !state.stale;
+  $('regenerate').hidden = !edited;
+  $('regen-note').textContent = edited ? regenNote() : '';
+}
+
 const generator = createGenerator(({ id, result: generated }) => {
   let result = generated;
   if (id !== state.requestId) return; // a newer request is on its way
   state.shownId = id;
+  const fresh = id === state.freshId;
   const opening = state.opening;
   state.opening = null;
   // A file holds its elements: if this build cannot generate a course for its
@@ -474,7 +537,8 @@ const generator = createGenerator(({ id, result: generated }) => {
   }
   const course = result.course;
   const key = canonicalJSON({ recipe: course.recipe, seed: course.seed });
-  const same = !!state.course && key === state.courseKey;
+  // Asked for anew: not the same course even for the same recipe and seed.
+  const same = !fresh && !!state.course && key === state.courseKey;
   // Edits made to this very recipe and seed go back on top of the course: kept
   // from the last visit, brought back by «↶», or on screen behind a form error.
   // An opened file brings its own course, edited or not.
@@ -489,7 +553,7 @@ const generator = createGenerator(({ id, result: generated }) => {
     if (editWanted) enterEdit();
     return;
   }
-  // An edited course gives way to the new one; «↶» brings it back. A course
+  // An edited course gives way to a new one asked for; «↶» brings it back. A course
   // opened instead of it is not replaced: it stays saved in «Мои трассы».
   const replaced = !same && !!state.course && editor.edited && !opening;
   if (replaced) {
@@ -543,9 +607,10 @@ function shortfallText(course) {
     : `Влезло ${course.placed} из ${course.requested} элементов. Уменьшите число элементов или сложность либо увеличьте площадку${course.recipe.blocked?.length ? ' или проверьте вырезы и препятствия' : ''}`;
 }
 
-function generate(recipe, seed) {
+function generate(recipe, seed, fresh = false) {
   state.generatorMode = generator.mode;
   state.requestId++;
+  if (fresh) state.freshId = state.requestId;
   generator.run({ id: state.requestId, recipe, seed });
   // Only if it takes a moment: a quick course replaces the status before anyone sees «собираю».
   const id = state.requestId;
@@ -563,6 +628,8 @@ function newSeed() {
   }
   form.seed.value = String(randomSeed());
   renderSeedBack();
+  // A new seed is a new course, edited or not: «↶» brings the edited one back.
+  state.regenerate = true;
   onFormChange(true);
 }
 
@@ -576,6 +643,7 @@ function previousSeed() {
     state.adopt = entry.layout;
   }
   renderSeedBack();
+  state.regenerate = true;
   onFormChange(true);
 }
 
@@ -675,6 +743,7 @@ function renderFormStatus() {
   } else text = `Трасса готова: ${c.placed} ${elementsWord(c.placed)}`;
   p.textContent = text;
   p.className = `form-status ${kind}`;
+  renderRegen();
 }
 
 let toastTimer = 0;
@@ -1095,7 +1164,7 @@ const editor = createEditor({
   },
   leave: () => exitEdit(),
   facts: (id) => elementFacts(id),
-  blocked: (recipe) => adoptBlocked(recipe),
+  recipe: (layout) => adoptRecipe(layout),
   /** The type picker is modal: what is behind it goes inert. */
   modal(open) {
     for (const id of BEHIND_PICKER) $(id).inert = open;
@@ -1134,7 +1203,7 @@ function exitEdit() {
   renderSummary();
   invalidate();
   prepareImageSoon();
-  if (state.problems.length) toast(`На трассе ${problemsWord(state.problems.length)}: они отмечены красным. Исправьте их в «Правке»`, 6000);
+  if (state.problems.length) toast(problemsText(), 6000);
   $('edit-mode').focus({ preventScroll: true });
 }
 
@@ -1901,6 +1970,7 @@ const BEHIND_COURSES = BEHIND_PICTURE;
 const modalOpen = () => formOpen || !$('picture-sheet').hidden || editor.pickerOpen || coursesOpen();
 let formOpener = null;
 let formOpen = false; // open as a modal sheet
+let formOpenKey = null; // the course the sheet was opened over
 function openForm() {
   if (wide.matches) {
     if (state.setupStep !== null) exitSetup();
@@ -1912,6 +1982,7 @@ function openForm() {
   $('toast').hidden = true; // the form's status line says the same, and the toast would sit on the form
   formOpen = true;
   formOpener = document.activeElement;
+  formOpenKey = state.courseKey;
   for (const id of BEHIND_FORM) $(id).inert = true;
   $('backdrop').hidden = false;
   $('form-sheet').hidden = false;
@@ -1925,6 +1996,8 @@ function closeForm() {
   $('backdrop').hidden = true;
   $('form-sheet').hidden = true;
   onFormChange(true);
+  // The recipe went onto the edited course while the sheet covered it.
+  if (editor.edited && state.courseKey !== formOpenKey && state.problems.length) toast(problemsText(), 6000);
   formOpener?.focus?.({ preventScroll: true });
   formOpener = null;
 }
@@ -2045,6 +2118,7 @@ function start() {
     onFormChange(true);
   });
   $('close-form').addEventListener('click', submitForm);
+  $('regenerate').addEventListener('click', regenerate);
   $('backdrop').addEventListener('click', () => {
     if (editor.pickerOpen) editor.closePicker();
     else if (coursesOpen()) closeCourses();

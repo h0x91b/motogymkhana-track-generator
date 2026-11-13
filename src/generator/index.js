@@ -13,7 +13,7 @@ export {
 export { canonicalJSON } from './canonical.js';
 export { CHAIN_ANGLE, CHAIN_REACH, MIN_PAD, SITE_MARGIN, TRAIN_CLEARANCE, U_TURN_CONE_CLEARANCE } from './generate.js';
 export {
-  addBlocked, BLOCKED_DEFAULT, blockedMarginOf, moveBlocked, removeBlocked, resizeBlocked, resizeBlockedSide, setBlockedMargin,
+  addBlocked, applyRecipe, BLOCKED_DEFAULT, blockedMarginOf, moveBlocked, removeBlocked, resizeBlocked, resizeBlockedSide, setBlockedMargin,
   axisDegrees, turnStep, ELEMENTS_MAX, elementControls, elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, moveElement, nearestAxis, parseLayout, problemsWord,
   removeElement, replaceElement, resetTerminal, resizeElement, rotateElement, routeLayout, setElementSafety, setElementSize, shiftElement, terminalPose, terminalsOf, turnElementTo,
 } from './layout.js';
