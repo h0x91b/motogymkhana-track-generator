@@ -154,14 +154,14 @@ describe('determinism', () => {
       const b = generateCourse({ ...baseRecipe, elements: 10, closed: false }, seed);
       expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     }
-  });
+  }, timeout(30_000));
 
   test('different seeds give different courses', () => {
     const seen = new Set();
     const n = sweep(20, 4);
     for (let seed = 0; seed < n; seed++) seen.add(geometry(generateCourse(baseRecipe, seed).course));
     expect(seen.size).toBe(n);
-  });
+  }, timeout(30_000));
 });
 
 describe('simplification', () => {

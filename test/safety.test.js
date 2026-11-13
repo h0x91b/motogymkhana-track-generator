@@ -10,9 +10,8 @@ import { elementSafety, layoutOf, moveElement, parseLayout, routeLayout, setElem
 import { reservedZones } from '../src/render/reserved.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { coneXY, conesById, insidePolygon } from './helpers/course-geometry.js';
-import { slowTest, sweep } from './helpers/slow.js';
+import { slowTest, sweep, timeout } from './helpers/slow.js';
 
-const SLOW = 30000;
 const ANTON = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport', shape: 'closed', train: true };
 const course = (recipe, seed) => {
   const r = generateCourse(recipe, seed);
@@ -51,7 +50,7 @@ describe('the recipe', () => {
     for (let seed = 1; seed <= sweep(3, 1); seed++) {
       expect(canonicalJSON(course({ ...ANTON, safety: { ...SAFETY_DEFAULTS } }, seed))).toBe(canonicalJSON(course(ANTON, seed)));
     }
-  }, SLOW);
+  }, timeout(30_000));
 });
 
 describe('the generated course keeps the values set', () => {
@@ -70,7 +69,7 @@ describe('the generated course keeps the values set', () => {
         }
       }
     }
-  }, SLOW);
+  }, timeout(30_000));
 
   test('run-off 0: no element has a run-off zone, and nothing is drawn for one', () => {
     for (let seed = 1; seed <= sweep(6, 2); seed++) {
@@ -78,7 +77,7 @@ describe('the generated course keeps the values set', () => {
       expect(c.elements.some((e) => e.runOff)).toBe(false);
       expect(reservedZones(c).some((z) => z.kind === 'runOff')).toBe(false);
     }
-  }, SLOW);
+  }, timeout(30_000));
 
   test('zone padding: the zone is the cones and line grown by exactly the value set', () => {
     for (const pad of [0, 0.5, 1.5]) {
@@ -91,7 +90,7 @@ describe('the generated course keeps the values set', () => {
         for (const k of [0, 1]) expect(span(e.zone, k) - span(pts, k)).toBeCloseTo(2 * pad, 1);
       }
     }
-  }, SLOW);
+  }, timeout(30_000));
 
   test('lot edge: every cone keeps the margin set, and the course says which', () => {
     for (const edge of [0, 3]) {
@@ -104,7 +103,7 @@ describe('the generated course keeps the values set', () => {
         }
       }
     }
-  }, SLOW);
+  }, timeout(30_000));
 
   test('U-turn cone keep-out: the square drawn is the one kept, and none at 0', () => {
     let seen = 0;
@@ -124,7 +123,7 @@ describe('the generated course keeps the values set', () => {
       }
     }
     expect(seen).toBeGreaterThan(0);
-  }, SLOW);
+  }, timeout(30_000));
 
   // Means over 15 seeds: statistics, run in the slow suite only.
   slowTest('«паровозик» clearance: a wider one never places more, 0 switches the check off', () => {
@@ -133,12 +132,12 @@ describe('the generated course keeps the values set', () => {
     const off = placedMean({ ...ANTON, safety: { trainGap: 0 } }, 15);
     expect(wide).toBeLessThanOrEqual(normal + 0.2);
     expect(off).toBeGreaterThanOrEqual(normal - 0.2);
-  }, SLOW * 4);
+  }, timeout(120_000));
 
   slowTest('a tight lot packs more with the margins narrowed', () => {
     const tight = { ...ANTON, train: false };
     expect(placedMean({ ...tight, safety: { runOff: 0, pad: 0.25 } }, 15)).toBeGreaterThan(placedMean(tight, 15));
-  }, SLOW * 4);
+  }, timeout(120_000));
 });
 
 describe('in «Правка»', () => {
@@ -160,7 +159,7 @@ describe('in «Правка»', () => {
       expect(problems).toEqual([]);
       expect(canonicalJSON(bare(again))).toBe(canonicalJSON(bare(c)));
     }
-  }, SLOW);
+  }, timeout(30_000));
 
   test('an element sets its own run-off and padding over the recipe\'s; null gives the recipe\'s back', () => {
     const { c, i } = withTurn(recipe);
@@ -184,7 +183,7 @@ describe('in «Правка»', () => {
     const back = setElementSafety(setElementSafety(own, i, 'runOff', null), i, 'pad', null);
     expect(back.elements[i].safety).toBeUndefined();
     expect(canonicalJSON(bare(routeLayout(back).course))).toBe(canonicalJSON(bare(c)));
-  }, SLOW);
+  }, timeout(30_000));
 
   test('a course file keeps the recipe\'s margins and an element\'s own', () => {
     const { c, i } = withTurn(recipe);
@@ -194,7 +193,7 @@ describe('in «Правка»', () => {
     expect(read.recipe.safety).toEqual(recipe.safety);
     expect(read.layout).toEqual(own);
     expect(canonicalJSON(bare(routeLayout(read.layout).course))).toBe(canonicalJSON(bare(routeLayout(own).course)));
-  }, SLOW);
+  }, timeout(30_000));
 
   test('a type without a turn has no run-off to set', () => {
     const c = course(recipe, 1);
@@ -231,5 +230,5 @@ describe('in «Правка»', () => {
     }
     expect(texts.length).toBeGreaterThan(0);
     for (const t of texts) expect(t).toContain('3\u00a0м');
-  }, SLOW);
+  }, timeout(30_000));
 });

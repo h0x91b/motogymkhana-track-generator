@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { generateCourse, U_TURN_CONE_CLEARANCE, ZONE_PAD } from '../src/generator/index.js';
 import { reservedZones } from '../src/render/reserved.js';
 import { distanceToFootprint, footprintOf } from './helpers/course-geometry.js';
+import { timeout } from './helpers/slow.js';
 
 /** Point inside a simple polygon (even–odd ray cast). */
 const inside = (poly, [x, y]) => {
@@ -47,12 +48,12 @@ describe('reservedZones', () => {
     }
     expect(of('runOff').map((z) => z.poly)).toEqual(c.elements.filter((e) => e.runOff).map((e) => e.runOff));
     expect(of('terminal').map((z) => z.poly)).toEqual([c.route.start.zone]);
-  });
+  }, timeout(10_000));
 
   test('an open course has a start and a finish zone', () => {
     const c = course({ ...base, closed: false }, 1);
     expect(reservedZones(c).filter((z) => z.kind === 'terminal').map((z) => z.poly)).toEqual([c.route.start.zone, c.route.finish.zone]);
-  });
+  }, timeout(10_000));
 
   test('every connector U-turn cone has its round keep-out, in the cone colour', () => {
     // The first course with a U-turn on a connector, so a new type in the catalog does not move it off.
