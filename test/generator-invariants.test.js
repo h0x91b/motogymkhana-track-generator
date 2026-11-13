@@ -14,7 +14,7 @@ import {
   barrierOf, coneXY, conesById, densify, distanceToFootprint, distanceToPath, distanceToPolygon, footprintGap, footprintOf, fullRoute, insidePolygon, polylineEnters, sideOf, sweepAround,
   turns,
 } from './helpers/course-geometry.js';
-import { SLOW, slowTest, sweep } from './helpers/slow.js';
+import { SLOW, slowTest, sweep, timeout } from './helpers/slow.js';
 
 const RECIPES = [
   { name: '40×60 medium closed', recipe: { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed' }, seeds: sweep(150, 1) },
@@ -156,7 +156,7 @@ describe('placement', () => {
   test('cones lie on the 0.5 m grid and every anchor on whole metres', () => {
     each((c) => {
       const byId = conesById(c);
-      for (const cone of c.cones) expect(Number.isInteger(cone.hx) && Number.isInteger(cone.hy)).toBe(true);
+      for (const cone of c.cones) expect(Number.isInteger(cone.hx) && Number.isInteger(cone.hy), `${label(c)} ${cone.id}`).toBe(true);
       for (const e of c.elements) {
         const anchor = byId.get(e.anchor);
         expect(anchor.hx % 2 === 0 && anchor.hy % 2 === 0, `${label(c)} ${e.id} anchor`).toBe(true);
@@ -227,7 +227,7 @@ describe('placement', () => {
         }
       }
     });
-  }, 30_000);
+  }, timeout(30_000));
 
   test('an exit chained into the next entry is joined by a straight no longer than 0.5 m along the way the rider goes', () => {
     expect([CHAIN_REACH, CHAIN_ANGLE]).toEqual([0.5, 10]);
@@ -435,7 +435,11 @@ function circularTurns(path, minRadius) {
   const out = [];
   let i = 2;
   while (i < path.length - 2) {
-    let circle = circleThrough(path[i - 2], path[i], path[i + 2]);
+    // Just past a run, a circle centred on i would take in that run's last
+    // samples and miss the next arc (two arcs either side of a short straight):
+    // it is seeded from i onwards instead.
+    const after = out.length && i - 2 <= out.at(-1).hi;
+    let circle = after ? circleThrough(path[i], path[i + 1], path[i + 2]) : circleThrough(path[i - 2], path[i], path[i + 2]);
     if (!circle || circle.radius < minRadius * 0.97 || circle.radius > 20) {
       i++;
       continue;
@@ -980,7 +984,7 @@ describe('паровозик', () => {
         }
       }
     }
-    }, 30_000);
+    }, timeout(30_000));
 
   slowTest('still lays out most of what was asked on a roomy site', () => {
     const [{ courses }] = trains;

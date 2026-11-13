@@ -10,7 +10,7 @@ import {
   COURSE_FILE_FORMAT, COURSE_FILE_MAX, COURSE_FILE_VERSION, conesCsv, courseDocument, courseFileName, courseFileText, readCourseFile,
   readCourseText, readCourseUpload,
 } from '../src/file/course-file.js';
-import { sweep } from './helpers/slow.js';
+import { sweep, timeout } from './helpers/slow.js';
 
 const RECIPES = [
   { width: 40, length: 60, elements: 8, difficulty: 'hard', bike: 'cruiser', shape: 'closed', train: true },
@@ -37,7 +37,7 @@ describe('course file', () => {
       expect(canonicalJSON(read.layout)).toBe(canonicalJSON(layoutOf(course)));
       expect(canonicalJSON(bare(routeLayout(read.layout).course))).toBe(canonicalJSON(bare(course)));
     }
-  }, 30_000);
+  }, timeout(30_000));
 
   test('an edited course opens back with every edit and the same problems', () => {
     for (const course of courses) {
@@ -53,7 +53,7 @@ describe('course file', () => {
       expect(canonicalJSON(a.course)).toBe(canonicalJSON(b.course));
       expect(canonicalJSON(a.problems)).toBe(canonicalJSON(b.problems));
     }
-  }, 30_000);
+  }, timeout(30_000));
 
   test('an element turned by 22.5° is written as version 2 and opens back where it was', () => {
     const flat = layoutOf(courses[2]);

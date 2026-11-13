@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ELEMENT_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
 import { DIFFICULTIES } from '../src/generator/recipe.js';
 import { instantiate, isBig, minimalParams } from '../src/generator/catalog.js';
-import { sweep } from './helpers/slow.js';
+import { sweep, timeout } from './helpers/slow.js';
 
 const baseRecipe = {
   width: 40,
@@ -170,7 +170,7 @@ describe('simplification', () => {
       expect(geometry(full)).toBe(geometry(direct));
     }
     expect(simplified).toBeGreaterThan(sweep(5, 1));
-  }, 30_000);
+  }, timeout(30_000));
 
   test('the same holds for a course finishing by the start', () => {
     const home = { ...tight, shape: 'return' };
@@ -183,7 +183,7 @@ describe('simplification', () => {
       expect(geometry(full)).toBe(geometry(direct));
     }
     expect(simplified).toBeGreaterThan(sweep(5, 1));
-  }, 30_000);
+  }, timeout(30_000));
 
   test('a site too small for any allowed element is an error with the computed numbers, not an empty course', () => {
     const result = generateCourse({ width: 10, length: 10, elements: 3, difficulty: 'easy', closed: false, types: ['straight-slalom'] }, 1);

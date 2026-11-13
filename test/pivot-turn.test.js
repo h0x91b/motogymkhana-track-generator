@@ -12,7 +12,7 @@ import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 
 const tpl = (sizes, { diagonal = false, mirrored = false, bike = 'cruiser' } = {}) => instantiate('pivot-turn', elementParams('pivot-turn', sizes, diagonal, bike), diagonal, mirrored);
-const recipeOf = (bike = 'cruiser', shape = 'closed') => generateCourse({ width: 100, length: 100, elements: 1, difficulty: 'medium', bike, shape }, 0).course.recipe;
+const recipeOf = (bike = 'cruiser', shape = 'closed') => parseRecipe({ width: 100, length: 100, elements: 1, difficulty: 'medium', bike, shape }).recipe;
 const pivotLayout = (angle, radius = 5, bike = 'cruiser') => ({
   recipe: recipeOf(bike),
   seed: 0,

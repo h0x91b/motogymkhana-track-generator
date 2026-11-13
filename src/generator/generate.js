@@ -666,20 +666,22 @@ export function chainedPlacement(plan, mirrored, prev, radius, k, inner, site) {
   return placeTemplate(spot.tpl, spot.axis, spot.ax, spot.ay);
 }
 
+const halfMetre = (v) => Math.round(v * 2) / 2;
+
 /** A start or finish line two low cones wide, across `dir`, centred near `ideal`. */
 function lineTerminal(ideal, dir, from, to) {
-  // Off the lattice (behind or past an element turned by a half step, ADR 0019) the second cone is off it too.
   const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
   const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
   const px = -dy;
   const py = dx;
-  // First cone on whole metres; the second is an even number of half-metre steps away.
+  // First cone on whole metres; the second an even number of half-metre steps away, or
+  // off the lattice (a half-step heading, ADR 0019 and 0027) the nearest half-metre point.
   const c1 = [Math.round(ideal[0] - (px * steps) / 2), Math.round(ideal[1] - (py * steps) / 2)];
-  const c2 = [c1[0] + px * steps, c1[1] + py * steps];
+  const c2 = [halfMetre(c1[0] + px * steps), halfMetre(c1[1] + py * steps)];
   const center = [(c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2];
   const u = axisVector(dir);
   const v = axisVector(dir + 2);
-  const half = (steps * Math.sqrt(px * px + py * py)) / 2;
+  const half = Math.hypot(c2[0] - c1[0], c2[1] - c1[1]) / 2;
   const zone = {
     c: [center[0] + u[0] * ((from + to) / 2), center[1] + u[1] * ((from + to) / 2)],
     u, v, hu: (to - from) / 2, hv: half + ZONE_PAD,
@@ -724,7 +726,7 @@ function boxTerminal(ideal, dir, lead) {
   const [dx, dy] = Number.isInteger(dir) ? AXIS_STEPS[((dir % 8) + 8) % 8] : axisVector(dir);
   const steps = dir % 2 === 1 ? LINE_STEPS.diagonal : LINE_STEPS.side;
   const [c1, c2] = line.cones;
-  const cones = [c1, c2, [c2[0] - dx * steps, c2[1] - dy * steps], [c1[0] - dx * steps, c1[1] - dy * steps]];
+  const cones = [c1, c2, [halfMetre(c2[0] - dx * steps), halfMetre(c2[1] - dy * steps)], [halfMetre(c1[0] - dx * steps), halfMetre(c1[1] - dy * steps)]];
   const depth = steps * Math.hypot(dx, dy);
   const u = axisVector(dir);
   const from = -depth - ZONE_PAD;

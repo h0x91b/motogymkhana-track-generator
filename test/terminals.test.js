@@ -5,7 +5,7 @@
 // the router got there.
 
 import { describe, expect, test } from 'bun:test';
-import { canonicalJSON, generateCourse } from '../src/generator/index.js';
+import { canonicalJSON, generateCourse, parseRecipe } from '../src/generator/index.js';
 import { typicalSizes } from '../src/generator/catalog.js';
 import {
   layoutOf, moveElement, parseLayout, resetTerminal, rotateElement, routeLayout, terminalPose, terminalsOf, turnElementTo,
@@ -18,7 +18,7 @@ const SHAPES = ['open', 'closed', 'return'];
 
 /** A roomy empty site with one gate in the middle: the start stands 2 m before it, an open course's finish 2 m past it. */
 function single(shape) {
-  const recipe = generateCourse({ width: 60, length: 60, elements: 1, difficulty: 'medium', bike: 'cruiser', shape }, 0).course.recipe;
+  const recipe = parseRecipe({ width: 60, length: 60, elements: 1, difficulty: 'medium', bike: 'cruiser', shape }).recipe;
   return { recipe, seed: 0, elements: [{ type: 'gate', sizes: typicalSizes('gate', 'medium', 'cruiser'), axis: 0, mirrored: false, x: 30, y: 30 }] };
 }
 
@@ -86,6 +86,16 @@ describe('a start moved or turned by hand', () => {
       for (let k = 0; k < 16; k++) round = rotateElement(round, 'start', 1);
       const { x, y, axis } = terminalPose(layout, 'start');
       expect([round.start.x, round.start.y, round.start.axis]).toEqual([x, y, axis]);
+    }
+  });
+
+  test('turned a half step, its cones stay on the 0.5 m grid, the first on whole metres', () => {
+    for (const shape of SHAPES) {
+      const { course } = routeLayout(turnElementTo(moveElement(single(shape), 'start', 16, 40), 'start', 22.5));
+      const byId = conesById(course);
+      const cones = course.route.start.cones.map((id) => byId.get(id));
+      for (const c of cones) expect(Number.isInteger(c.hx) && Number.isInteger(c.hy), `${shape} ${c.id}`).toBe(true);
+      expect(cones[0].hx % 2 === 0 && cones[0].hy % 2 === 0, shape).toBe(true);
     }
   });
 

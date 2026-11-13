@@ -11,7 +11,7 @@ import { courseDocument, courseFileText, readCourseFile } from '../src/file/cour
 import { freeRects, blockedAreas, innerRect, quadOnAsphalt } from '../src/generator/generate.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { coneXY, densify, insidePolygon } from './helpers/course-geometry.js';
-import { slowTest, sweep } from './helpers/slow.js';
+import { SLOW, slowTest, sweep, timeout } from './helpers/slow.js';
 
 // Anton's П-shaped lot: 40 × 38 m with a 12 × 22 m bite out of one long side.
 const P_CUTOUT = { kind: 'cutout', x: 14, y: 0, w: 12, h: 22 };
@@ -152,7 +152,7 @@ describe('generation', () => {
         expect(r.ok).toBe(true);
         expect({ seed, faults: blockedFaults(r.course) }).toEqual({ seed, faults: [] });
       }
-    }, 60_000);
+    }, timeout(60_000));
   }
 
   test('each area keeps its own margin: 3 m round one obstacle, none round the other', () => {
@@ -160,7 +160,9 @@ describe('generation', () => {
     const tight = { kind: 'obstacle', x: 8, y: 10, w: 2, h: 2, margin: 0 };
     const recipe = { width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'closed', blocked: [wide, tight] };
     let near = Infinity;
-    for (let seed = 1; seed <= 20; seed++) {
+    // Routing round two areas takes about half a second a course: the default run
+    // takes three seeds where something stands within 1 m of the 0 m one.
+    for (const seed of SLOW ? Array.from({ length: 20 }, (_, k) => k + 1) : [6, 15, 17]) {
       const r = generateCourse(recipe, seed);
       expect(r.ok).toBe(true);
       expect({ seed, faults: blockedFaults(r.course) }).toEqual({ seed, faults: [] });
@@ -169,7 +171,7 @@ describe('generation', () => {
     }
     // The 0 m one is no wall of 1 m: something of some course stands closer than the edge margin.
     expect(near).toBeLessThan(1);
-  }, 60_000);
+  }, timeout(60_000));
 
   slowTest('a П-shaped lot fits more than the biggest rectangle inside it', () => {
     const mean = (recipe) => {
@@ -181,14 +183,14 @@ describe('generation', () => {
     const bar = mean({ ...P_LOT, length: 16, blocked: [] });
     const leg = mean({ ...P_LOT, width: 14, blocked: [] });
     expect(p).toBeGreaterThan(Math.max(bar, leg));
-  }, 60_000);
+  }, timeout(60_000));
 
   test('a lot without blocked areas routes exactly as before: no list and an empty list are one course', () => {
     const recipe = { width: 40, length: 38, elements: 6, difficulty: 'medium', bike: 'sport' };
     for (let seed = 1; seed <= sweep(10, 2); seed++) {
       expect(JSON.stringify(generateCourse({ ...recipe, blocked: [] }, seed))).toBe(JSON.stringify(generateCourse(recipe, seed)));
     }
-  }, 30_000);
+  }, timeout(30_000));
 
   test('the course carries the blocked areas on its site', () => {
     const r = generateCourse(P_LOT, 3);

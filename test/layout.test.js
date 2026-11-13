@@ -3,7 +3,7 @@
 // the router got there.
 
 import { describe, expect, test } from 'bun:test';
-import { canonicalJSON, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse } from '../src/generator/index.js';
+import { canonicalJSON, ELEMENT_TYPES, FREE_HEADING_TYPES, generateCourse, parseRecipe } from '../src/generator/index.js';
 
 // Types whose heading the route chooses (ADR 0027): turning them by hand changes nothing.
 const TURNED_TYPES = ELEMENT_TYPES.filter((t) => !FREE_HEADING_TYPES.includes(t));
@@ -15,7 +15,7 @@ import {
   nearestAxis, rotateElement, routeLayout, setElementSize, shiftElement, turnElementTo, turnStep,
 } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
-import { sweep } from './helpers/slow.js';
+import { sweep, timeout } from './helpers/slow.js';
 import { coneXY, conesById, distanceToPath, insidePolygon } from './helpers/course-geometry.js';
 
 const RECIPES = [
@@ -48,7 +48,7 @@ const bare = ({ requested, placed, edited, limitedBy, ...course }) => course;
 
 /** A roomy empty site with one element in the middle, to edit from. */
 function single(type, { bike = 'cruiser', shape = 'open', train = false, width = 100, length = 100, axis = 0 } = {}) {
-  const recipe = generateCourse({ width, length, elements: 1, difficulty: 'medium', bike, shape, train }, 0).course.recipe;
+  const recipe = parseRecipe({ width, length, elements: 1, difficulty: 'medium', bike, shape, train }).recipe;
   return { recipe, seed: 0, elements: [{ type, sizes: typicalSizes(type, 'medium', bike), axis, mirrored: false, x: width / 2, y: length / 2 }] };
 }
 
@@ -134,7 +134,7 @@ describe('sizes set by hand', () => {
     expect(seen).toBeGreaterThan(400);
     // Every corner of every type, routed with exact footprints: seconds on a
     // busy CI runner running the files in parallel.
-  }, 30_000);
+  }, timeout(30_000));
 
   test('a step up and back down is the same element, and the steps end at both ends of the range', () => {
     for (const type of ELEMENT_TYPES) {

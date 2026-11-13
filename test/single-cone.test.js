@@ -5,14 +5,14 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
-  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, FREE_HEADING_TYPES, generateCourse, LOOPED_TYPES, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES,
+  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, FREE_HEADING_TYPES, generateCourse, LOOPED_TYPES, parseRecipe, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES,
 } from '../src/generator/index.js';
 import { elementParams, instantiate, SIZE_SPECS, typicalSizes } from '../src/generator/catalog.js';
 import { elementMargins, fillerLimit } from '../src/generator/generate.js';
 import { elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { conesCsv, courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
-import { sweep } from './helpers/slow.js';
+import { sweep, timeout } from './helpers/slow.js';
 import { distanceToPath, fullRoute, turns } from './helpers/course-geometry.js';
 
 const tpl = (type, sizes, { diagonal = false, mirrored = false, bike = 'sport', margins } = {}) => instantiate(type, elementParams(type, sizes, diagonal, bike), diagonal, mirrored, margins);
@@ -106,6 +106,23 @@ describe('catalog', () => {
     expect((t.runOff[2] - t.core[2]) * t.unit).toBeCloseTo(2.5, 9);
     expect(tpl('pass-right', {}).runOff).toBeNull();
   });
+
+  test('the small U-turn\'s run-off polygon reaches its run-off from both ends of the arc', () => {
+    const margins = elementMargins({ safety: {} }, 'small-turn');
+    for (const radius of [3, 4, 5, 6, 7, 8]) {
+      for (const mirrored of [false, true]) {
+        const t = tpl('small-turn', { radius }, { mirrored, margins });
+        const own = [...t.cones.map((c) => [c.a, c.b]), ...t.path.slice(1, -1)];
+        const poly = t.runOffPoly;
+        // Every side but the clipped entry side lies the run-off from the cone and the arc.
+        const near = poly
+          .map((p, k) => [p, poly[(k + 1) % poly.length]])
+          .map(([p, q]) => Math.min(...own.map((o) => Math.abs((q[0] - p[0]) * (o[1] - p[1]) - (q[1] - p[1]) * (o[0] - p[0])) / Math.hypot(q[0] - p[0], q[1] - p[1]))) * t.unit)
+          .filter((d) => d < margins.runOff - 1e-6);
+        expect(near.length, `radius ${radius}${mirrored ? ' mirrored' : ''}`).toBe(1);
+      }
+    }
+  });
 });
 
 describe('gap fillers in a generated course', () => {
@@ -127,7 +144,7 @@ describe('gap fillers in a generated course', () => {
       used += FILLED(c);
     }
     expect(used).toBeGreaterThan(0);
-  }, 30_000);
+  }, timeout(30_000));
 
   test('never two of a kind in a row, and no U-turn round a cone in «паровозик»', () => {
     for (const [, c] of filled) c.elements.forEach((e, i) => i && expect(e.type).not.toBe(c.elements[i - 1].type));
@@ -200,8 +217,16 @@ describe('«Правка»', () => {
 });
 
 describe('a free heading (ADR 0027)', () => {
+  test('a free last element routes back on the heading that closes within the gentler turn limit, as generated', () => {
+    // Seed 26 ends on «Конус слева» whose first heading in order only closes into the box with the looser limit.
+    const course = generateCourse({ width: 40, length: 60, elements: 8, difficulty: 'medium', shape: 'return' }, 26).course;
+    expect(course.elements.at(-1).type).toBe('pass-left');
+    const bare = ({ requested, placed, edited, limitedBy, ...rest }) => rest;
+    expect(canonicalJSON(bare(routeLayout(layoutOf(course)).course))).toBe(canonicalJSON(bare(course)));
+  });
+
   // The tester's case: a gate, and «Конус слева» about 6 m past it, 1 m to one side.
-  const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
+  const recipe = parseRecipe({ ...ANTON, elements: 1 }).recipe;
   const gate = { type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x: 10, y: 18 };
   const gateExit = routeLayout({ recipe, seed: 0, elements: [gate] }).course.elements[0].exit;
   const after = (type, aside, axis = 0) => ({ recipe, seed: 0, elements: [gate, { type, sizes: {}, axis, mirrored: false, x: Math.round(gateExit.x + 6), y: gateExit.y + aside }] });
@@ -295,7 +320,7 @@ describe('a free heading (ADR 0027)', () => {
 });
 
 describe('«Опорная точка»', () => {
-  const recipe = generateCourse({ ...ANTON, elements: 1 }, 0).course.recipe;
+  const recipe = parseRecipe({ ...ANTON, elements: 1 }).recipe;
   const gate = (x, y) => ({ type: 'gate', sizes: { width: 2 }, axis: 0, mirrored: false, x, y });
   const two = { recipe, seed: 0, elements: [gate(8, 12), gate(26, 12)] };
   const point = { type: 'waypoint', sizes: {}, axis: 0, mirrored: false, x: 18, y: 24 };

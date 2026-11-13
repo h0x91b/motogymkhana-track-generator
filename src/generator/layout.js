@@ -390,18 +390,26 @@ export function routeLayout(layout) {
       if (!leg) faults++;
     } else if (!next) {
       const startT = first ?? start;
+      // Closing within MAX_CONNECTOR_TURN is what the generator tries first: a
+      // heading that only closes with the looser limit is half a fault, so a
+      // gentler one later in the order wins over it, as in the generator.
+      const closes = (leg) => (leg(CLOSING_TURN_LIMITS[0]) ? 0 : CLOSING_TURN_LIMITS.slice(1).some(leg) ? 0.5 : 1);
       let ok = false;
+      let closing = 0;
       if (closed) {
         const accept = ahead && ((pts) => trainClear(ahead, [pts], true));
-        ok = CLOSING_TURN_LIMITS.some((limit) => closingLeg(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+        closing = closes((limit) => closingLeg(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+        ok = closing < 1;
       } else if (shape === 'return') {
         // The way back keeps clear of the route after the first element only.
         const accept = trainOn && ((pts) => trainClear(k === 0 ? emptyTrack(trainGap) : extendTrack(tail, [inLeg.points, ridden(p)]), [pts]));
-        ok = CLOSING_TURN_LIMITS.some((limit) => homeBox(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+        closing = closes((limit) => homeBox(exit, startT, radius, inner, after, out, limit, accept, coneGap));
+        ok = closing < 1;
       } else if (pinFinish) {
         const rest = after.filter((z) => z !== finish);
-        ok = Boolean(straightOn(p.exit, p.exitDir, finish.center, finish.dir, inner, rest.filter((z) => z !== p))
-          || CLOSING_TURN_LIMITS.some((limit) => closingLeg(exit, finish, radius, inner, rest, out, limit, null, coneGap)));
+        const straight = straightOn(p.exit, p.exitDir, finish.center, finish.dir, inner, rest.filter((z) => z !== p));
+        closing = straight ? 0 : closes((limit) => closingLeg(exit, finish, radius, inner, rest, out, limit, null, coneGap));
+        ok = closing < 1;
       } else {
         const line = finishTerminal(p);
         const rest = after.filter((z) => z !== p);
@@ -410,6 +418,7 @@ export function routeLayout(layout) {
           && pathClear(leg.points, leg.bounds, rest.filter((z) => z.side)) && (!ahead || trainClear(ahead, [leg.points]));
       }
       if (!ok) faults++;
+      else faults += closing;
     }
     return faults;
   }

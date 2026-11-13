@@ -442,7 +442,10 @@ export function polylineHitsShape(points, bounds, s, eps = 0.01) {
 
 /** Convex hull, CCW, of a set of points (monotone chain). */
 export function convexHull(points) {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  // Snapped to 1e-9 first: rounding noise (cos 90° is not 0) can sort the end of
+  // a line before a point on it, and the chain then drops that end, a corner.
+  const snap = (v) => Math.round(v * 1e9) / 1e9;
+  const pts = points.map(([x, y]) => [snap(x), snap(y)]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   if (pts.length < 3) return pts;
   const half = (list) => {
     const out = [];
