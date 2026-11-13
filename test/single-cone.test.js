@@ -3,13 +3,14 @@
 // catalog, their place in a generated course as gap fillers, and their way
 // through «Правка» and the course file.
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import {
-  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, FREE_HEADING_TYPES, generateCourse, LOOPED_TYPES, parseRecipe, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES,
+  BIKE_TURN_RADIUS, canonicalJSON, ELEMENT_TYPES, FILLER_TYPES, FREE_HEADING_TYPES, generateCourse, LOOPED_TYPES, parseRecipe, passColor, RUN_OFF, RUN_OFF_TYPES, runOffFor, SINGLE_CONE_TYPES, SMALL_TURN_RADIUS_MIN, uTurnRadius,
 } from '../src/generator/index.js';
 import { elementParams, instantiate, SIZE_SPECS, typicalSizes } from '../src/generator/catalog.js';
-import { elementMargins, fillerLimit } from '../src/generator/generate.js';
-import { elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, turnElementTo } from '../src/generator/layout.js';
+import { chainLeg, CHAIN_ANGLE, CHAIN_REACH, elementMargins, fillerLimit, innerRect, placeTemplate } from '../src/generator/generate.js';
+import { elementControls, elementSafety, insertElement, insertWaypoint, layoutOf, mirrorElement, rotateElement, routeLayout, setElementSize, turnElementTo } from '../src/generator/layout.js';
 import { buildSetupSheet } from '../src/sheet/setup-sheet.js';
 import { conesCsv, courseDocument, courseFileText, readCourseFile } from '../src/file/course-file.js';
 import { sweep, timeout } from './helpers/slow.js';
@@ -78,19 +79,37 @@ describe('catalog', () => {
     }
   });
 
-  test('the class radius is the small U-turn\'s minimum, never undercut, and a wider line is kept', () => {
+  test('the small U-turn goes down to 3 m on any bike, starts from the class radius, and keeps a wider line', () => {
+    expect(SMALL_TURN_RADIUS_MIN).toBe(3);
     for (const bike of ['sport', 'cruiser']) {
-      const min = BIKE_TURN_RADIUS[bike];
-      expect(elementParams('small-turn', { radius: 1 }, false, bike).radius).toBe(min);
-      expect(elementParams('small-turn', { radius: min + 2 }, false, bike).radius).toBe(min + 2);
+      expect(elementParams('small-turn', { radius: 1 }, false, bike).radius).toBe(3);
+      expect(elementParams('small-turn', { radius: 3 }, false, bike).radius).toBe(3);
+      expect(elementParams('small-turn', { radius: 7 }, false, bike).radius).toBe(7);
+      for (const difficulty of ['easy', 'medium', 'hard']) expect(typicalSizes('small-turn', difficulty, bike, {}).radius).toBe(uTurnRadius(difficulty, bike));
       for (const diagonal of [false, true]) {
         const t = tpl('small-turn', { radius: 1 }, { bike, diagonal });
         const arc = t.path.slice(2, -2).map(([a, b]) => Math.hypot(a, b) * t.unit);
-        for (const r of arc) expect(r).toBeGreaterThanOrEqual(min - 1e-9);
+        for (const r of arc) expect(r).toBeCloseTo(3, 9);
       }
     }
     expect(SIZE_SPECS['small-turn'].map((s) => s.kind)).toEqual(['radius']);
     expect(SIZE_SPECS['pass-left']).toEqual([]);
+  });
+
+  test('the recipe sets the small U-turn\'s radius from 3 to 8 m; every one generated gets it', () => {
+    const recipe = { width: 40, length: 40, elements: 5, difficulty: 'medium', bike: 'cruiser', types: ['gate', 'straight-slalom', 'pass-left', 'small-turn'] };
+    expect(parseRecipe({ ...recipe, sizes: { 'small-turn': { radius: 3 } } }).recipe.sizes).toEqual({ 'small-turn': { radius: 3 } });
+    const low = parseRecipe({ ...recipe, sizes: { 'small-turn': { radius: 2.5 } } });
+    expect(low.ok).toBe(false);
+    expect(low.errors.sizes).toContain('от 3 до 8 м');
+    let seen = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      for (const e of generateCourse({ ...recipe, sizes: { 'small-turn': { radius: 3 } } }, seed).course.elements.filter((x) => x.type === 'small-turn')) {
+        expect(e.params.radius).toBe(3);
+        seen++;
+      }
+    }
+    expect(seen).toBeGreaterThan(0);
   });
 
   test('a turning single-cone element keeps half the recipe\'s run-off; a cone passed by has none', () => {
@@ -207,6 +226,16 @@ describe('«Правка»', () => {
     expect(mirrorElement(once, 1).elements[1].type).toBe('pass-left');
     const turn = mirrorElement(insertElement(base, 1, 'small-turn'), 1);
     expect([turn.elements[1].type, turn.elements[1].mirrored]).toEqual(['small-turn', true]);
+  });
+
+  test('the small U-turn\'s radius steps down to 3 m on a cruiser, not below', () => {
+    const cruiser = layoutOf(generateCourse({ ...ANTON, bike: 'cruiser' }, 1).course);
+    let layout = insertElement(cruiser, 1, 'small-turn');
+    expect(layout.elements[1].sizes.radius).toBe(uTurnRadius('medium', 'cruiser'));
+    layout = setElementSize(layout, 1, 'radius', 3);
+    expect(elementControls(layout, 1).find((c) => c.key === 'radius')).toMatchObject({ value: 3, less: null });
+    expect(routeLayout(layout).course.elements[1].params.radius).toBe(3);
+    expect(elementControls(setElementSize(layout, 1, 'radius', 2.5), 1).find((c) => c.key === 'radius').value).toBe(3);
   });
 
   test('its own run-off starts from half the recipe\'s', () => {
@@ -377,3 +406,47 @@ function filledCourses() {
   }
   return out;
 }
+
+describe('a tight small U-turn', () => {
+  const inner = innerRect({ width: 40, length: 40, safety: {} });
+  // A small U-turn whose exit, heading west (axis 4), is at (20, 10), and an element entered at `entry` on `axis`.
+  const turn = { tpl: { type: 'small-turn' }, exit: [20, 10], exitDir: 4 };
+  const into = (entry, axis = 4, type = 'straight-slalom') => ({ tpl: { type }, entry, entryDir: axis });
+
+  test('its exit is joined straight to an entry ahead within CHAIN_ANGLE, however far', () => {
+    // 6 m ahead and 0.5 m to the side: a connector on the class radius would need an S (or a loop), the rider just rides on.
+    const leg = chainLeg(turn, into([14, 10.5]), inner, []);
+    expect(leg.points).toEqual([[20, 10], [14, 10.5]]);
+    expect(leg.turnLeft + leg.turnRight).toBe(0);
+    // Further off the line than CHAIN_ANGLE, facing another way, behind, or through a zone: not chained.
+    expect(chainLeg(turn, into([14, 12]), inner, [])).toBeNull();
+    expect(chainLeg(turn, into([14, 10.5], 4.5), inner, [])).toBeNull();
+    expect(chainLeg(turn, into([24, 10]), inner, [])).toBeNull();
+    const wall = { footprint: placeTemplate(tpl('gate', { width: 2 }), 2, 17, 10).footprint };
+    expect(chainLeg(turn, into([14, 10.5]), inner, [wall])).toBeNull();
+    // Without the asphalt to check (no `inner`) only the short chain of any element is taken.
+    expect(chainLeg(turn, into([14, 10.5]))).toBeNull();
+    expect(Math.atan2(0.5, 6) * 180 / Math.PI).toBeLessThan(CHAIN_ANGLE);
+  });
+
+  test('its entry is joined straight from an exit behind it the same way; other elements keep CHAIN_REACH', () => {
+    const before = { tpl: { type: 'straight-slalom' }, exit: [20, 10], exitDir: 4 };
+    expect(chainLeg(before, into([14, 10.5], 4, 'small-turn'), inner, []).points).toEqual([[20, 10], [14, 10.5]]);
+    expect(chainLeg(before, into([14, 10.5], 4, 'pass-left'), inner, [])).toBeNull();
+    expect(chainLeg(before, into([20 - CHAIN_REACH, 10], 4, 'gate'), inner, [])).not.toBeNull();
+  });
+
+  test('the user\'s 40 × 52 course: a 3 m U-turn round the cone by the slalom routes 7 → 8 → 9 with no problem', () => {
+    // fixtures/edited-40x52.json with element 8 as a 3 m small U-turn 1.4 m from the cone passed there, the
+    // slalom a metre lower (y 2) and the lot edge margin 0.5 m. With the slalom at y 3 no 3 m U-turn fits:
+    // its way in is 6 m above the slalom's line, and the one connector from element 7 down to it runs
+    // through the crescent (element 6), whose line comes down to y 8.
+    const read = readCourseFile(readFileSync(new URL('./fixtures/small-turn-40x52.json', import.meta.url), 'utf8'));
+    expect(read.ok).toBe(true);
+    const { course, problems } = routeLayout(read.layout);
+    const turn8 = course.elements[7];
+    expect([turn8.type, turn8.params.radius]).toEqual(['small-turn', 3]);
+    const near = problems.filter((p) => [7, 8, 9].includes(p.connector) || p.elements.some((e) => ['e8', 'e9'].includes(e)));
+    expect(near).toEqual([]);
+  });
+});
